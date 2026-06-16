@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Xcode build / derived
+build/
+DerivedData/
+*.xcresult
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode user-specific
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Secrets（実値ファイルはコミット禁止。テンプレートは Secrets.example.xcconfig）
+**/Secrets.xcconfig
