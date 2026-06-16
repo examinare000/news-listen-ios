@@ -7,8 +7,11 @@
 
 import SwiftUI
 
+/// Podcast 一覧の各行。再生状態・イントロ要約・難易度・長さ・作成日を表示する。
 struct PodcastRowView: View {
+    /// 表示する Podcast。
     let podcast: Podcast
+    /// この行の Podcast が現在再生中かどうか（アイコン表示の切り替えに使う）。
     let isPlaying: Bool
 
     var body: some View {
@@ -42,6 +45,8 @@ struct PodcastRowView: View {
         .padding(.vertical, 4)
     }
 
+    /// 難易度コードを表示用ラベルへ変換する。未知の値はそのまま返す。
+    /// - Parameter difficulty: 難易度コード（例: `toeic_900`）。
     private func difficultyLabel(_ difficulty: String) -> String {
         switch difficulty {
         case "toeic_600": return "TOEIC 600-"

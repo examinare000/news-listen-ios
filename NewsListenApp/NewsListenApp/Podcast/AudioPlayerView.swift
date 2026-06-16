@@ -8,9 +8,14 @@
 
 import SwiftUI
 
+/// 再生中の Podcast を操作するプレイヤー UI。
+///
+/// 日本語イントロ・シークバー・再生コントロール・再生速度切替を表示する。
 struct AudioPlayerView: View {
+    /// 再生状態と操作を提供する ViewModel。
     @ObservedObject var vm: PodcastViewModel
 
+    /// 速度切替 Picker に並べる選択肢（倍率）。
     private let speeds: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5]
 
     var body: some View {
@@ -85,6 +90,8 @@ struct AudioPlayerView: View {
         .padding()
     }
 
+    /// 秒数を `分:秒`（例: `1:05`）の表示用文字列へ整形する。非有限値は `0:00` を返す。
+    /// - Parameter seconds: 整形する秒数。
     private func formatTime(_ seconds: Double) -> String {
         guard seconds.isFinite else { return "0:00" }
         let m = Int(seconds) / 60
@@ -92,7 +99,10 @@ struct AudioPlayerView: View {
         return String(format: "%d:%02d", m, s)
     }
 
-    // 整数倍速は ×1.0、それ以外は ×0.75 のように表示桁を出し分ける。
+    /// 再生速度を表示用ラベルへ整形する。
+    ///
+    /// 整数倍速は `×1.0`、それ以外は `×0.75` のように表示桁を出し分ける。
+    /// - Parameter speed: 再生速度（倍率）。
     private func speedLabel(_ speed: Float) -> String {
         if speed == Float(Int(speed)) {
             return String(format: "×%.1f", speed)

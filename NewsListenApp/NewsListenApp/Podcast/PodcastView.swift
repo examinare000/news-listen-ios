@@ -7,11 +7,16 @@
 
 import SwiftUI
 
+/// Podcast タブのルートビュー。一覧表示と、行タップでの再生・プレイヤー表示を担う。
 struct PodcastView: View {
-    // apiClient は ContentView から注入し、init で StateObject を一度だけ生成する
-    // （FeedView と同様、プレースホルダ生成 + 後差し替えのアンチパターンを避ける）。
+    /// 一覧取得と再生制御を担う ViewModel。
+    ///
+    /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
+    /// （`FeedView` と同様、プレースホルダ生成 + 後差し替えのアンチパターンを避ける）。
     @StateObject private var viewModel: PodcastViewModel
 
+    /// ビューを生成する。
+    /// - Parameter apiClient: ViewModel に注入する API クライアント。
     init(apiClient: APIClient) {
         _viewModel = StateObject(wrappedValue: PodcastViewModel(apiClient: apiClient))
     }
@@ -38,6 +43,7 @@ struct PodcastView: View {
         .onDisappear { viewModel.stopPlayback() }
     }
 
+    /// 読み込み状態・空状態・一覧を出し分ける主コンテンツ。
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading && viewModel.podcasts.isEmpty {
@@ -54,6 +60,7 @@ struct PodcastView: View {
         }
     }
 
+    /// Podcast 一覧の `List`。行タップでその Podcast を再生する。
     private var podcastList: some View {
         List(viewModel.podcasts) { podcast in
             PodcastRowView(
@@ -69,6 +76,7 @@ struct PodcastView: View {
         .refreshable { await viewModel.loadPodcasts() }
     }
 
+    /// エラーアラートの表示有無を `errorMessage` の有無に橋渡しする `Binding`。
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { viewModel.errorMessage != nil },

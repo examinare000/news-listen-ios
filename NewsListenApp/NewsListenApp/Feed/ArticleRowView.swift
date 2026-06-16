@@ -7,7 +7,9 @@
 
 import SwiftUI
 
+/// Feed の記事1件の行表示。ソース・公開日・タイトルと関連スコアの横バーを示す（設計 §7）。
 struct ArticleRowView: View {
+    /// 表示する記事。
     let article: Article
 
     var body: some View {
@@ -29,7 +31,7 @@ struct ArticleRowView: View {
         .padding(.vertical, 4)
     }
 
-    // スコア（0〜1）を横バーで可視化。
+    /// スコア（0〜1）を横バーで可視化するサブビュー。
     private var scoreBar: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
@@ -45,6 +47,7 @@ struct ArticleRowView: View {
         .accessibilityValue(String(format: "%.0f%%", clampedScore * 100))
     }
 
+    /// バー描画用に 0〜1 の範囲へ丸めたスコア。
     private var clampedScore: CGFloat {
         CGFloat(min(max(article.score, 0), 1))
     }

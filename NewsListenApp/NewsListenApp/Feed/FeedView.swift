@@ -7,20 +7,30 @@
 
 import SwiftUI
 
-// URL を sheet(item:) で提示するための Identifiable ラッパー。
+/// URL を `sheet(item:)` で提示するための `Identifiable` ラッパー。
 private struct IdentifiableURL: Identifiable {
+    /// 提示対象の URL。
     let url: URL
+    /// URL 文字列を一意な識別子とする。
     var id: String { url.absoluteString }
 }
 
+/// Feed タブのルートビュー。記事一覧・スワイプ操作（Star/Dismiss）・記事タップでの遷移を担う。
 struct FeedView: View {
+    /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var appState: AppState
-    // apiClient は ContentView から注入し、init で StateObject を一度だけ生成する
-    // （プレースホルダ生成 + 後差し替えのアンチパターンを避ける）。
+    /// 記事一覧と操作を担う ViewModel。
+    ///
+    /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
+    /// （プレースホルダ生成 + 後差し替えのアンチパターンを避ける）。
     @StateObject private var viewModel: FeedViewModel
+    /// 外部 Safari で開くための環境アクション。
     @Environment(\.openURL) private var openURL
+    /// アプリ内 Safari で提示中の URL（なければ `nil`）。
     @State private var safariURL: IdentifiableURL?
 
+    /// ビューを生成する。
+    /// - Parameter apiClient: ViewModel に注入する API クライアント。
     init(apiClient: APIClient) {
         _viewModel = StateObject(wrappedValue: FeedViewModel(apiClient: apiClient))
     }
@@ -61,6 +71,7 @@ struct FeedView: View {
         }
     }
 
+    /// 記事一覧の `List`。左右スワイプで Star/Dismiss、タップで記事を開く。
     private var articleList: some View {
         List(viewModel.articles) { article in
             ArticleRowView(article: article)
@@ -86,7 +97,8 @@ struct FeedView: View {
         .refreshable { await viewModel.loadFeed() }
     }
 
-    // 記事タップ時は設定（articleOpenMode）に従って開く。
+    /// 記事を設定（``AppState/articleOpenMode``）に従って開く。
+    /// - Parameter article: タップされた記事。URL が不正なら何もしない。
     private func open(_ article: Article) {
         guard let url = URL(string: article.url) else { return }
         switch appState.articleOpenMode {
@@ -97,6 +109,7 @@ struct FeedView: View {
         }
     }
 
+    /// エラーアラートの表示有無を `errorMessage` の有無に橋渡しする `Binding`。
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { viewModel.errorMessage != nil },
