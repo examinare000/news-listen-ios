@@ -81,8 +81,17 @@ struct ContentView: View {
                 )
                 .tabItem { Label("フィード", systemImage: "newspaper") }
             }
-            PodcastView()
+            if let client = appState.apiClient {
+                PodcastView(apiClient: client)
+                    .tabItem { Label("Podcast", systemImage: "headphones") }
+            } else {
+                ContentUnavailableView(
+                    "API 設定を確認してください",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text("設定タブで API URL とキーを確認してください")
+                )
                 .tabItem { Label("Podcast", systemImage: "headphones") }
+            }
             SettingsView()
                 .tabItem { Label("設定", systemImage: "gearshape") }
         }
