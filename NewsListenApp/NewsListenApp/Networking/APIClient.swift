@@ -29,8 +29,10 @@ enum APIError: LocalizedError {
     }
 }
 
+// ObservableObject には適合しない: @Published な状態を持たず、ビューから直接購読される
+// こともない（常に ViewModel に内包されるか AppState 経由で参照される）ため不要。
 @MainActor
-final class APIClient: ObservableObject {
+final class APIClient {
     private let baseURL: URL
     private let apiKey: String
     private let session: URLSessionProtocol
