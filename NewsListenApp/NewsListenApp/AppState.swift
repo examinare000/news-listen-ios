@@ -9,6 +9,21 @@
 import Foundation
 import Combine
 
+// 記事タップ時の遷移先。アプリ内 Safari（既定）か外部 Safari かを選べる（要件 §3.2/§3.6・AC-5）。
+enum ArticleOpenMode: String, CaseIterable, Identifiable {
+    case inApp = "in_app"
+    case external = "external"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .inApp: return "アプリ内 Safari"
+        case .external: return "外部 Safari"
+        }
+    }
+}
+
 // apiClient で @MainActor 分離の APIClient を生成するため、AppState 自体も @MainActor にする。
 // UI 状態であり常にメインスレッドで更新されるため分離方針とも整合する。
 @MainActor
@@ -19,6 +34,7 @@ final class AppState: ObservableObject {
         static let apiKey = "api_key"
         static let defaultDifficulty = "default_difficulty"
         static let defaultPlaybackSpeed = "default_playback_speed"
+        static let articleOpenMode = "article_open_mode"
     }
 
     @Published var apiBaseURL: String {
@@ -37,6 +53,10 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(defaultPlaybackSpeed, forKey: Keys.defaultPlaybackSpeed) }
     }
 
+    @Published var articleOpenMode: ArticleOpenMode {
+        didSet { UserDefaults.standard.set(articleOpenMode.rawValue, forKey: Keys.articleOpenMode) }
+    }
+
     var apiClient: APIClient? {
         guard !apiBaseURL.isEmpty, !apiKey.isEmpty,
               let url = URL(string: apiBaseURL) else { return nil }
@@ -50,6 +70,7 @@ final class AppState: ObservableObject {
         self.apiKey = UserDefaults.standard.string(forKey: Keys.apiKey) ?? ""
         self.defaultDifficulty = UserDefaults.standard.string(forKey: Keys.defaultDifficulty) ?? "toeic_900"
         self.defaultPlaybackSpeed = UserDefaults.standard.double(forKey: Keys.defaultPlaybackSpeed).nonZero ?? 1.0
+        self.articleOpenMode = ArticleOpenMode(rawValue: UserDefaults.standard.string(forKey: Keys.articleOpenMode) ?? "") ?? .inApp
     }
 }
 
