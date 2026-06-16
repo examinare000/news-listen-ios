@@ -65,9 +65,22 @@ final class AppState: ObservableObject {
 
     var isConfigured: Bool { !apiBaseURL.isEmpty && !apiKey.isEmpty }
 
+    // ビルド時に Secrets.xcconfig → Info.plist 経由で注入された既定値を読む。
+    // 未注入（空文字や未置換のまま）の場合は nil を返す。
+    private static func injectedValue(_ key: String) -> String? {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // xcconfig 未設定時は "$(API_KEY)" のような未置換文字列が残るため弾く。
+        guard !value.isEmpty, !value.hasPrefix("$(") else { return nil }
+        return value
+    }
+
     init() {
-        self.apiBaseURL = UserDefaults.standard.string(forKey: Keys.apiBaseURL) ?? ""
-        self.apiKey = UserDefaults.standard.string(forKey: Keys.apiKey) ?? ""
+        // 優先順位: ユーザーが保存した値(UserDefaults) > ビルド注入値(Info.plist) > 空。
+        self.apiBaseURL = UserDefaults.standard.string(forKey: Keys.apiBaseURL)
+            ?? Self.injectedValue("APIBaseURL") ?? ""
+        self.apiKey = UserDefaults.standard.string(forKey: Keys.apiKey)
+            ?? Self.injectedValue("APIKey") ?? ""
         self.defaultDifficulty = UserDefaults.standard.string(forKey: Keys.defaultDifficulty) ?? "toeic_900"
         self.defaultPlaybackSpeed = UserDefaults.standard.double(forKey: Keys.defaultPlaybackSpeed).nonZero ?? 1.0
         self.articleOpenMode = ArticleOpenMode(rawValue: UserDefaults.standard.string(forKey: Keys.articleOpenMode) ?? "") ?? .inApp

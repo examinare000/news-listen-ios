@@ -41,13 +41,24 @@ struct InitialSetupView: View {
                     SecureField("API キー", text: $keyInput)
                 }
                 Button("設定を保存") {
-                    appState.apiBaseURL = urlInput
-                    appState.apiKey = keyInput
+                    appState.apiBaseURL = urlInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    appState.apiKey = keyInput.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
-                .disabled(urlInput.isEmpty || keyInput.isEmpty)
+                .disabled(!canSave)
             }
             .navigationTitle("初期設定")
+            // 既存値・ビルド注入値があればフィールドへ反映し、保存ボタンを活性化する。
+            // （通常は注入済みなら本画面はスキップされるが、未注入時の手動入力に備える）
+            .onAppear {
+                if urlInput.isEmpty { urlInput = appState.apiBaseURL }
+                if keyInput.isEmpty { keyInput = appState.apiKey }
+            }
         }
+    }
+
+    private var canSave: Bool {
+        !urlInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !keyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
