@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- ビルド時に Secrets.xcconfig（base configuration）から注入される。
+	     ソースには $(...) のみ残り、実値はコミットされない。 -->
+	<key>APIBaseURL</key>
+	<string>$(API_BASE_URL)</string>
+	<key>APIKey</key>
+	<string>$(API_KEY)</string>
+	<!-- 開発用バックエンドが http://localhost のため、ローカル平文通信を許可する。
+	     localhost / *.local / 直リンク IP に限定（任意 http の全許可はしない）。 -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>
