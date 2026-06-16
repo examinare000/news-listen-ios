@@ -8,10 +8,16 @@
 
 import SwiftUI
 
+/// アプリの `@main` エントリポイント。
+///
+/// ``AppState/isConfigured`` が未設定なら初期設定画面、設定済みならタブビュー
+/// （フィード / Podcast / 設定）を表示する。
 @main
 struct NewsListenAppApp: App {
+    /// アプリ全体で共有する設定状態。
     @StateObject private var appState = AppState()
 
+    /// 設定状態に応じてルート画面を出し分けるシーン。
     var body: some Scene {
         WindowGroup {
             if appState.isConfigured {
@@ -25,10 +31,13 @@ struct NewsListenAppApp: App {
     }
 }
 
-// 初回設定画面（API URL と API キーを入力）
+/// 初回設定画面。API URL と API キーを入力し、``AppState`` に保存する。
 struct InitialSetupView: View {
+    /// アプリ全体で共有する設定状態。
     @EnvironmentObject var appState: AppState
+    /// 入力中の API URL。
     @State private var urlInput = ""
+    /// 入力中の API キー。
     @State private var keyInput = ""
 
     var body: some View {
@@ -56,14 +65,16 @@ struct InitialSetupView: View {
         }
     }
 
+    /// URL・キーがともに（前後空白を除いて）入力済みなら `true`。保存ボタンの活性判定に使う。
     private var canSave: Bool {
         !urlInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !keyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
-// メインタブビュー
+/// メインのタブビュー。フィード / Podcast / 設定の3タブを表示する。
 struct ContentView: View {
+    /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var appState: AppState
 
     var body: some View {

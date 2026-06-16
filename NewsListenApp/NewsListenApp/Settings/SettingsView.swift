@@ -8,7 +8,12 @@
 
 import SwiftUI
 
+/// 設定タブ。
+///
+/// 現状は「記事の開き方」のみ実装。難易度・再生速度・RSS ソース管理・API 設定・
+/// テーマ切替は Task 7 で追加する。
 struct SettingsView: View {
+    /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
