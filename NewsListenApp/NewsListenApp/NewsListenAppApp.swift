@@ -53,10 +53,23 @@ struct InitialSetupView: View {
 
 // メインタブビュー
 struct ContentView: View {
+    @EnvironmentObject private var appState: AppState
+
     var body: some View {
         TabView {
-            FeedView()
+            // ContentView は isConfigured 時のみ表示されるため apiClient は通常非 nil。
+            // URL 不正など稀な nil 時はセットアップ確認を促す。
+            if let client = appState.apiClient {
+                FeedView(apiClient: client)
+                    .tabItem { Label("フィード", systemImage: "newspaper") }
+            } else {
+                ContentUnavailableView(
+                    "API 設定を確認してください",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text("設定タブで API URL とキーを確認してください")
+                )
                 .tabItem { Label("フィード", systemImage: "newspaper") }
+            }
             PodcastView()
                 .tabItem { Label("Podcast", systemImage: "headphones") }
             SettingsView()
