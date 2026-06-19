@@ -79,4 +79,41 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertNotNil(vm.errorMessage)
         XCTAssertFalse(vm.isLoading)
     }
+
+    func testLoadFeaturedSitesFetchesFromAPI() async throws {
+        let json = #"""
+        {"sites": [
+            {"id":"the-verge","name":"The Verge","url":"https://www.theverge.com/rss/index.xml","thumbnail_url":null,"description":null},
+            {"id":"techcrunch","name":"TechCrunch","url":"https://techcrunch.com/feed/","thumbnail_url":null,"description":null}
+        ]}
+        """#
+        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+
+        await vm.loadFeaturedSites()
+
+        XCTAssertEqual(vm.featuredSites.count, 2)
+        XCTAssertEqual(vm.featuredSites[0].id, "the-verge")
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    func testSubscribeFeaturedUpdatesSourcesViaAddSource() async throws {
+        // おすすめ購読は既存 addSource を再利用し、サーバが返す最新一覧で sources を更新する。
+        let afterAddJSON = #"{"sources": [{"name":"TechCrunch","url":"https://techcrunch.com/feed/"}]}"#.data(using: .utf8)!
+        let vm = SettingsViewModel(apiClient: makeClient(session: SequentialSession([afterAddJSON])))
+
+        await vm.addSource(name: "TechCrunch", url: "https://techcrunch.com/feed/")
+
+        XCTAssertEqual(vm.sources.count, 1)
+        XCTAssertEqual(vm.sources[0].name, "TechCrunch")
+    }
+
+    func testLoadFeaturedSitesSilentOnFailure() async throws {
+        // 取得失敗時は featuredSites を空にし、errorMessage は汚さない（おすすめ欄は非表示になるだけ）。
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.loadFeaturedSites()
+
+        XCTAssertTrue(vm.featuredSites.isEmpty)
+        XCTAssertNil(vm.errorMessage)
+    }
 }

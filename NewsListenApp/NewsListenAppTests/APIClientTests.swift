@@ -67,6 +67,57 @@ final class APIClientTests: XCTestCase {
             XCTAssertEqual(statusCode, 500)
         }
     }
+
+    func testFetchFeaturedSitesDecodesResponse() async throws {
+        let mockJSON = #"""
+        {"sites": [
+            {"id":"the-verge","name":"The Verge","url":"https://www.theverge.com/rss/index.xml","thumbnail_url":"https://www.theverge.com/favicon.ico","description":"テクノロジー全般"},
+            {"id":"techcrunch","name":"TechCrunch","url":"https://techcrunch.com/feed/","thumbnail_url":null,"description":null}
+        ]}
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let response = try await client.fetchFeaturedSites()
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/settings/featured-sources")
+        XCTAssertEqual(response.sites.count, 2)
+        XCTAssertEqual(response.sites[0].id, "the-verge")
+        XCTAssertEqual(response.sites[0].thumbnailURL, "https://www.theverge.com/favicon.ico")
+        XCTAssertNil(response.sites[1].thumbnailURL)
+    }
+
+    func testFetchOnboardingStatusDecodesSnakeCase() async throws {
+        let mockJSON = #"{"onboarding_completed": false}"#.data(using: .utf8)!
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: mockJSON, statusCode: 200)
+        )
+
+        let status = try await client.fetchOnboardingStatus()
+        XCTAssertFalse(status.onboardingCompleted)
+    }
+
+    func testCompleteOnboardingCallsCorrectEndpoint() async throws {
+        let mockJSON = #"{"onboarding_completed": true}"#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let status = try await client.completeOnboarding()
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/settings/onboarding/complete")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "POST")
+        XCTAssertTrue(status.onboardingCompleted)
+    }
 }
 
 // MARK: - MockURLSession
