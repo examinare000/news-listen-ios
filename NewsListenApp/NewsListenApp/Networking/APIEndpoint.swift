@@ -23,6 +23,12 @@ enum APIEndpoint {
     case addSource
     /// 指定 URL の RSS 配信元の削除。
     case removeSource(url: String)
+    /// システム提供のおすすめサイト一覧の取得。
+    case featuredSources
+    /// 初回オンボーディング完了状態の取得。
+    case onboardingStatus
+    /// 初回オンボーディング完了の記録。
+    case completeOnboarding
 
     /// エンドポイントへの相対パス（baseURL に連結して使う）。
     var path: String {
@@ -33,14 +39,17 @@ enum APIEndpoint {
         case .podcasts: return "/podcasts"
         case .sources, .addSource: return "/settings/sources"
         case .removeSource: return "/settings/sources"
+        case .featuredSources: return "/settings/featured-sources"
+        case .onboardingStatus: return "/settings/onboarding"
+        case .completeOnboarding: return "/settings/onboarding/complete"
         }
     }
 
     /// このエンドポイントで使用する HTTP メソッド（GET / POST / DELETE）。
     var method: String {
         switch self {
-        case .feed, .podcasts, .sources: return "GET"
-        case .starArticle, .dismissArticle, .addSource: return "POST"
+        case .feed, .podcasts, .sources, .featuredSources, .onboardingStatus: return "GET"
+        case .starArticle, .dismissArticle, .addSource, .completeOnboarding: return "POST"
         case .removeSource: return "DELETE"
         }
     }

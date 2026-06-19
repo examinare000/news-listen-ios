@@ -122,6 +122,23 @@ final class APIClient {
         try validateResponse(response)
     }
 
+    // MARK: - Featured sites / Onboarding
+
+    /// システム提供のおすすめサイト一覧を取得する（order 昇順）。
+    func fetchFeaturedSites() async throws -> FeaturedSitesResponse {
+        try await request(.featuredSources, responseType: FeaturedSitesResponse.self)
+    }
+
+    /// 初回オンボーディングの完了状態を取得する。
+    func fetchOnboardingStatus() async throws -> OnboardingStatusResponse {
+        try await request(.onboardingStatus, responseType: OnboardingStatusResponse.self)
+    }
+
+    /// 初回オンボーディング完了を記録し、更新後の状態を返す。
+    func completeOnboarding() async throws -> OnboardingStatusResponse {
+        try await request(.completeOnboarding, responseType: OnboardingStatusResponse.self)
+    }
+
     // MARK: - Private helpers
 
     /// エンドポイントへリクエストを送り、レスポンスを指定型へデコードして返す。
