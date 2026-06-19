@@ -71,6 +71,13 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(articleOpenMode.rawValue, forKey: Keys.articleOpenMode) }
     }
 
+    /// 初回オンボーディング（おすすめ追加ステップ）の完了状態。
+    ///
+    /// サーバ側（`UserPrefs.onboarding_completed`）が正であり、起動ごとに取得する。
+    /// `nil`=未取得（判定保留）。`false` のときのみ追加ステップを提示する。
+    /// launch 時のブロッキングを避けるため、ルーティングは `ContentView` 上の fullScreenCover で行う。
+    @Published var onboardingCompleted: Bool?
+
     /// 現在の設定から生成した ``APIClient``。URL・キーが未設定または URL 不正の場合は `nil`。
     var apiClient: APIClient? {
         guard !apiBaseURL.isEmpty, !apiKey.isEmpty,
@@ -80,6 +87,28 @@ final class AppState: ObservableObject {
 
     /// API URL とキーがともに設定済みかどうか。初期設定画面の出し分けに使う。
     var isConfigured: Bool { !apiBaseURL.isEmpty && !apiKey.isEmpty }
+
+    /// サーバから初回オンボーディング状態を取得し `onboardingCompleted` を更新する。
+    ///
+    /// 取得失敗時は `true` 扱いとし、追加ステップを挟まずフィードへ進ませる（行き止まりを防ぐ）。
+    func refreshOnboardingStatus() async {
+        guard let apiClient else { return }
+        do {
+            let status = try await apiClient.fetchOnboardingStatus()
+            onboardingCompleted = status.onboardingCompleted
+        } catch {
+            onboardingCompleted = true
+        }
+    }
+
+    /// 初回オンボーディング完了をサーバに記録し、ローカル状態も完了にする。
+    ///
+    /// 保存に失敗しても UI 上は完了として扱い、追加ステップを閉じる（次回起動時に再取得される）。
+    func completeOnboarding() async {
+        defer { onboardingCompleted = true }
+        guard let apiClient else { return }
+        _ = try? await apiClient.completeOnboarding()
+    }
 
     /// ビルド時に Secrets.xcconfig → Info.plist 経由で注入された既定値を読む。
     ///

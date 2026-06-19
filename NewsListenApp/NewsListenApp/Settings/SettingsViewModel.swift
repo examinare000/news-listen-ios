@@ -13,6 +13,8 @@ import Combine
 final class SettingsViewModel: ObservableObject {
     /// 登録済みの RSS ソース一覧。
     @Published var sources: [RssSource] = []
+    /// システム提供のおすすめサイト一覧。
+    @Published var featuredSites: [FeaturedSite] = []
     /// 読み込み中かどうか。
     @Published var isLoading = false
     /// 直近のエラーメッセージ（なければ `nil`）。アラート表示に使う。
@@ -43,6 +45,19 @@ final class SettingsViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    /// おすすめサイト一覧を取得して `featuredSites` を更新する。
+    ///
+    /// 失敗してもおすすめ欄が出ないだけで RSS ソース管理は妨げないため、`errorMessage` には反映しない。
+    func loadFeaturedSites() async {
+        guard let apiClient else { return }
+        do {
+            let response = try await apiClient.fetchFeaturedSites()
+            featuredSites = response.sites
+        } catch {
+            featuredSites = []
+        }
     }
 
     /// RSS ソースを追加し、サーバが返す最新一覧で `sources` を更新する。

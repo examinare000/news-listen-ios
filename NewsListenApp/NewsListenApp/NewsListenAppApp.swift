@@ -108,5 +108,21 @@ struct ContentView: View {
             SettingsView(apiClient: appState.apiClient)
                 .tabItem { Label("設定", systemImage: "gearshape") }
         }
+        // 起動ごとに onboarding 状態を取得し、未完了なら追加ステップを被せる。
+        // 3分岐ルーティングではなく cover にすることで launch をブロックしない。
+        .task { await appState.refreshOnboardingStatus() }
+        .fullScreenCover(isPresented: onboardingBinding) {
+            OnboardingSourcesView()
+                .environmentObject(appState)
+        }
+    }
+
+    /// `onboardingCompleted == false`（明示的に未完了）のときだけ追加ステップを提示する Binding。
+    /// 取得前(`nil`) は提示しない。閉じる操作は `OnboardingSourcesView` 側の completeOnboarding に委ねる。
+    private var onboardingBinding: Binding<Bool> {
+        Binding(
+            get: { appState.onboardingCompleted == false },
+            set: { _ in }
+        )
     }
 }

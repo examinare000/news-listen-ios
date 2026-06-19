@@ -52,6 +52,7 @@ struct SettingsView: View {
             Form {
                 feedSection
                 rssSourcesSection
+                featuredSitesSection
                 difficultySection
                 playbackSection
                 apiConfigSection
@@ -64,7 +65,10 @@ struct SettingsView: View {
                 Text(viewModel.errorMessage ?? "")
             }
         }
-        .task { await viewModel.loadSources() }
+        .task {
+            await viewModel.loadSources()
+            await viewModel.loadFeaturedSites()
+        }
     }
 
     /// 記事の開き方（アプリ内 / 外部 Safari）を切り替えるセクション。
@@ -102,6 +106,41 @@ struct SettingsView: View {
                     }
                 }
                 Button("ソースを追加") { showAddSource = true }
+            }
+        }
+    }
+
+    /// システム提供のおすすめサイトを一覧し、タップで即購読するセクション。
+    ///
+    /// API クライアント未設定時、またはおすすめサイトが空の場合は表示しない。
+    @ViewBuilder
+    private var featuredSitesSection: some View {
+        if appState.apiClient != nil, !viewModel.featuredSites.isEmpty {
+            Section("おすすめサイト") {
+                ForEach(viewModel.featuredSites) { site in
+                    HStack(spacing: 10) {
+                        AsyncImage(url: site.thumbnailURL.flatMap(URL.init(string:))) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Image(systemName: "globe").foregroundStyle(.secondary)
+                        }
+                        .frame(width: 28, height: 28)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(site.name).font(.headline)
+                            if let description = site.description {
+                                Text(description).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        // ワンクリックで即購読（既存 addSource を再利用）。
+                        Button("購読") {
+                            Task { await viewModel.addSource(name: site.name, url: site.url) }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
             }
         }
     }
