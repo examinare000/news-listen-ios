@@ -103,7 +103,9 @@ struct ContentView: View {
                 )
                 .tabItem { Label("Podcast", systemImage: "headphones") }
             }
-            SettingsView()
+            // Settings は API 未設定の修正導線として常に表示する。
+            // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
+            SettingsView(apiClient: appState.apiClient)
                 .tabItem { Label("設定", systemImage: "gearshape") }
         }
     }
