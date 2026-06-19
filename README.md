@@ -2,6 +2,22 @@
 
 Tech News Podcast アプリの iOS クライアント（SwiftUI / MVVM）。
 
+## 実装状況
+
+実装プランは親リポジトリの [`docs/superpowers/plans/2026-05-31-ios-app.md`](https://github.com/examinare000/news-listen/blob/main/docs/superpowers/plans/2026-05-31-ios-app.md) を参照。
+
+| 領域 | 状況 | 備考 |
+| --- | --- | --- |
+| データモデル（Article / Podcast / RssSource） | ✅ 実装済み | |
+| API クライアント（APIClient / APIEndpoint） | ✅ 実装済み | |
+| AppState・エントリポイント | ✅ 実装済み | |
+| Feed タブ | ✅ 実装済み | 一覧・スワイプ・Safari 表示 |
+| Podcast タブ | ✅ 実装済み | 一覧・AVPlayer 再生・速度調整 |
+| Settings タブ | ✅ 実装済み | 記事の開き方・RSS ソース管理・デフォルト難易度・再生速度・API 設定（[#7](https://github.com/examinare000/news-listen-ios/issues/7)） |
+| 実機テスト | ⬜ 未着手 | |
+
+ユニットテスト（Model / APIClient / Feed / Podcast / Settings）は実装済み。実機テストは未実施。
+
 ## セットアップ
 
 1. 秘密情報設定ファイルを用意:
