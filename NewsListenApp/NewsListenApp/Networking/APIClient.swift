@@ -45,8 +45,10 @@ enum APIError: LocalizedError {
 final class APIClient {
     /// API のベース URL。各エンドポイントのパスを連結して使う。
     private let baseURL: URL
-    /// `X-API-Key` ヘッダに付与する API キー。
+    /// `X-API-Key` ヘッダに付与する API キー（ゲートウェイ認証）。
     private let apiKey: String
+    /// セッショントークン。設定時は `Authorization: Bearer` でユーザー認証に使う。
+    private let sessionToken: String?
     /// 実通信を行うセッション。テスト時はモックを注入する。
     private let session: URLSessionProtocol
     /// レスポンスボディのデコードに使う JSON デコーダ。
@@ -56,10 +58,17 @@ final class APIClient {
     /// - Parameters:
     ///   - baseURL: API のベース URL。
     ///   - apiKey: `X-API-Key` ヘッダに付与する API キー。
+    ///   - sessionToken: ユーザー認証用のセッショントークン（未ログイン時は `nil`）。
     ///   - session: 通信に使うセッション。既定は `URLSession.shared`。
-    init(baseURL: URL, apiKey: String, session: URLSessionProtocol = URLSession.shared) {
+    init(
+        baseURL: URL,
+        apiKey: String,
+        sessionToken: String? = nil,
+        session: URLSessionProtocol = URLSession.shared
+    ) {
         self.baseURL = baseURL
         self.apiKey = apiKey
+        self.sessionToken = sessionToken
         self.session = session
         self.decoder = JSONDecoder()
     }
@@ -118,8 +127,88 @@ final class APIClient {
         var req = URLRequest(url: components.url!)
         req.httpMethod = "DELETE"
         req.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        if let sessionToken {
+            req.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        }
         let (_, response) = try await session.data(for: req)
         try validateResponse(response)
+    }
+
+    // MARK: - Auth（セッション）
+
+    /// ログインしてセッショントークンとユーザー情報を取得する。
+    /// - Parameters:
+    ///   - username: ログイン ID。
+    ///   - password: パスワード。
+    func login(username: String, password: String) async throws -> LoginResponse {
+        try await request(
+            .login,
+            body: ["username": username, "password": password],
+            responseType: LoginResponse.self
+        )
+    }
+
+    /// ログアウトしてサーバ側セッションを破棄する。
+    func logout() async throws {
+        try await requestVoid(.logout)
+    }
+
+    /// ログイン中ユーザー情報を取得する。
+    func fetchMe() async throws -> AuthUser {
+        try await request(.me, responseType: AuthUser.self)
+    }
+
+    /// 自分の表示名を更新する。
+    /// - Parameter displayName: 新しい表示名。
+    func updateProfile(displayName: String) async throws -> AuthUser {
+        try await request(.updateProfile, body: ["display_name": displayName], responseType: AuthUser.self)
+    }
+
+    /// 自分のパスワードを変更する。
+    /// - Parameters:
+    ///   - current: 現在のパスワード。
+    ///   - new: 新しいパスワード。
+    func changePassword(current: String, new: String) async throws {
+        try await requestVoid(.changePassword, body: ["current_password": current, "new_password": new])
+    }
+
+    // MARK: - Admin（ユーザー管理）
+
+    /// ユーザー一覧を取得する（管理者）。
+    func listUsers() async throws -> UserListResponse {
+        try await request(.listUsers, responseType: UserListResponse.self)
+    }
+
+    /// ユーザーを新規作成する（管理者）。
+    func createUser(
+        username: String,
+        password: String,
+        displayName: String?,
+        role: String
+    ) async throws -> AuthUser {
+        var body: [String: Any] = ["username": username, "password": password, "role": role]
+        if let displayName, !displayName.isEmpty { body["display_name"] = displayName }
+        return try await request(.createUser, body: body, responseType: AuthUser.self)
+    }
+
+    /// ユーザーを更新する（管理者）。指定した項目のみ送る。
+    func updateUser(
+        username: String,
+        role: String? = nil,
+        newPassword: String? = nil,
+        displayName: String? = nil
+    ) async throws -> AuthUser {
+        var body: [String: Any] = [:]
+        if let role { body["role"] = role }
+        if let newPassword { body["new_password"] = newPassword }
+        if let displayName { body["display_name"] = displayName }
+        return try await request(.updateUser(username: username), body: body, responseType: AuthUser.self)
+    }
+
+    /// ユーザーを削除する（管理者）。
+    /// - Parameter username: 削除対象のユーザー ID。
+    func deleteUser(username: String) async throws {
+        try await requestVoid(.deleteUser(username: username))
     }
 
     // MARK: - Featured sites / Onboarding
@@ -180,6 +269,10 @@ final class APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = endpoint.method
         request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        // セッショントークンがあればユーザー認証ヘッダを付与する（Web は Cookie、iOS は Bearer）。
+        if let sessionToken {
+            request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
