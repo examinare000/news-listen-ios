@@ -24,6 +24,11 @@ final class AuthAPIClientTests: XCTestCase {
 
         XCTAssertEqual(session.lastRequest?.url?.path, "/auth/login")
         XCTAssertEqual(session.lastRequest?.httpMethod, "POST")
+        // 最もセキュリティ上重要な「正しい資格情報が JSON ボディで送られる」ことを検証する。
+        let body = try XCTUnwrap(session.lastRequest?.httpBody)
+        let bodyJSON = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        XCTAssertEqual(bodyJSON?["username"] as? String, "alice")
+        XCTAssertEqual(bodyJSON?["password"] as? String, "pw")
         XCTAssertEqual(res.token, "tok-123")
         XCTAssertEqual(res.user.username, "alice")
         XCTAssertEqual(res.user.displayName, "Alice")
@@ -91,6 +96,11 @@ final class AuthAPIClientTests: XCTestCase {
 
         XCTAssertEqual(session.lastRequest?.url?.path, "/admin/users/bob")
         XCTAssertEqual(session.lastRequest?.httpMethod, "PATCH")
+        // 指定したフィールドのみがボディに含まれること（role だけ送る）。
+        let body = try XCTUnwrap(session.lastRequest?.httpBody)
+        let bodyJSON = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        XCTAssertEqual(bodyJSON?["role"] as? String, "admin")
+        XCTAssertNil(bodyJSON?["new_password"])
     }
 
     func testDeleteUserUsesDeleteOnUsernamePath() async throws {
