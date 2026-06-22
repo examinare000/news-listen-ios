@@ -50,6 +50,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                AccountSettingsView()
                 feedSection
                 rssSourcesSection
                 featuredSitesSection

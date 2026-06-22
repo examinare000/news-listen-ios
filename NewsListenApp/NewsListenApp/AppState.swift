@@ -78,15 +78,66 @@ final class AppState: ObservableObject {
     /// launch 時のブロッキングを避けるため、ルーティングは `ContentView` 上の fullScreenCover で行う。
     @Published var onboardingCompleted: Bool?
 
+    /// 認証状態。ログイン画面の出し分けに使う。`.unknown` は /auth/me 解決前。
+    @Published var authStatus: AuthStatus = .unknown
+
+    /// ログイン中ユーザー。未ログイン時は `nil`。
+    @Published var currentUser: AuthUser?
+
+    /// セッショントークンの保管先（既定は Keychain、テストはインメモリ）。
+    private let sessionStore: SessionStore
+
     /// 現在の設定から生成した ``APIClient``。URL・キーが未設定または URL 不正の場合は `nil`。
+    ///
+    /// セッショントークンがあれば付与し、ユーザー認証付きで通信する。
     var apiClient: APIClient? {
         guard !apiBaseURL.isEmpty, !apiKey.isEmpty,
               let url = URL(string: apiBaseURL) else { return nil }
-        return APIClient(baseURL: url, apiKey: apiKey)
+        return APIClient(baseURL: url, apiKey: apiKey, sessionToken: sessionStore.token)
     }
 
     /// API URL とキーがともに設定済みかどうか。初期設定画面の出し分けに使う。
     var isConfigured: Bool { !apiBaseURL.isEmpty && !apiKey.isEmpty }
+
+    // MARK: - 認証
+
+    /// ログイン成功を受けてトークンを Keychain に保存し、ユーザー状態を更新する。
+    /// - Parameter response: ログイン API のレスポンス。
+    func completeLogin(_ response: LoginResponse) {
+        sessionStore.token = response.token
+        currentUser = response.user
+        authStatus = .authenticated
+    }
+
+    /// 保存済みトークンで `/auth/me` を解決し、認証状態を確定する。
+    ///
+    /// 未設定・トークン無し・失効はすべて未認証として扱い、トークンを破棄する。
+    func refreshAuth() async {
+        guard isConfigured, sessionStore.token != nil, let apiClient else {
+            authStatus = .unauthenticated
+            return
+        }
+        do {
+            currentUser = try await apiClient.fetchMe()
+            authStatus = .authenticated
+        } catch {
+            sessionStore.token = nil
+            currentUser = nil
+            authStatus = .unauthenticated
+        }
+    }
+
+    /// ログアウトしてサーバ側セッションを破棄し、ローカル状態を未認証にする。
+    ///
+    /// サーバ失効に失敗してもローカルのトークン・状態は必ず落とす（ベストエフォート）。
+    func logout() async {
+        if let apiClient {
+            _ = try? await apiClient.logout()
+        }
+        sessionStore.token = nil
+        currentUser = nil
+        authStatus = .unauthenticated
+    }
 
     /// サーバから初回オンボーディング状態を取得し `onboardingCompleted` を更新する。
     ///
@@ -125,7 +176,9 @@ final class AppState: ObservableObject {
     /// 永続化済みの設定を読み込んで状態を初期化する。
     ///
     /// 各値は「ユーザーが保存した値(UserDefaults) > ビルド注入値(Info.plist) > 既定値」の優先順位で決定する。
-    init() {
+    /// - Parameter sessionStore: セッショントークンの保管先。既定は Keychain。テストで差し替える。
+    init(sessionStore: SessionStore = KeychainSessionStore()) {
+        self.sessionStore = sessionStore
         // 優先順位: ユーザーが保存した値(UserDefaults) > ビルド注入値(Info.plist) > 空。
         self.apiBaseURL = UserDefaults.standard.string(forKey: Keys.apiBaseURL)
             ?? Self.injectedValue("APIBaseURL") ?? ""

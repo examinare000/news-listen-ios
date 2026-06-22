@@ -30,6 +30,26 @@ enum APIEndpoint {
     /// 初回オンボーディング完了の記録。
     case completeOnboarding
 
+    // 認証・ユーザー管理
+    /// ログイン（セッション発行）。
+    case login
+    /// ログアウト（セッション破棄）。
+    case logout
+    /// ログイン中ユーザー情報の取得。
+    case me
+    /// 自分のプロフィール（表示名）更新。
+    case updateProfile
+    /// 自分のパスワード変更。
+    case changePassword
+    /// ユーザー一覧の取得（管理者）。
+    case listUsers
+    /// ユーザーの新規作成（管理者）。
+    case createUser
+    /// ユーザーの更新（ロール/パスワード/表示名・管理者）。
+    case updateUser(username: String)
+    /// ユーザーの削除（管理者）。
+    case deleteUser(username: String)
+
     /// エンドポイントへの相対パス（baseURL に連結して使う）。
     var path: String {
         switch self {
@@ -42,15 +62,29 @@ enum APIEndpoint {
         case .featuredSources: return "/settings/featured-sources"
         case .onboardingStatus: return "/settings/onboarding"
         case .completeOnboarding: return "/settings/onboarding/complete"
+        case .login: return "/auth/login"
+        case .logout: return "/auth/logout"
+        case .me, .updateProfile: return "/auth/me"
+        case .changePassword: return "/auth/password"
+        case .listUsers, .createUser: return "/admin/users"
+        case .updateUser(let username), .deleteUser(let username):
+            return "/admin/users/\(username)"
         }
     }
 
-    /// このエンドポイントで使用する HTTP メソッド（GET / POST / DELETE）。
+    /// このエンドポイントで使用する HTTP メソッド（GET / POST / PATCH / DELETE）。
     var method: String {
         switch self {
-        case .feed, .podcasts, .sources, .featuredSources, .onboardingStatus: return "GET"
-        case .starArticle, .dismissArticle, .addSource, .completeOnboarding: return "POST"
-        case .removeSource: return "DELETE"
+        case .feed, .podcasts, .sources, .featuredSources, .onboardingStatus,
+             .me, .listUsers:
+            return "GET"
+        case .starArticle, .dismissArticle, .addSource, .completeOnboarding,
+             .login, .logout, .changePassword, .createUser:
+            return "POST"
+        case .updateProfile, .updateUser:
+            return "PATCH"
+        case .removeSource, .deleteUser:
+            return "DELETE"
         }
     }
 }

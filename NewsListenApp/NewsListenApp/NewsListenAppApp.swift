@@ -17,16 +17,37 @@ struct NewsListenAppApp: App {
     /// アプリ全体で共有する設定状態。
     @StateObject private var appState = AppState()
 
-    /// 設定状態に応じてルート画面を出し分けるシーン。
+    /// 設定状態・認証状態に応じてルート画面を出し分けるシーン。
+    ///
+    /// 接続未設定 → 初期設定、設定済みで認証未解決 → ローディング、未ログイン → ログイン、
+    /// ログイン済み → タブビュー、の順にゲートする。
     var body: some Scene {
         WindowGroup {
-            if appState.isConfigured {
-                ContentView()
-                    .environmentObject(appState)
-            } else {
-                InitialSetupView()
-                    .environmentObject(appState)
+            Group {
+                if !appState.isConfigured {
+                    InitialSetupView()
+                } else {
+                    switch appState.authStatus {
+                    case .unknown:
+                        // 保存済みトークンで /auth/me を解決する間のローディング。
+                        ProgressView("認証を確認中…")
+                            .task { await appState.refreshAuth() }
+                    case .unauthenticated:
+                        if let client = appState.apiClient {
+                            LoginView(apiClient: client) { appState.completeLogin($0) }
+                        } else {
+                            ContentUnavailableView(
+                                "API 設定を確認してください",
+                                systemImage: "exclamationmark.triangle",
+                                description: Text("接続先 URL が不正です")
+                            )
+                        }
+                    case .authenticated:
+                        ContentView()
+                    }
+                }
             }
+            .environmentObject(appState)
         }
     }
 }
