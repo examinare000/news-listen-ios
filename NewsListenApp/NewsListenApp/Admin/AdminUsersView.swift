@@ -47,12 +47,13 @@ struct AdminUsersView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button(user.isAdmin ? "user へ" : "admin へ") {
-                            Task { await viewModel.toggleRole(user) }
-                        }
-                        .buttonStyle(.borderless)
-                        // 自分自身は削除させない（ロックアウト防止）。
+                        // 自分自身のロール変更・削除はさせない（自己ロックアウト防止。
+                        // サーバー側でも最後の admin は 409 で保護される）。
                         if user.username != appState.currentUser?.username {
+                            Button(user.isAdmin ? "user へ" : "admin へ") {
+                                Task { await viewModel.toggleRole(user) }
+                            }
+                            .buttonStyle(.borderless)
                             Button("削除", role: .destructive) {
                                 Task { await viewModel.delete(username: user.username) }
                             }
