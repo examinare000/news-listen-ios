@@ -17,6 +17,8 @@ struct PodcastRowView: View {
     let downloadState: DownloadState
     /// ダウンロードボタンタップハンドラ（オプション）。
     let onDownloadTap: (() -> Void)?
+    /// アプリ全体で共有する設定状態。
+    @EnvironmentObject private var appState: AppState
 
     init(
         podcast: Podcast,
@@ -52,7 +54,7 @@ struct PodcastRowView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text(podcast.createdAt.prefix(10))
+                    Text(formattedDate)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -62,6 +64,15 @@ struct PodcastRowView: View {
             downloadButton
         }
         .padding(.vertical, 4)
+    }
+
+    /// timeFormat 設定に応じた日付表記を返す。
+    private var formattedDate: String {
+        if appState.timeFormat == "relative" {
+            return RelativeTimeFormatter.format(podcast.createdAt)
+        } else {
+            return String(podcast.createdAt.prefix(10))
+        }
     }
 
     /// ダウンロード状態に応じたボタンを返す。

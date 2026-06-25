@@ -52,10 +52,21 @@ struct FeedView: View {
             }
             .navigationTitle("フィード")
             .toolbar {
-                Button {
-                    Task { await viewModel.loadFeed() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button {
+                        viewModel.isSelectionMode.toggle()
+                        if !viewModel.isSelectionMode {
+                            viewModel.selectedIds.removeAll()
+                        }
+                    } label: {
+                        Image(systemName: viewModel.isSelectionMode ? "checkmark.circle.fill" : "checkmark.circle")
+                    }
+
+                    Button {
+                        Task { await viewModel.loadFeed() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
             }
             .alert("エラー", isPresented: errorBinding) {
@@ -73,28 +84,71 @@ struct FeedView: View {
 
     /// 記事一覧の `List`。左右スワイプで Star/Dismiss、タップで記事を開く。
     private var articleList: some View {
-        List(viewModel.articles) { article in
-            ArticleRowView(article: article)
-                .contentShape(Rectangle())
+        ZStack {
+            List(viewModel.articles) { article in
+                HStack(spacing: 12) {
+                    if viewModel.isSelectionMode {
+                        Image(systemName: viewModel.selectedIds.contains(article.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(viewModel.selectedIds.contains(article.id) ? .blue : .secondary)
+                            .onTapGesture {
+                                viewModel.toggleSelection(article.id)
+                            }
+                    }
+
+                    ArticleRowView(article: article)
+                        .contentShape(Rectangle())
+                }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) {
-                        Task { await viewModel.dismiss(article: article) }
-                    } label: {
-                        Label("Dismiss", systemImage: "xmark")
+                    if !viewModel.isSelectionMode {
+                        Button(role: .destructive) {
+                            Task { await viewModel.dismiss(article: article) }
+                        } label: {
+                            Label("Dismiss", systemImage: "xmark")
+                        }
                     }
                 }
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    Button {
-                        Task { await viewModel.star(article: article) }
-                    } label: {
-                        Label("Star", systemImage: "star.fill")
+                    if !viewModel.isSelectionMode {
+                        Button {
+                            Task { await viewModel.star(article: article) }
+                        } label: {
+                            Label("Star", systemImage: "star.fill")
+                        }
+                        .tint(.yellow)
                     }
-                    .tint(.yellow)
                 }
-                .onTapGesture { open(article) }
+                .onTapGesture {
+                    if viewModel.isSelectionMode {
+                        viewModel.toggleSelection(article.id)
+                    } else {
+                        open(article)
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .refreshable { await viewModel.loadFeed() }
+
+            VStack {
+                Spacer()
+                if viewModel.isSelectionMode && !viewModel.selectedIds.isEmpty {
+                    bulkStarButton
+                }
+            }
         }
-        .listStyle(.plain)
-        .refreshable { await viewModel.loadFeed() }
+    }
+
+    /// 選択中の記事を一括 Star するボタン。
+    private var bulkStarButton: some View {
+        Button(action: { Task { await viewModel.bulkStar() } }) {
+            Text("\(viewModel.selectedIds.count)件を一括スター")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .foregroundStyle(.white)
+                .background(Color.blue)
+                .cornerRadius(8)
+        }
+        .padding()
     }
 
     /// 記事を設定（``AppState/articleOpenMode``）に従って開く。

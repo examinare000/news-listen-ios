@@ -11,6 +11,8 @@ import SwiftUI
 struct ArticleRowView: View {
     /// 表示する記事。
     let article: Article
+    /// アプリ全体で共有する設定状態。
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -22,13 +24,22 @@ struct ArticleRowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(article.publishedAt.prefix(10))
+                Text(formattedDate)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             scoreBar
         }
         .padding(.vertical, 4)
+    }
+
+    /// timeFormat 設定に応じた日付表記を返す。
+    private var formattedDate: String {
+        if appState.timeFormat == "relative" {
+            return RelativeTimeFormatter.format(article.publishedAt)
+        } else {
+            return String(article.publishedAt.prefix(10))
+        }
     }
 
     /// スコア（0〜1）を横バーで可視化するサブビュー。
