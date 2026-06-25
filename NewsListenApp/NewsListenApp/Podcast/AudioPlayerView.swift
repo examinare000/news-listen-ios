@@ -56,13 +56,17 @@ struct AudioPlayerView: View {
                     Image(systemName: "gobackward.15")
                         .font(.title2)
                 }
+                .accessibilityLabel("15秒戻す")
+                .accessibilityHint("再生位置を15秒前に移動します")
 
                 Button {
                     vm.togglePlayPause()
                 } label: {
                     Image(systemName: vm.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 52))
+                        .font(.system(.largeTitle))
                 }
+                .accessibilityLabel(vm.isPlaying ? "一時停止" : "再生")
+                .accessibilityHint(vm.isPlaying ? "再生を一時停止します" : "再生を開始します")
 
                 Button {
                     vm.seek(to: min(vm.duration, vm.currentTime + 30))
@@ -70,6 +74,8 @@ struct AudioPlayerView: View {
                     Image(systemName: "goforward.30")
                         .font(.title2)
                 }
+                .accessibilityLabel("30秒進む")
+                .accessibilityHint("再生位置を30秒先に移動します")
             }
 
             // 再生速度

@@ -61,12 +61,16 @@ struct FeedView: View {
                     } label: {
                         Image(systemName: viewModel.isSelectionMode ? "checkmark.circle.fill" : "checkmark.circle")
                     }
+                    .accessibilityLabel(viewModel.isSelectionMode ? "選択モード: オン" : "選択モード: オフ")
+                    .accessibilityHint("複数の記事を選択できます")
 
                     Button {
                         Task { await viewModel.loadFeed() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
+                    .accessibilityLabel("フィード更新")
+                    .accessibilityHint("最新の記事を取得します")
                 }
             }
             .alert("エラー", isPresented: errorBinding) {
@@ -105,6 +109,7 @@ struct FeedView: View {
                         } label: {
                             Label("Dismiss", systemImage: "xmark")
                         }
+                        .accessibilityLabel("記事を削除")
                     }
                 }
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -115,6 +120,7 @@ struct FeedView: View {
                             Label("Star", systemImage: "star.fill")
                         }
                         .tint(.yellow)
+                        .accessibilityLabel("記事をスター")
                     }
                 }
                 .onTapGesture {
@@ -149,6 +155,8 @@ struct FeedView: View {
                 .cornerRadius(8)
         }
         .padding()
+        .accessibilityLabel("選択中の記事を一括スター")
+        .accessibilityValue("\(viewModel.selectedIds.count)件")
     }
 
     /// 記事を設定（``AppState/articleOpenMode``）に従って開く。

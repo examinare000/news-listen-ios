@@ -80,10 +80,12 @@ struct SettingsView: View {
                     Text(mode.label).tag(mode)
                 }
             }
+            .accessibilityHint("記事を現在のアプリ内 Safari で開くか、システムの Safari で開くかを選択できます")
             Picker("記事の日付表記", selection: $appState.timeFormat) {
                 Text("絶対表記 (YYYY-MM-DD)").tag("absolute")
                 Text("相対表記 (N分前)").tag("relative")
             }
+            .accessibilityHint("記事の公開日を絶対表記 (YYYY-MM-DD) または相対表記 (N分前など) で表示するか選択できます")
         }
     }
 
