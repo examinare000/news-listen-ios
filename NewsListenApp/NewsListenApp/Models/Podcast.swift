@@ -25,15 +25,21 @@ struct Podcast: Codable, Identifiable {
     let durationSeconds: Int
     /// 生成日時（ISO 8601 文字列）。
     let createdAt: String
+    /// 生成ステータス（`"processing"` | `"completed"` | `"failed"` | `"partial_failed"`）。
+    /// バックエンドが常時返却するため非 Optional。表示層での enum 変換は ADR-021 に従い iOS#15 で対応。
+    let status: String
+    /// 失敗時のエラー詳細。`status` が `"failed"` または `"partial_failed"` のときのみ非 nil。
+    let errorMessage: String?
 
     /// バックエンドの snake_case フィールドに対応する。
     enum CodingKeys: String, CodingKey {
-        case id, type, difficulty
+        case id, type, difficulty, status
         case articleIds = "article_ids"
         case audioUrl = "audio_url"
         case japaneseIntroText = "japanese_intro_text"
         case durationSeconds = "duration_seconds"
         case createdAt = "created_at"
+        case errorMessage = "error_message"
     }
 
     /// `durationSeconds` を `分:秒`（例: `3:05`）の表示用文字列に整形する。
