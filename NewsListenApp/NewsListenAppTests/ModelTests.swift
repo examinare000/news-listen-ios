@@ -31,7 +31,8 @@ final class ModelTests: XCTestCase {
             "audio_url": "https://storage.example.com/pod1.mp3",
             "japanese_intro_text": "今日のニュースは...",
             "duration_seconds": 300,
-            "created_at": "2026-05-31T06:00:00Z"
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed"
         }
         """.data(using: .utf8)!
 
@@ -50,9 +51,52 @@ final class ModelTests: XCTestCase {
             audioUrl: "https://storage.example.com/pod1.mp3",
             japaneseIntroText: "今日のニュースは...",
             durationSeconds: 305,
-            createdAt: "2026-05-31T06:00:00Z"
+            createdAt: "2026-05-31T06:00:00Z",
+            status: "completed",
+            errorMessage: nil
         )
         XCTAssertEqual(podcast.formattedDuration, "5:05")
+    }
+
+    func testPodcastDecodesStatusAndErrorMessage() throws {
+        // 1. status:"failed" + error_message あり
+        let failedJSON = """
+        {
+            "id": "pod-fail",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod-fail.mp3",
+            "japanese_intro_text": "エラーが発生しました",
+            "duration_seconds": 0,
+            "created_at": "2026-06-25T00:00:00Z",
+            "status": "failed",
+            "error_message": "TTS failed"
+        }
+        """.data(using: .utf8)!
+
+        let failedPodcast = try JSONDecoder().decode(Podcast.self, from: failedJSON)
+        XCTAssertEqual(failedPodcast.status, "failed")
+        XCTAssertEqual(failedPodcast.errorMessage, "TTS failed")
+
+        // 2. status:"processing" + error_message キー無し
+        let processingJSON = """
+        {
+            "id": "pod-proc",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod-proc.mp3",
+            "japanese_intro_text": "処理中です",
+            "duration_seconds": 0,
+            "created_at": "2026-06-25T00:00:00Z",
+            "status": "processing"
+        }
+        """.data(using: .utf8)!
+
+        let processingPodcast = try JSONDecoder().decode(Podcast.self, from: processingJSON)
+        XCTAssertEqual(processingPodcast.status, "processing")
+        XCTAssertNil(processingPodcast.errorMessage)
     }
 
     func testFeedResponseDecodes() throws {
