@@ -118,6 +118,71 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(mockSession.lastRequest?.httpMethod, "POST")
         XCTAssertTrue(status.onboardingCompleted)
     }
+
+    func testFetchPodcastCallsCorrectEndpoint() async throws {
+        let mockJSON = #"""
+        {"id":"p1","type":"single","article_ids":["a1"],"difficulty":"toeic_900","audio_url":"https://storage.example.com/p1.mp3","japanese_intro_text":"今日は...","duration_seconds":300,"created_at":"2026-05-31T06:00:00Z","status":"completed"}
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let podcast = try await client.fetchPodcast(id: "p1")
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/podcasts/p1")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "GET")
+        XCTAssertEqual(podcast.id, "p1")
+    }
+
+    func testDownloadAudioFetchesDataFromURL() async throws {
+        let audioData = "mock audio content".data(using: .utf8)!
+        let mockSession = MockURLSession(data: audioData, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let data = try await client.downloadAudio(from: URL(string: "https://storage.example.com/audio.mp3")!)
+
+        XCTAssertEqual(data, audioData)
+    }
+
+    func testDownloadAudioDoesNotIncludeAPIKeyHeader() async throws {
+        let audioData = "mock audio".data(using: .utf8)!
+        let mockSession = MockURLSession(data: audioData, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "secret-key",
+            session: mockSession
+        )
+
+        _ = try await client.downloadAudio(from: URL(string: "https://storage.example.com/audio.mp3")!)
+
+        // downloadAudio は X-API-Key を付けない
+        XCTAssertNil(mockSession.lastRequest?.value(forHTTPHeaderField: "X-API-Key"))
+        // Authorization も付けない
+        XCTAssertNil(mockSession.lastRequest?.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testDownloadAudioThrowsOnHTTPError() async throws {
+        let mockSession = MockURLSession(data: Data(), statusCode: 500)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        do {
+            _ = try await client.downloadAudio(from: URL(string: "https://storage.example.com/audio.mp3")!)
+            XCTFail("HTTP 500 でエラーが送出されるべき")
+        } catch let APIError.httpError(statusCode) {
+            XCTAssertEqual(statusCode, 500)
+        }
+    }
 }
 
 // MARK: - MockURLSession
