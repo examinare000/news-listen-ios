@@ -44,6 +44,7 @@ final class AppState: ObservableObject {
         static let defaultDifficulty = "default_difficulty"
         static let defaultPlaybackSpeed = "default_playback_speed"
         static let articleOpenMode = "article_open_mode"
+        static let timeFormat = "time_format"
     }
 
     /// API のベース URL。変更時に `UserDefaults` へ保存する。
@@ -69,6 +70,11 @@ final class AppState: ObservableObject {
     /// 記事タップ時の開き方。変更時に `UserDefaults` へ保存する。
     @Published var articleOpenMode: ArticleOpenMode {
         didSet { UserDefaults.standard.set(articleOpenMode.rawValue, forKey: Keys.articleOpenMode) }
+    }
+
+    /// 記事の日付表記方式（"absolute" | "relative"）。変更時に `UserDefaults` へ保存する。
+    @Published var timeFormat: String {
+        didSet { UserDefaults.standard.set(timeFormat, forKey: Keys.timeFormat) }
     }
 
     /// 初回オンボーディング（おすすめ追加ステップ）の完了状態。
@@ -187,6 +193,7 @@ final class AppState: ObservableObject {
         self.defaultDifficulty = UserDefaults.standard.string(forKey: Keys.defaultDifficulty) ?? "toeic_900"
         self.defaultPlaybackSpeed = UserDefaults.standard.double(forKey: Keys.defaultPlaybackSpeed).nonZero ?? 1.0
         self.articleOpenMode = ArticleOpenMode(rawValue: UserDefaults.standard.string(forKey: Keys.articleOpenMode) ?? "") ?? .inApp
+        self.timeFormat = UserDefaults.standard.string(forKey: Keys.timeFormat) ?? "absolute"
     }
 }
 

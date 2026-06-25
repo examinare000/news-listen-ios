@@ -80,6 +80,10 @@ struct SettingsView: View {
                     Text(mode.label).tag(mode)
                 }
             }
+            Picker("記事の日付表記", selection: $appState.timeFormat) {
+                Text("絶対表記 (YYYY-MM-DD)").tag("absolute")
+                Text("相対表記 (N分前)").tag("relative")
+            }
         }
     }
 
