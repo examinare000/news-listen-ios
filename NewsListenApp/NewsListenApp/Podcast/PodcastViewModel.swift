@@ -9,10 +9,22 @@
 import Foundation
 import Combine
 import AVFoundation
+import SwiftUI
+
+/// 音声再生の準備状態を表す列挙型。
+enum DownloadState: Equatable {
+    /// ダウンロードされていない。
+    case notDownloaded
+    /// 現在ダウンロード中。
+    case downloading
+    /// ダウンロード済み。
+    case downloaded
+}
 
 /// Podcast タブの状態とロジックを担う ViewModel。
 ///
 /// 一覧取得と、`AVPlayer` による音声再生（再生/一時停止・シーク・速度変更）を行う。
+/// オフライン再生のため、キャッシュマネージャとネットワーク監視を注入可能。
 ///
 /// - Note: `AVPlayer` の操作と `@Published` 更新を同一コンテキストで行うため `@MainActor`。
 ///   `addPeriodicTimeObserver` 等の API 都合で `NSObject` を継承する。
@@ -34,41 +46,155 @@ final class PodcastViewModel: NSObject, ObservableObject {
     @Published var duration: Double = 0
     /// 現在の再生速度（倍率）。
     @Published var playbackSpeed: Float = 1.0
+    /// ダウンロード済み Podcast ID の集合（ViewModel のみが更新する）。
+    @Published private(set) var downloadedIds: Set<String> = []
+    /// ダウンロード中 Podcast ID の集合（ViewModel のみが更新する）。
+    @Published private(set) var downloadingIds: Set<String> = []
 
     /// API 通信に使うクライアント。
     private let apiClient: APIClient
+    /// 音声キャッシュを管理するマネージャ。
+    private let cacheManager: AudioCacheManager
+    /// ネットワーク接続状態を監視する。
+    private let networkMonitor: NetworkMonitoring
     /// 音声再生に使う `AVPlayer`（未再生時は `nil`）。
     private var player: AVPlayer?
     /// 再生位置を定期更新するためのタイムオブザーバ。解放時に取り外す。
     private var timeObserver: Any?
 
     /// ViewModel を生成する。
-    /// - Parameter apiClient: API 通信に使うクライアント。
-    init(apiClient: APIClient) {
+    /// - Parameters:
+    ///   - apiClient: API 通信に使うクライアント。
+    ///   - cacheManager: 音声キャッシュマネージャ（既定: `AudioCacheManager()`）。
+    ///   - networkMonitor: ネットワーク監視（既定: 実機監視の `NetworkMonitor()`）。
+    init(
+        apiClient: APIClient,
+        cacheManager: AudioCacheManager = AudioCacheManager(),
+        networkMonitor: NetworkMonitoring = NetworkMonitor()
+    ) {
         self.apiClient = apiClient
+        self.cacheManager = cacheManager
+        self.networkMonitor = networkMonitor
     }
 
     // MARK: - Data
 
     /// Podcast 一覧を取得して `podcasts` を更新する。失敗時は `errorMessage` に反映する。
+    /// ロード後、既存キャッシュから downloadedIds を同期する。
     func loadPodcasts() async {
         isLoading = true
         errorMessage = nil
         do {
             let response = try await apiClient.fetchPodcasts()
             podcasts = response.podcasts
+            syncDownloadedState()
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
     }
 
+    /// ローカルキャッシュから、ダウンロード済み ID を同期する。
+    func syncDownloadedState() {
+        downloadedIds = Set(podcasts.filter { cacheManager.isCached($0.id) }.map { $0.id })
+    }
+
+    /// 指定 Podcast の再生準備状態を返す。
+    /// - Parameter podcastId: Podcast ID。
+    func downloadState(for podcastId: String) -> DownloadState {
+        Self.downloadState(forId: podcastId, downloaded: downloadedIds, downloading: downloadingIds)
+    }
+
+    /// ダウンロード状態を導出する純粋関数（副作用なし・テスト容易）。downloading を downloaded より優先。
+    static func downloadState(
+        forId podcastId: String,
+        downloaded: Set<String>,
+        downloading: Set<String>
+    ) -> DownloadState {
+        if downloading.contains(podcastId) {
+            return .downloading
+        } else if downloaded.contains(podcastId) {
+            return .downloaded
+        } else {
+            return .notDownloaded
+        }
+    }
+
+    /// 指定 Podcast の音声をダウンロード・キャッシュし、downloadedIds に追加する。
+    /// ダウンロード中の重複を防ぐため、已に downloading/downloaded 中なら何もしない。
+    /// - Parameter podcast: ダウンロード対象の Podcast。
+    func download(podcast: Podcast) async {
+        guard !downloadingIds.contains(podcast.id), !downloadedIds.contains(podcast.id) else { return }
+
+        downloadingIds.insert(podcast.id)
+        defer { downloadingIds.remove(podcast.id) }
+
+        do {
+            // 署名付き URL を新たに取得（再生時点での最新 URL を確保）。
+            let fresh = try await apiClient.fetchPodcast(id: podcast.id)
+            guard let audioURLString = URL(string: fresh.audioUrl) else {
+                errorMessage = "Invalid audio URL"
+                return
+            }
+            // 音声データをダウンロード。
+            let audioData = try await apiClient.downloadAudio(from: audioURLString)
+            // キャッシュに保存。
+            try cacheManager.cache(audioData, for: podcast.id)
+            // 成功時のみ downloadedIds に追加。
+            downloadedIds.insert(podcast.id)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// キャッシュからダウンロード済み Podcast を削除する。
+    /// - Parameter podcast: 削除対象の Podcast。
+    func removeDownload(podcast: Podcast) async {
+        do {
+            try cacheManager.remove(podcast.id)
+            downloadedIds.remove(podcast.id)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     // MARK: - Playback
 
+    /// 指定 Podcast の再生 URL を解決する。
+    ///
+    /// - キャッシュ有：ローカルファイル URL を返す。
+    /// - キャッシュ無+オンライン：podcast.audioUrl を URL(string:) で解析して返す。
+    /// - キャッシュ無+オフライン：nil を返す。
+    ///
+    /// - Parameters:
+    ///   - podcast: 対象の Podcast。
+    ///   - isOnline: ネットワーク接続状態。
+    /// - Returns: 再生可能な URL、または nil（再生不可）。
+    static func resolvePlaybackURL(for podcast: Podcast, isOnline: Bool, cacheManager: AudioCacheManager) -> URL? {
+        // キャッシュ有なら優先的に返す。
+        if cacheManager.isCached(podcast.id) {
+            return cacheManager.cachedURL(for: podcast.id)
+        }
+        // キャッシュ無+オンライン：署名付き URL を使う。
+        if isOnline {
+            return URL(string: podcast.audioUrl)
+        }
+        // キャッシュ無+オフライン：再生不可。
+        return nil
+    }
+
     /// 指定 Podcast の音声を先頭から再生する。再生中の音声があれば停止してから差し替える。
-    /// - Parameter podcast: 再生対象の Podcast。`audioUrl` が不正な場合は何もしない。
-    func play(podcast: Podcast) {
-        guard let url = URL(string: podcast.audioUrl) else { return }
+    ///
+    /// オフライン+未キャッシュの場合は、errorMessage をセットして何もしない。
+    /// オンライン+未キャッシュの場合は、署名付き URL を再取得して再生（失敗時は元 audioUrl でフォールバック）。
+    ///
+    /// - Parameter podcast: 再生対象の Podcast。
+    func play(podcast: Podcast) async {
+        // 再生 URL を解決する。
+        guard let url = Self.resolvePlaybackURL(for: podcast, isOnline: networkMonitor.isOnline, cacheManager: cacheManager) else {
+            errorMessage = "Offline and not cached"
+            return
+        }
 
         // マナーモード（消音スイッチ ON）でも再生されるよう .playback を指定する。
         // 既定の .soloAmbient だと無音になり「再生されない」不具合になるため。
