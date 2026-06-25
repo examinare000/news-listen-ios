@@ -9,7 +9,7 @@ final class PodcastViewModelTests: XCTestCase {
     func testLoadPodcastsPopulatesList() async throws {
         let mockJSON = #"""
         {"podcasts": [
-            {"id":"p1","type":"single","article_ids":["a1"],"difficulty":"toeic_900","audio_url":"https://storage.example.com/p1.mp3","japanese_intro_text":"今日は...","duration_seconds":300,"created_at":"2026-05-31T06:00:00Z"}
+            {"id":"p1","type":"single","article_ids":["a1"],"difficulty":"toeic_900","audio_url":"https://storage.example.com/p1.mp3","japanese_intro_text":"今日は...","duration_seconds":300,"created_at":"2026-05-31T06:00:00Z","status":"completed"}
         ]}
         """#.data(using: .utf8)!
 
