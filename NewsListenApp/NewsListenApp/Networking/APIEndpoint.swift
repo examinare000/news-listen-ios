@@ -17,6 +17,8 @@ enum APIEndpoint {
     case dismissArticle(id: String)
     /// Podcast 一覧の取得。
     case podcasts
+    /// 指定 ID の Podcast を取得（署名付き audioUrl 再取得用）。
+    case podcast(id: String)
     /// 登録済み RSS 配信元一覧の取得。
     case sources
     /// RSS 配信元の追加。
@@ -57,6 +59,7 @@ enum APIEndpoint {
         case .starArticle(let id): return "/articles/\(id)/star"
         case .dismissArticle(let id): return "/articles/\(id)/dismiss"
         case .podcasts: return "/podcasts"
+        case .podcast(let id): return "/podcasts/\(id)"
         case .sources, .addSource: return "/settings/sources"
         case .removeSource: return "/settings/sources"
         case .featuredSources: return "/settings/featured-sources"
@@ -75,7 +78,7 @@ enum APIEndpoint {
     /// このエンドポイントで使用する HTTP メソッド（GET / POST / PATCH / DELETE）。
     var method: String {
         switch self {
-        case .feed, .podcasts, .sources, .featuredSources, .onboardingStatus,
+        case .feed, .podcasts, .podcast, .sources, .featuredSources, .onboardingStatus,
              .me, .listUsers:
             return "GET"
         case .starArticle, .dismissArticle, .addSource, .completeOnboarding,

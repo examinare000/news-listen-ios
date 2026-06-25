@@ -14,11 +14,24 @@ struct PodcastView: View {
     /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
     /// （`FeedView` と同様、プレースホルダ生成 + 後差し替えのアンチパターンを避ける）。
     @StateObject private var viewModel: PodcastViewModel
+    /// キャッシュマネージャ。
+    private let cacheManager: AudioCacheManager
+    /// ネットワーク監視。
+    private let networkMonitor: NetworkMonitoring
 
     /// ビューを生成する。
-    /// - Parameter apiClient: ViewModel に注入する API クライアント。
-    init(apiClient: APIClient) {
-        _viewModel = StateObject(wrappedValue: PodcastViewModel(apiClient: apiClient))
+    /// - Parameters:
+    ///   - apiClient: ViewModel に注入する API クライアント。
+    ///   - cacheManager: 音声キャッシュマネージャ（既定: `AudioCacheManager()`）。
+    ///   - networkMonitor: ネットワーク監視（既定: `NetworkMonitor()`）。
+    init(
+        apiClient: APIClient,
+        cacheManager: AudioCacheManager = AudioCacheManager(),
+        networkMonitor: NetworkMonitoring = NetworkMonitor()
+    ) {
+        _viewModel = StateObject(wrappedValue: PodcastViewModel(apiClient: apiClient, cacheManager: cacheManager, networkMonitor: networkMonitor))
+        self.cacheManager = cacheManager
+        self.networkMonitor = networkMonitor
     }
 
     var body: some View {
@@ -65,11 +78,19 @@ struct PodcastView: View {
         List(viewModel.podcasts) { podcast in
             PodcastRowView(
                 podcast: podcast,
-                isPlaying: viewModel.currentPodcast?.id == podcast.id && viewModel.isPlaying
+                isPlaying: viewModel.currentPodcast?.id == podcast.id && viewModel.isPlaying,
+                downloadState: viewModel.downloadState(for: podcast.id),
+                onDownloadTap: {
+                    Task {
+                        await viewModel.download(podcast: podcast)
+                    }
+                }
             )
             .contentShape(Rectangle())
             .onTapGesture {
-                viewModel.play(podcast: podcast)
+                Task {
+                    await viewModel.play(podcast: podcast)
+                }
             }
         }
         .listStyle(.plain)

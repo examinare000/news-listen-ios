@@ -99,6 +99,25 @@ final class APIClient {
         try await request(.podcasts, responseType: PodcastListResponse.self)
     }
 
+    /// 指定 ID の Podcast を取得する（オフライン再生時の署名付き URL 再取得用）。
+    /// - Parameter id: 対象 Podcast の ID。
+    func fetchPodcast(id: String) async throws -> Podcast {
+        try await request(.podcast(id: id), responseType: Podcast.self)
+    }
+
+    /// 指定 URL から音声データをダウンロードする。
+    ///
+    /// **セキュリティ**: 外部署名 URL（GCS 等）に対してヘッダを付けない。
+    /// X-API-Key・Authorization は付与せず、URLRequest をそのまま実行する。
+    /// - Parameter url: 音声ファイルの URL。
+    /// - Returns: 音声データ。
+    func downloadAudio(from url: URL) async throws -> Data {
+        let request = URLRequest(url: url)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response)
+        return data
+    }
+
     // MARK: - Settings
 
     /// 登録済みの RSS 配信元一覧を取得する。

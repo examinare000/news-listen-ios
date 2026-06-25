@@ -7,12 +7,28 @@
 
 import SwiftUI
 
-/// Podcast 一覧の各行。再生状態・イントロ要約・難易度・長さ・作成日を表示する。
+/// Podcast 一覧の各行。再生状態・イントロ要約・難易度・長さ・作成日・ダウンロード状態を表示する。
 struct PodcastRowView: View {
     /// 表示する Podcast。
     let podcast: Podcast
     /// この行の Podcast が現在再生中かどうか（アイコン表示の切り替えに使う）。
     let isPlaying: Bool
+    /// ダウンロード状態（既定: notDownloaded）。
+    let downloadState: DownloadState
+    /// ダウンロードボタンタップハンドラ（オプション）。
+    let onDownloadTap: (() -> Void)?
+
+    init(
+        podcast: Podcast,
+        isPlaying: Bool,
+        downloadState: DownloadState = .notDownloaded,
+        onDownloadTap: (() -> Void)? = nil
+    ) {
+        self.podcast = podcast
+        self.isPlaying = isPlaying
+        self.downloadState = downloadState
+        self.onDownloadTap = onDownloadTap
+    }
 
     var body: some View {
         HStack {
@@ -41,8 +57,31 @@ struct PodcastRowView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            // ダウンロード状態ボタン
+            downloadButton
         }
         .padding(.vertical, 4)
+    }
+
+    /// ダウンロード状態に応じたボタンを返す。
+    @ViewBuilder
+    private var downloadButton: some View {
+        switch downloadState {
+        case .notDownloaded:
+            Button(action: { onDownloadTap?() }) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+            }
+        case .downloading:
+            ProgressView()
+                .scaleEffect(0.8, anchor: .center)
+        case .downloaded:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(.green)
+        }
     }
 
     /// 難易度コードを表示用ラベルへ変換する。未知の値はそのまま返す。
