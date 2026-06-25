@@ -64,6 +64,10 @@ struct PodcastRowView: View {
             downloadButton
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Podcast: \(String(podcast.japaneseIntroText.prefix(60)))")
+        .accessibilityValue("難易度: \(difficultyLabel(podcast.difficulty))、長さ: \(podcast.formattedDuration)、作成日: \(formattedDate)" + (isPlaying ? "、再生中" : ""))
+        .accessibilityHint("タップで再生を開始します")
     }
 
     /// timeFormat 設定に応じた日付表記を返す。
@@ -85,13 +89,17 @@ struct PodcastRowView: View {
                     .font(.title3)
                     .foregroundStyle(.blue)
             }
+            .accessibilityLabel("ダウンロード")
+            .accessibilityHint("Podcast をダウンロードします")
         case .downloading:
             ProgressView()
                 .scaleEffect(0.8, anchor: .center)
+                .accessibilityLabel("ダウンロード中")
         case .downloaded:
             Image(systemName: "checkmark.circle.fill")
                 .font(.title3)
                 .foregroundStyle(.green)
+                .accessibilityLabel("ダウンロード済み")
         }
     }
 

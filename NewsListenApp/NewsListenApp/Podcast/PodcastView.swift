@@ -92,6 +92,7 @@ struct PodcastView: View {
                     await viewModel.play(podcast: podcast)
                 }
             }
+            .accessibilityHint("タップで再生を開始します")
         }
         .listStyle(.plain)
         .refreshable { await viewModel.loadPodcasts() }
