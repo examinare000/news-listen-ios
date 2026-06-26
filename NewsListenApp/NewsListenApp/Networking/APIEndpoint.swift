@@ -52,6 +52,20 @@ enum APIEndpoint {
     /// ユーザーの削除（管理者）。
     case deleteUser(username: String)
 
+    // Passkey（WebAuthn）
+    /// Passkey 登録オプションの取得（Bearer 要）。
+    case passkeyRegisterOptions
+    /// Passkey 登録の検証・保存（Bearer 要）。
+    case passkeyRegisterVerify
+    /// Passkey 認証オプションの取得（認証不要・CSRF 免除）。
+    case passkeyLoginOptions
+    /// Passkey 認証の検証・セッション発行（認証不要）。
+    case passkeyLoginVerify
+    /// 登録済み Passkey クレデンシャル一覧の取得（Bearer 要）。
+    case passkeyCredentials
+    /// 指定クレデンシャルの削除（Bearer 要・パス param は base64url 文字列）。
+    case passkeyDeleteCredential(id: String)
+
     /// エンドポイントへの相対パス（baseURL に連結して使う）。
     var path: String {
         switch self {
@@ -72,6 +86,12 @@ enum APIEndpoint {
         case .listUsers, .createUser: return "/admin/users"
         case .updateUser(let username), .deleteUser(let username):
             return "/admin/users/\(username)"
+        case .passkeyRegisterOptions: return "/auth/passkey/register/options"
+        case .passkeyRegisterVerify: return "/auth/passkey/register/verify"
+        case .passkeyLoginOptions: return "/auth/passkey/login/options"
+        case .passkeyLoginVerify: return "/auth/passkey/login/verify"
+        case .passkeyCredentials: return "/auth/passkey/credentials"
+        case .passkeyDeleteCredential(let id): return "/auth/passkey/credentials/\(id)"
         }
     }
 
@@ -79,14 +99,16 @@ enum APIEndpoint {
     var method: String {
         switch self {
         case .feed, .podcasts, .podcast, .sources, .featuredSources, .onboardingStatus,
-             .me, .listUsers:
+             .me, .listUsers, .passkeyCredentials:
             return "GET"
         case .starArticle, .dismissArticle, .addSource, .completeOnboarding,
-             .login, .logout, .changePassword, .createUser:
+             .login, .logout, .changePassword, .createUser,
+             .passkeyRegisterOptions, .passkeyRegisterVerify,
+             .passkeyLoginOptions, .passkeyLoginVerify:
             return "POST"
         case .updateProfile, .updateUser:
             return "PATCH"
-        case .removeSource, .deleteUser:
+        case .removeSource, .deleteUser, .passkeyDeleteCredential:
             return "DELETE"
         }
     }
