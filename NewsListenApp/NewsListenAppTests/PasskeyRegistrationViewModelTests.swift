@@ -92,7 +92,7 @@ final class PasskeyRegistrationViewModelTests: XCTestCase {
             "Y2hhbGxlbmdl のデコード結果と一致すること"
         )
         XCTAssertEqual(provider.receivedRegistrationOptions?.rpID, "rp.example.com")
-        XCTAssertEqual(provider.receivedRegistrationOptions?.userID, Data("userId".utf8),
+        XCTAssertEqual(provider.receivedRegistrationOptions?.userID, Data("userID".utf8),
                        "dXNlcklE のデコード結果と一致すること")
         XCTAssertEqual(provider.receivedRegistrationOptions?.userName, "alice")
         XCTAssertEqual(provider.createCallCount, 1)

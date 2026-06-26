@@ -183,10 +183,10 @@ final class PasskeyOptionsDecoderTests: XCTestCase {
     }
 
     func testDecodeRegistrationUserID() throws {
-        // "dXNlcklE" = base64url("userId")
+        // "dXNlcklE" = base64url("userID")
         let response = makeRegisterOptionsAPIResponse(userIDBase64URL: "dXNlcklE")
         let options = try PasskeyOptionsDecoder.decodeRegistration(from: response)
-        XCTAssertEqual(options.userID, Data("userId".utf8))
+        XCTAssertEqual(options.userID, Data("userID".utf8))
     }
 
     func testDecodeRegistrationUserNameAndDisplayName() throws {
