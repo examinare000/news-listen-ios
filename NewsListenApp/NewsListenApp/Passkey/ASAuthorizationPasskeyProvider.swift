@@ -30,6 +30,9 @@ final class ASAuthorizationPasskeyProvider: NSObject, PasskeyAuthorizationProvid
     nonisolated(unsafe) private var retainedRegistrationDelegate: PasskeyRegistrationDelegate?
     /// 実行中の認証デリゲート。
     nonisolated(unsafe) private var retainedAssertionDelegate: PasskeyAssertionDelegate?
+    /// 実行中の ASAuthorizationController。`performRequests()` 後にローカル変数のままだと
+    /// 唯一の強参照が消えて途中解放され、シート非表示・コールバック未着の原因になるため保持する。
+    nonisolated(unsafe) private var retainedController: ASAuthorizationController?
 
     // MARK: - PasskeyAuthorizationProviding
 
@@ -49,6 +52,7 @@ final class ASAuthorizationPasskeyProvider: NSObject, PasskeyAuthorizationProvid
             let controller = ASAuthorizationController(authorizationRequests: [request])
             let delegate = PasskeyRegistrationDelegate(continuation: continuation)
             retainedRegistrationDelegate = delegate
+            retainedController = controller
             controller.delegate = delegate
             controller.presentationContextProvider = self
             controller.performRequests()
@@ -65,6 +69,7 @@ final class ASAuthorizationPasskeyProvider: NSObject, PasskeyAuthorizationProvid
             let controller = ASAuthorizationController(authorizationRequests: [request])
             let delegate = PasskeyAssertionDelegate(continuation: continuation)
             retainedAssertionDelegate = delegate
+            retainedController = controller
             controller.delegate = delegate
             controller.presentationContextProvider = self
             controller.performRequests()
