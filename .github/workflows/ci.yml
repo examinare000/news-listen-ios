@@ -49,12 +49,6 @@ jobs:
           fetch-depth: 0
 
       - name: Scan for secrets
-        run: |
-          if command -v gitleaks >/dev/null 2>&1; then
-            gitleaks detect --redact --no-banner --source .
-          else
-            echo "gitleaks not found, installing..."
-            wget -q -O /tmp/gitleaks https://github.com/gitleaks/gitleaks/releases/download/v8.18.0/gitleaks-linux-x64
-            chmod +x /tmp/gitleaks
-            /tmp/gitleaks detect --redact --no-banner --source .
-          fi
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
