@@ -24,6 +24,11 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Prepare Secrets.xcconfig
+        # 実値ファイルは .gitignore 済み（コミット禁止）。CI ではテンプレートを複製する。
+        # ユニットテストのビルドに実値は不要。
+        run: cp NewsListenApp/Secrets.example.xcconfig NewsListenApp/Secrets.xcconfig
+
       - name: Run tests
         run: |
           set -o pipefail
