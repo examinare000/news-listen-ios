@@ -247,6 +247,56 @@ final class APIClient {
         try await request(.completeOnboarding, responseType: OnboardingStatusResponse.self)
     }
 
+    // MARK: - Passkey（WebAuthn）
+
+    /// Passkey 登録オプションを取得する（Bearer 要）。
+    func passkeyRegisterOptions() async throws -> PasskeyOptionsAPIResponse {
+        try await request(.passkeyRegisterOptions, responseType: PasskeyOptionsAPIResponse.self)
+    }
+
+    /// Passkey 登録クレデンシャルをサーバに送り検証・保存する（Bearer 要）。
+    ///
+    /// - Parameters:
+    ///   - challengeID: options 取得時に受領したチャレンジ相関 ID。
+    ///   - credential: `PasskeyCredentialEncoder.encodeRegistration` が返した dict。
+    func passkeyRegisterVerify(challengeID: String, credential: [String: Any]) async throws {
+        let body: [String: Any] = ["challenge_id": challengeID, "credential": credential]
+        try await requestVoid(.passkeyRegisterVerify, body: body)
+    }
+
+    /// Passkey 認証オプションを取得する（認証不要・CSRF 免除・body: {}）。
+    ///
+    /// バックエンド契約: allowCredentials は常に空（discoverable / usernameless フロー）。
+    func passkeyLoginOptions() async throws -> PasskeyOptionsAPIResponse {
+        // login/options は認証不要だが、iOS は Bearer を付けても問題なし（CSRF 免除）。
+        // body: {} を明示的に送る（バックエンドは PasskeyLoginOptionsRequest で {} を受け付ける）。
+        let emptyBody: [String: Any] = [:]
+        return try await request(.passkeyLoginOptions, body: emptyBody, responseType: PasskeyOptionsAPIResponse.self)
+    }
+
+    /// Passkey 認証クレデンシャルをサーバに送り検証・セッション発行する（認証不要）。
+    ///
+    /// - Parameters:
+    ///   - challengeID: options 取得時に受領したチャレンジ相関 ID。
+    ///   - credential: `PasskeyCredentialEncoder.encodeAssertion` が返した dict。
+    /// - Returns: `LoginResponse`（token + user）。
+    func passkeyLoginVerify(challengeID: String, credential: [String: Any]) async throws -> LoginResponse {
+        let body: [String: Any] = ["challenge_id": challengeID, "credential": credential]
+        return try await request(.passkeyLoginVerify, body: body, responseType: LoginResponse.self)
+    }
+
+    /// 登録済み Passkey クレデンシャル一覧を取得する（Bearer 要）。
+    func listPasskeyCredentials() async throws -> PasskeyCredentialsAPIResponse {
+        try await request(.passkeyCredentials, responseType: PasskeyCredentialsAPIResponse.self)
+    }
+
+    /// 指定 credential ID の Passkey を削除する（Bearer 要・冪等）。
+    ///
+    /// - Parameter id: 削除対象のクレデンシャル ID（base64url 文字列）。
+    func deletePasskeyCredential(id: String) async throws {
+        try await requestVoid(.passkeyDeleteCredential(id: id))
+    }
+
     // MARK: - Private helpers
 
     /// エンドポイントへリクエストを送り、レスポンスを指定型へデコードして返す。
