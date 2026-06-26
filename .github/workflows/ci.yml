@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   ios-test:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,17 +22,19 @@ jobs:
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.4'
-
-      - name: List available simulators
-        run: xcrun simctl list devices available
+          xcode-version: latest-stable
 
       - name: Run tests
         run: |
+          set -o pipefail
+          # ランナーで利用可能な最初の iPhone シミュレータを動的に選択（イメージ更新で
+          # デバイス名が変わっても壊れないようにする）
+          DEVICE=$(xcrun simctl list devices available | grep -oE 'iPhone [0-9]+( Pro( Max)?)?' | head -1)
+          echo "Selected simulator: ${DEVICE}"
           xcodebuild test \
             -project NewsListenApp/NewsListenApp.xcodeproj \
             -scheme NewsListenApp \
-            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -destination "platform=iOS Simulator,name=${DEVICE}" \
             -only-testing:NewsListenAppTests \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
