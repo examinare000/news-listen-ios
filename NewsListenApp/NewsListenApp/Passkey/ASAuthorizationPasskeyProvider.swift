@@ -35,12 +35,13 @@ final class ASAuthorizationPasskeyProvider: NSObject, PasskeyAuthorizationProvid
             let rpProvider = ASAuthorizationPlatformPublicKeyCredentialProvider(
                 relyingPartyIdentifier: options.rpID
             )
+            // 表示名はプラットフォーム認証器では `name` が account 名として使われる。
+            // ...RegistrationRequest に displayName 設定 API は無いため name のみ指定する。
             let request = rpProvider.createCredentialRegistrationRequest(
                 challenge: options.challenge,
                 name: options.userName,
                 userID: options.userID
             )
-            request.displayName = options.userDisplayName
 
             let controller = ASAuthorizationController(authorizationRequests: [request])
             let delegate = PasskeyRegistrationDelegate(continuation: continuation)
