@@ -19,7 +19,7 @@ final class PasskeyRegistrationViewModel: ObservableObject {
     /// 処理実行中フラグ。
     @Published private(set) var isRunning = false
 
-    private let apiClient: APIClient
+    private let apiClient: APIClient?
     private let provider: PasskeyAuthorizationProviding
     private let onSuccess: () -> Void
 
@@ -28,7 +28,7 @@ final class PasskeyRegistrationViewModel: ObservableObject {
     ///   - provider: Passkey 操作プロバイダ（テスト時はモックを注入）。
     ///   - onSuccess: 登録成功時のコールバック（UI 更新・一覧リロード等は呼び出し側が担う）。
     init(
-        apiClient: APIClient,
+        apiClient: APIClient?,
         provider: PasskeyAuthorizationProviding,
         onSuccess: @escaping () -> Void = {}
     ) {
@@ -48,6 +48,11 @@ final class PasskeyRegistrationViewModel: ObservableObject {
     func register() async {
         isRunning = true
         errorMessage = nil
+        guard let apiClient else {
+            errorMessage = "API クライアントが未設定です"
+            isRunning = false
+            return
+        }
         do {
             let optionsResp = try await apiClient.passkeyRegisterOptions()
             let regOptions = try PasskeyOptionsDecoder.decodeRegistration(from: optionsResp)

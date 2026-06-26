@@ -16,9 +16,9 @@ final class PasskeyCredentialsViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
-    private let apiClient: APIClient
+    private let apiClient: APIClient?
 
-    init(apiClient: APIClient) {
+    init(apiClient: APIClient?) {
         self.apiClient = apiClient
     }
 
@@ -26,6 +26,11 @@ final class PasskeyCredentialsViewModel: ObservableObject {
     func loadCredentials() async {
         isLoading = true
         errorMessage = nil
+        guard let apiClient else {
+            errorMessage = "API クライアントが未設定です"
+            isLoading = false
+            return
+        }
         do {
             let resp = try await apiClient.listPasskeyCredentials()
             credentials = resp.credentials
@@ -37,6 +42,10 @@ final class PasskeyCredentialsViewModel: ObservableObject {
 
     /// 指定 credential ID を削除する。冪等（404 は無視）。
     func deleteCredential(id: String) async {
+        guard let apiClient else {
+            errorMessage = "API クライアントが未設定です"
+            return
+        }
         do {
             try await apiClient.deletePasskeyCredential(id: id)
             credentials.removeAll { $0.credentialID == id }
