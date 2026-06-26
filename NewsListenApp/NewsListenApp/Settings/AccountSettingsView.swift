@@ -73,6 +73,7 @@ struct AccountSettingsView: View {
                 Task { await appState.logout() }
             }
         }
+        .onAppear { displayName = appState.currentUser?.displayName ?? "" }
 
         // Passkey 管理セクション（ログイン済みで API クライアント有効時のみ表示）
         if appState.apiClient != nil {
@@ -131,7 +132,6 @@ struct AccountSettingsView: View {
                 await credentialsViewModel.loadCredentials()
             }
         }
-        .onAppear { displayName = appState.currentUser?.displayName ?? "" }
     }
 
     /// Passkey 登録シート。
