@@ -23,10 +23,13 @@ import UIKit
 @MainActor
 final class ASAuthorizationPasskeyProvider: NSObject, PasskeyAuthorizationProviding {
 
-    /// 実行中の登録デリゲート（ASAuthorizationController が weak 参照のため保持が必要）。
-    private var retainedRegistrationDelegate: PasskeyRegistrationDelegate?
+    // ASAuthorizationController の weak 参照対策で保持する。`withCheckedThrowingContinuation`
+    // の @Sendable クロージャ（nonisolated）から代入するため nonisolated(unsafe) とする。
+    // 生成・代入・解放はすべて MainActor 上の単一フローで行われるため実行時は安全。
+    /// 実行中の登録デリゲート。
+    nonisolated(unsafe) private var retainedRegistrationDelegate: PasskeyRegistrationDelegate?
     /// 実行中の認証デリゲート。
-    private var retainedAssertionDelegate: PasskeyAssertionDelegate?
+    nonisolated(unsafe) private var retainedAssertionDelegate: PasskeyAssertionDelegate?
 
     // MARK: - PasskeyAuthorizationProviding
 
