@@ -75,7 +75,9 @@ final class RelativeTimeFormatterTests: XCTestCase {
 
     func testTwentyThreeHoursAgo() {
         let now = Date(timeIntervalSince1970: 1700000000)
-        let iso = Date(timeIntervalSince1970: 1700000000 - (23 * 3600 + 59 * 60 + 59)).ISO8601String()
+        // 型注釈付き中間変数に分解（型推論のコンパイル時間爆発を回避）
+        let offset: TimeInterval = 23 * 3600 + 59 * 60 + 59
+        let iso = Date(timeIntervalSince1970: 1700000000 - offset).ISO8601String()
         let result = formatRelativeTime(iso, now: now)
         XCTAssertEqual(result, "23時間前")
     }
@@ -98,7 +100,9 @@ final class RelativeTimeFormatterTests: XCTestCase {
 
     func testTwentyNineDaysAgo() {
         let now = Date(timeIntervalSince1970: 1700000000)
-        let iso = Date(timeIntervalSince1970: 1700000000 - (29 * 86400 + 23 * 3600 + 59 * 60 + 59)).ISO8601String()
+        // 型注釈付き中間変数に分解（型推論のコンパイル時間爆発を回避）
+        let offset: TimeInterval = 29 * 86400 + 23 * 3600 + 59 * 60 + 59
+        let iso = Date(timeIntervalSince1970: 1700000000 - offset).ISO8601String()
         let result = formatRelativeTime(iso, now: now)
         XCTAssertEqual(result, "29日前")
     }
