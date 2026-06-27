@@ -7,16 +7,27 @@
 
 import SwiftUI
 
-/// ログイン画面。ユーザー ID とパスワードでログインする。
+// ASAuthorizationPasskeyProvider は Passkey モジュール内で AuthenticationServices を内部に閉じるため、
+// LoginView は Passkey モジュールのシンボルのみを参照。
+// 直接 AuthenticationServices を import しない（参照は ASAuthorizationPasskeyProvider に限定）。
+
+/// ログイン画面。ユーザー ID とパスワード、または Passkey でログインする。
 struct LoginView: View {
-    /// ログイン処理を担う ViewModel。
+    /// ユーザーID・パスワードログインを担う ViewModel。
     @StateObject private var viewModel: LoginViewModel
+    /// Passkey ログインを担う ViewModel。
+    @StateObject private var passkeyViewModel: PasskeyLoginViewModel
 
     /// - Parameters:
     ///   - apiClient: ログイン通信に使うクライアント。
     ///   - onSuccess: ログイン成功時のコールバック（通常 `AppState.completeLogin`）。
     init(apiClient: APIClient, onSuccess: @escaping (LoginResponse) -> Void) {
         _viewModel = StateObject(wrappedValue: LoginViewModel(apiClient: apiClient, onSuccess: onSuccess))
+        _passkeyViewModel = StateObject(wrappedValue: PasskeyLoginViewModel(
+            apiClient: apiClient,
+            provider: ASAuthorizationPasskeyProvider(),
+            onSuccess: onSuccess
+        ))
     }
 
     var body: some View {
@@ -45,6 +56,25 @@ struct LoginView: View {
                     }
                 }
                 .disabled(!viewModel.canSubmit)
+
+                Section("別のログイン方法") {
+                    Button {
+                        Task { await passkeyViewModel.performLogin() }
+                    } label: {
+                        if passkeyViewModel.isRunning {
+                            ProgressView()
+                        } else {
+                            Text("Passkey でログイン")
+                        }
+                    }
+                    .disabled(passkeyViewModel.isRunning)
+
+                    if let error = passkeyViewModel.errorMessage {
+                        Text(error)
+                            .foregroundStyle(.red)
+                            .font(.footnote)
+                    }
+                }
             }
             .navigationTitle("ログイン")
         }
