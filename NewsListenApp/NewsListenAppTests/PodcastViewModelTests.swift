@@ -72,7 +72,8 @@ final class PodcastViewModelTests: XCTestCase {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
             audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
-            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0
         )
         let mockFile = MockFileManager()
         mockFile.directories.insert("/mock-caches/NewsListenApp/audio-cache")
@@ -91,7 +92,8 @@ final class PodcastViewModelTests: XCTestCase {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
             audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
-            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0
         )
         let mockFile = MockFileManager()
         let cache = AudioCacheManager(fileManager: mockFile)
@@ -106,7 +108,8 @@ final class PodcastViewModelTests: XCTestCase {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
             audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
-            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0
         )
         let mockFile = MockFileManager()
         let cache = AudioCacheManager(fileManager: mockFile)
@@ -122,7 +125,8 @@ final class PodcastViewModelTests: XCTestCase {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
             audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
-            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0
         )
 
         // fetchPodcast のレスポンス（署名付き新鮮な audioUrl）
@@ -213,7 +217,8 @@ final class PodcastViewModelTests: XCTestCase {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
             audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
-            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0
         )
 
         let client = APIClient(
@@ -238,7 +243,8 @@ final class PodcastViewModelTests: XCTestCase {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
             audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
-            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0
         )
 
         let client = APIClient(

@@ -61,6 +61,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private var player: AVPlayer?
     /// 再生位置を定期更新するためのタイムオブザーバ。解放時に取り外す。
     private var timeObserver: Any?
+    /// 再生位置をサーバーへ定期同期するタイマー。
+    private var syncTimer: Timer?
 
     /// ViewModel を生成する。
     /// - Parameters:
@@ -207,6 +209,12 @@ final class PodcastViewModel: NSObject, ObservableObject {
         player = AVPlayer(playerItem: playerItem)
         player?.rate = playbackSpeed
 
+        // 前回の再生位置から復元する。同期 seek ヘルパに委譲し、async コンテキストでの
+        // AVPlayer.seek(to:) async オーバーロード選択（要 await）を避ける。
+        if podcast.playbackPositionSeconds > 0 {
+            seek(to: podcast.playbackPositionSeconds)
+        }
+
         // 再生位置の定期更新（0.5秒ごと）
         timeObserver = player?.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
@@ -219,6 +227,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
         player?.play()
         isPlaying = true
+
+        // 再生位置をサーバーへ定期同期（15秒ごと）。
+        startPlaybackPositionSync()
     }
 
     /// 再生中なら一時停止し、停止中なら再生を再開する。
@@ -248,7 +259,15 @@ final class PodcastViewModel: NSObject, ObservableObject {
     }
 
     /// 再生を停止し、`AVPlayer`・タイムオブザーバ・再生状態を解放/リセットする。
+    /// 同期完了を試みてからシャットダウンする。
     func stopPlayback() {
+        // 再生位置を最後に同期しておく。
+        syncPlaybackPositionIfNeeded()
+
+        // タイマーを停止。
+        syncTimer?.invalidate()
+        syncTimer = nil
+
         if let obs = timeObserver { player?.removeTimeObserver(obs) }
         timeObserver = nil
         player?.pause()
@@ -269,6 +288,31 @@ final class PodcastViewModel: NSObject, ObservableObject {
             // セッション設定の失敗は致命的ではない（音量が小さくなる程度）ため、
             // 再生自体は継続させ、エラーのみ記録する。
             errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Playback Position Sync
+
+    /// 再生位置をサーバーへ定期同期するタイマーを開始する。
+    /// 再生位置を 15 秒ごとにサーバーへ同期する。
+    private func startPlaybackPositionSync() {
+        // 既に起動していれば何もしない。
+        guard syncTimer == nil else { return }
+        syncTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] _ in
+            self?.syncPlaybackPositionIfNeeded()
+        }
+    }
+
+    /// 現在の再生位置をサーバーへ同期する。
+    /// currentPodcast が nil の場合や通信失敗時はサイレント失敗。
+    private func syncPlaybackPositionIfNeeded() {
+        guard let podcast = currentPodcast else { return }
+        Task {
+            do {
+                _ = try await apiClient.updatePlaybackPosition(podcastId: podcast.id, positionSeconds: currentTime)
+            } catch {
+                // 同期失敗時はログしない（ネットワーク一時的な失敗等を避けるため）。
+            }
         }
     }
 }

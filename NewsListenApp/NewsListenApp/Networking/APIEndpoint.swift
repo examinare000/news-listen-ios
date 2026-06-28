@@ -19,6 +19,8 @@ enum APIEndpoint {
     case podcasts
     /// 指定 ID の Podcast を取得（署名付き audioUrl 再取得用）。
     case podcast(id: String)
+    /// 指定 ID の Podcast の再生位置を更新。
+    case updatePlaybackPosition(id: String)
     /// 登録済み RSS 配信元一覧の取得。
     case sources
     /// RSS 配信元の追加。
@@ -31,6 +33,10 @@ enum APIEndpoint {
     case onboardingStatus
     /// 初回オンボーディング完了の記録。
     case completeOnboarding
+    /// ユーザー設定選択（難易度・再生速度）を取得。
+    case preferences
+    /// ユーザー設定選択を更新。
+    case updatePreferences
 
     // 認証・ユーザー管理
     /// ログイン（セッション発行）。
@@ -74,11 +80,13 @@ enum APIEndpoint {
         case .dismissArticle(let id): return "/articles/\(id)/dismiss"
         case .podcasts: return "/podcasts"
         case .podcast(let id): return "/podcasts/\(id)"
+        case .updatePlaybackPosition(let id): return "/podcasts/\(id)/position"
         case .sources, .addSource: return "/settings/sources"
         case .removeSource: return "/settings/sources"
         case .featuredSources: return "/settings/featured-sources"
         case .onboardingStatus: return "/settings/onboarding"
         case .completeOnboarding: return "/settings/onboarding/complete"
+        case .preferences, .updatePreferences: return "/settings/preferences"
         case .login: return "/auth/login"
         case .logout: return "/auth/logout"
         case .me, .updateProfile: return "/auth/me"
@@ -99,15 +107,17 @@ enum APIEndpoint {
     var method: String {
         switch self {
         case .feed, .podcasts, .podcast, .sources, .featuredSources, .onboardingStatus,
-             .me, .listUsers, .passkeyCredentials:
+             .me, .listUsers, .passkeyCredentials, .preferences:
             return "GET"
         case .starArticle, .dismissArticle, .addSource, .completeOnboarding,
              .login, .logout, .changePassword, .createUser,
              .passkeyRegisterOptions, .passkeyRegisterVerify,
              .passkeyLoginOptions, .passkeyLoginVerify:
             return "POST"
-        case .updateProfile, .updateUser:
+        case .updateProfile, .updateUser, .updatePlaybackPosition:
             return "PATCH"
+        case .updatePreferences:
+            return "PUT"
         case .removeSource, .deleteUser, .passkeyDeleteCredential:
             return "DELETE"
         }

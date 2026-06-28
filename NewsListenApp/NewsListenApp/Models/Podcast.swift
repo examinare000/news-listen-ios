@@ -30,6 +30,8 @@ struct Podcast: Codable, Identifiable {
     let status: String
     /// 失敗時のエラー詳細。`status` が `"failed"` または `"partial_failed"` のときのみ非 nil。
     let errorMessage: String?
+    /// 最後の再生位置（秒）。サーバで同期・復元される。ない場合は 0。
+    let playbackPositionSeconds: Double
 
     /// バックエンドの snake_case フィールドに対応する。
     enum CodingKeys: String, CodingKey {
@@ -40,6 +42,7 @@ struct Podcast: Codable, Identifiable {
         case durationSeconds = "duration_seconds"
         case createdAt = "created_at"
         case errorMessage = "error_message"
+        case playbackPositionSeconds = "playback_position_seconds"
     }
 
     /// `durationSeconds` を `分:秒`（例: `3:05`）の表示用文字列に整形する。
@@ -47,6 +50,29 @@ struct Podcast: Codable, Identifiable {
         let minutes = durationSeconds / 60
         let seconds = durationSeconds % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Decodable
+// WHY: カスタム init(from:) を本体ではなく extension に置くことで、合成される
+//      メンバーワイズ初期化子（テストやプレビューが Podcast(id:...) を直接生成する）を維持する。
+//      本体に init を書くとメンバーワイズ初期化子が抑止されコンパイルできなくなる。
+extension Podcast {
+    /// Codable デコード時のカスタマイズ。
+    /// `playback_position_seconds` が欠如する場合は 0 を既定値として使う。
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.type = try container.decode(String.self, forKey: .type)
+        self.articleIds = try container.decode([String].self, forKey: .articleIds)
+        self.difficulty = try container.decode(String.self, forKey: .difficulty)
+        self.audioUrl = try container.decode(String.self, forKey: .audioUrl)
+        self.japaneseIntroText = try container.decode(String.self, forKey: .japaneseIntroText)
+        self.durationSeconds = try container.decode(Int.self, forKey: .durationSeconds)
+        self.createdAt = try container.decode(String.self, forKey: .createdAt)
+        self.status = try container.decode(String.self, forKey: .status)
+        self.errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+        self.playbackPositionSeconds = try container.decodeIfPresent(Double.self, forKey: .playbackPositionSeconds) ?? 0.0
     }
 }
 

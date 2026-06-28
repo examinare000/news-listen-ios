@@ -53,7 +53,8 @@ final class ModelTests: XCTestCase {
             durationSeconds: 305,
             createdAt: "2026-05-31T06:00:00Z",
             status: "completed",
-            errorMessage: nil
+            errorMessage: nil,
+            playbackPositionSeconds: 0.0
         )
         XCTAssertEqual(podcast.formattedDuration, "5:05")
     }
@@ -126,5 +127,69 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(response.sources[0].name, "HackerNews")
         // id は url から導出される
         XCTAssertEqual(response.sources[0].id, "https://hnrss.org/frontpage")
+    }
+
+    func testPreferencesDecodesFromJSON() throws {
+        let json = """
+        {
+            "default_difficulty": "toeic_900",
+            "default_playback_speed": 1.5
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try JSONDecoder().decode(Preferences.self, from: json)
+        XCTAssertEqual(preferences.defaultDifficulty, "toeic_900")
+        XCTAssertEqual(preferences.defaultPlaybackSpeed, 1.5)
+    }
+
+    func testPreferencesPartialFieldsDecodes() throws {
+        let json = """
+        {
+            "default_difficulty": "ielts_55"
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try JSONDecoder().decode(Preferences.self, from: json)
+        XCTAssertEqual(preferences.defaultDifficulty, "ielts_55")
+        XCTAssertNil(preferences.defaultPlaybackSpeed)
+    }
+
+    func testPodcastDecodesPlaybackPositionSeconds() throws {
+        let json = """
+        {
+            "id": "pod-pos",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod-pos.mp3",
+            "japanese_intro_text": "再生位置テスト",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed",
+            "playback_position_seconds": 75.5
+        }
+        """.data(using: .utf8)!
+
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+        XCTAssertEqual(podcast.playbackPositionSeconds, 75.5)
+    }
+
+    func testPodcastPlaybackPositionSecondsDefaultsToZero() throws {
+        let json = """
+        {
+            "id": "pod-nopos",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod-nopos.mp3",
+            "japanese_intro_text": "デフォルトテスト",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed"
+        }
+        """.data(using: .utf8)!
+
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+        XCTAssertEqual(podcast.playbackPositionSeconds, 0.0)
     }
 }
