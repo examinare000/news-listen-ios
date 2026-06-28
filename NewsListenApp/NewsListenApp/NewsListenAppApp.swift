@@ -2,16 +2,17 @@
 //  NewsListenAppApp.swift
 //  NewsListenApp
 //
-//  @main エントリポイント。AppState が未設定なら初期設定画面、設定済みなら
-//  タブビュー（フィード / Podcast / 設定）を表示する。
+//  @main エントリポイント。API 設定はビルド時注入のため、未注入なら設定不備の案内、
+//  注入済みなら認証状態に応じてタブビュー（フィード / Podcast / 設定）を表示する。
 //
 
 import SwiftUI
 
 /// アプリの `@main` エントリポイント。
 ///
-/// ``AppState/isConfigured`` が未設定なら初期設定画面、設定済みならタブビュー
-/// （フィード / Podcast / 設定）を表示する。
+/// API URL・キーはビルド時注入（Secrets.xcconfig→Info.plist、ADR-037）。
+/// ``AppState/isConfigured`` が偽（注入漏れ）なら設定不備の案内、真なら認証状態に応じて
+/// ローディング → ログイン → タブビューの順にゲートする。
 @main
 struct NewsListenAppApp: App {
     /// アプリ全体で共有する設定状態。
@@ -19,13 +20,19 @@ struct NewsListenAppApp: App {
 
     /// 設定状態・認証状態に応じてルート画面を出し分けるシーン。
     ///
-    /// 接続未設定 → 初期設定、設定済みで認証未解決 → ローディング、未ログイン → ログイン、
+    /// 注入漏れ → 設定不備案内、注入済みで認証未解決 → ローディング、未ログイン → ログイン、
     /// ログイン済み → タブビュー、の順にゲートする。
     var body: some Scene {
         WindowGroup {
             Group {
                 if !appState.isConfigured {
-                    InitialSetupView()
+                    // API 設定はビルド時注入のみ。未注入はビルド構成の不備であり、
+                    // ユーザーが端末上で修正する導線は持たない（Secrets.xcconfig で設定する）。
+                    ContentUnavailableView(
+                        "API 設定が未注入です",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text("Secrets.xcconfig（API_BASE_URL / API_KEY）をビルド時に設定してください")
+                    )
                 } else {
                     switch appState.authStatus {
                     case .unknown:
@@ -49,47 +56,6 @@ struct NewsListenAppApp: App {
             }
             .environmentObject(appState)
         }
-    }
-}
-
-/// 初回設定画面。API URL と API キーを入力し、``AppState`` に保存する。
-struct InitialSetupView: View {
-    /// アプリ全体で共有する設定状態。
-    @EnvironmentObject var appState: AppState
-    /// 入力中の API URL。
-    @State private var urlInput = ""
-    /// 入力中の API キー。
-    @State private var keyInput = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("API 設定") {
-                    TextField("API URL (例: https://podcast-api-xxx.run.app)", text: $urlInput)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    SecureField("API キー", text: $keyInput)
-                }
-                Button("設定を保存") {
-                    appState.apiBaseURL = urlInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                    appState.apiKey = keyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                .disabled(!canSave)
-            }
-            .navigationTitle("初期設定")
-            // 既存値・ビルド注入値があればフィールドへ反映し、保存ボタンを活性化する。
-            // （通常は注入済みなら本画面はスキップされるが、未注入時の手動入力に備える）
-            .onAppear {
-                if urlInput.isEmpty { urlInput = appState.apiBaseURL }
-                if keyInput.isEmpty { keyInput = appState.apiKey }
-            }
-        }
-    }
-
-    /// URL・キーがともに（前後空白を除いて）入力済みなら `true`。保存ボタンの活性判定に使う。
-    private var canSave: Bool {
-        !urlInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !keyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

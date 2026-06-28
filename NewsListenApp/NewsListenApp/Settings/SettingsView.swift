@@ -56,7 +56,6 @@ struct SettingsView: View {
                 featuredSitesSection
                 difficultySection
                 playbackSection
-                apiConfigSection
             }
             .navigationTitle("設定")
             .sheet(isPresented: $showAddSource) { addSourceSheet }
@@ -171,16 +170,6 @@ struct SettingsView: View {
                     Text(String(format: "%g×", speed)).tag(speed)
                 }
             }
-        }
-    }
-
-    /// API URL・キーを編集するセクション。
-    private var apiConfigSection: some View {
-        Section("API 設定") {
-            TextField("API URL", text: $appState.apiBaseURL)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-            SecureField("API キー", text: $appState.apiKey)
         }
     }
 
