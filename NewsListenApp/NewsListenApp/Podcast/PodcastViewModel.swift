@@ -209,11 +209,10 @@ final class PodcastViewModel: NSObject, ObservableObject {
         player = AVPlayer(playerItem: playerItem)
         player?.rate = playbackSpeed
 
-        // 前回の再生位置から復元する。
+        // 前回の再生位置から復元する。同期 seek ヘルパに委譲し、async コンテキストでの
+        // AVPlayer.seek(to:) async オーバーロード選択（要 await）を避ける。
         if podcast.playbackPositionSeconds > 0 {
-            let seekTime = CMTime(seconds: podcast.playbackPositionSeconds, preferredTimescale: 600)
-            player?.seek(to: seekTime)
-            currentTime = podcast.playbackPositionSeconds
+            seek(to: podcast.playbackPositionSeconds)
         }
 
         // 再生位置の定期更新（0.5秒ごと）
