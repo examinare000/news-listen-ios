@@ -183,6 +183,114 @@ final class APIClientTests: XCTestCase {
             XCTAssertEqual(statusCode, 500)
         }
     }
+
+    // MARK: - Preferences (Settings sync)
+
+    func testFetchPreferencesDecodesResponse() async throws {
+        let mockJSON = #"""
+        {"default_difficulty":"toeic_900","default_playback_speed":1.5}
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let preferences = try await client.fetchPreferences()
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/settings/preferences")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "GET")
+        XCTAssertEqual(preferences.defaultDifficulty, "toeic_900")
+        XCTAssertEqual(preferences.defaultPlaybackSpeed, 1.5)
+    }
+
+    func testUpdatePreferencesCallsCorrectEndpoint() async throws {
+        let mockJSON = #"""
+        {"default_difficulty":"toeic_600","default_playback_speed":1.0}
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let preferences = try await client.updatePreferences(defaultDifficulty: "toeic_600", defaultPlaybackSpeed: nil)
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/settings/preferences")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "PUT")
+        XCTAssertEqual(preferences.defaultDifficulty, "toeic_600")
+    }
+
+    func testUpdatePreferencesIncludesAuthorizationHeader() async throws {
+        let mockJSON = #"""
+        {"default_difficulty":"ielts_55","default_playback_speed":1.25}
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "secret-key",
+            sessionToken: "test-token",
+            session: mockSession
+        )
+
+        _ = try await client.updatePreferences(defaultDifficulty: nil, defaultPlaybackSpeed: 1.25)
+
+        XCTAssertEqual(mockSession.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
+        XCTAssertEqual(mockSession.lastRequest?.value(forHTTPHeaderField: "X-API-Key"), "secret-key")
+    }
+
+    // MARK: - Podcast position sync
+
+    func testUpdatePlaybackPositionCallsCorrectEndpoint() async throws {
+        let mockJSON = #"""
+        {"id":"p1","type":"single","article_ids":["a1"],"difficulty":"toeic_900","audio_url":"https://storage.example.com/p1.mp3","japanese_intro_text":"今日は...","duration_seconds":300,"created_at":"2026-05-31T06:00:00Z","status":"completed","playback_position_seconds":45.5}
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let podcast = try await client.updatePlaybackPosition(podcastId: "p1", positionSeconds: 45.5)
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/podcasts/p1/position")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "PATCH")
+        XCTAssertEqual(podcast.id, "p1")
+        XCTAssertEqual(podcast.playbackPositionSeconds, 45.5)
+    }
+
+    func testPodcastDecodesPlaybackPositionSeconds() async throws {
+        let mockJSON = #"""
+        {"id":"p2","type":"single","article_ids":["a1"],"difficulty":"toeic_900","audio_url":"https://storage.example.com/p2.mp3","japanese_intro_text":"今日は...","duration_seconds":300,"created_at":"2026-05-31T06:00:00Z","status":"completed","playback_position_seconds":120.0}
+        """#.data(using: .utf8)!
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: mockJSON, statusCode: 200)
+        )
+
+        let podcast = try await client.fetchPodcast(id: "p2")
+
+        XCTAssertEqual(podcast.playbackPositionSeconds, 120.0)
+    }
+
+    func testPodcastDecodesPlaybackPositionSecondsDefaultsToZero() async throws {
+        let mockJSON = #"""
+        {"id":"p3","type":"single","article_ids":["a1"],"difficulty":"toeic_900","audio_url":"https://storage.example.com/p3.mp3","japanese_intro_text":"今日は...","duration_seconds":300,"created_at":"2026-05-31T06:00:00Z","status":"completed"}
+        """#.data(using: .utf8)!
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: mockJSON, statusCode: 200)
+        )
+
+        let podcast = try await client.fetchPodcast(id: "p3")
+
+        XCTAssertEqual(podcast.playbackPositionSeconds, 0.0)
+    }
 }
 
 // MARK: - MockURLSession
