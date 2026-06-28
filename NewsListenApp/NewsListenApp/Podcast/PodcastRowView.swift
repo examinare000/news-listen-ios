@@ -53,6 +53,7 @@ struct PodcastRowView: View {
                     Text(podcast.formattedDuration)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    statusBadge
                     Spacer()
                     Text(formattedDate)
                         .font(.caption)
@@ -100,6 +101,29 @@ struct PodcastRowView: View {
                 .font(.title3)
                 .foregroundStyle(.green)
                 .accessibilityLabel("ダウンロード済み")
+        }
+    }
+
+    /// Podcast 生成ステータスを表示するバッジ。
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch podcast.status {
+        case "processing":
+            Label("生成中", systemImage: "hourglass")
+                .font(.caption2)
+                .foregroundStyle(.blue)
+                .accessibilityLabel("生成中")
+        case "failed", "partial_failed":
+            Label("失敗", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .foregroundStyle(.red)
+                .accessibilityLabel("生成失敗")
+                .accessibilityValue(podcast.errorMessage ?? "")
+        case "completed":
+            // 完了状態はバッジを表示しない。
+            EmptyView()
+        default:
+            EmptyView()
         }
     }
 
