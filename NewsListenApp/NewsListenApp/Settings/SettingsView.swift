@@ -159,6 +159,15 @@ struct SettingsView: View {
                     Text(label).tag(value)
                 }
             }
+            .onChange(of: appState.defaultDifficulty) { oldValue, newValue in
+                // ユーザーが難易度を変更したとき、サーバーへ同期する。
+                // 失敗時はローカルの defaultDifficulty はそのまま保持される（既に UserDefaults 保存済み）。
+                Task {
+                    if let apiClient = appState.apiClient {
+                        _ = try? await apiClient.updatePreferences(defaultDifficulty: newValue, defaultPlaybackSpeed: nil)
+                    }
+                }
+            }
         }
     }
 
@@ -168,6 +177,15 @@ struct SettingsView: View {
             Picker("デフォルト再生速度", selection: $appState.defaultPlaybackSpeed) {
                 ForEach(playbackSpeeds, id: \.self) { speed in
                     Text(String(format: "%g×", speed)).tag(speed)
+                }
+            }
+            .onChange(of: appState.defaultPlaybackSpeed) { oldValue, newValue in
+                // ユーザーが再生速度を変更したとき、サーバーへ同期する。
+                // 失敗時はローカルの defaultPlaybackSpeed はそのまま保持される（既に UserDefaults 保存済み）。
+                Task {
+                    if let apiClient = appState.apiClient {
+                        _ = try? await apiClient.updatePreferences(defaultDifficulty: nil, defaultPlaybackSpeed: newValue)
+                    }
                 }
             }
         }

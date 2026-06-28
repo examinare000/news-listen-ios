@@ -112,6 +112,7 @@ final class AppState: ObservableObject {
     }
 
     /// 保存済みトークンで `/auth/me` を解決し、認証状態を確定する。
+    /// 認証成功後、サーバーから preferences を取得してローカル設定を同期する。
     ///
     /// 未設定・トークン無し・失効はすべて未認証として扱い、トークンを破棄する。
     func refreshAuth() async {
@@ -122,10 +123,29 @@ final class AppState: ObservableObject {
         do {
             currentUser = try await apiClient.fetchMe()
             authStatus = .authenticated
+            // 認証確立後、サーバーの preferences を同期する（失敗時は既存のローカル値を保持）
+            await refreshPreferences()
         } catch {
             sessionStore.token = nil
             currentUser = nil
             authStatus = .unauthenticated
+        }
+    }
+
+    /// サーバーから preferences を取得し、ローカルの defaultDifficulty / defaultPlaybackSpeed を更新する。
+    /// 取得失敗時は既存値を保持する（ベストエフォート）。
+    func refreshPreferences() async {
+        guard let apiClient else { return }
+        do {
+            let preferences = try await apiClient.fetchPreferences()
+            if let difficulty = preferences.defaultDifficulty {
+                defaultDifficulty = difficulty
+            }
+            if let speed = preferences.defaultPlaybackSpeed {
+                defaultPlaybackSpeed = speed
+            }
+        } catch {
+            // サイレント失敗。ローカルの既存値を保持。
         }
     }
 
