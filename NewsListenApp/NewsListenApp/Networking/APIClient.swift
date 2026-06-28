@@ -105,6 +105,16 @@ final class APIClient {
         try await request(.podcast(id: id), responseType: Podcast.self)
     }
 
+    /// 指定 Podcast の再生位置を更新する。
+    /// - Parameters:
+    ///   - podcastId: 対象 Podcast の ID。
+    ///   - positionSeconds: 再生位置（秒）。
+    /// - Returns: 更新後の Podcast 情報。
+    func updatePlaybackPosition(podcastId: String, positionSeconds: Double) async throws -> Podcast {
+        let body = ["position_seconds": positionSeconds]
+        return try await request(.updatePlaybackPosition(id: podcastId), body: body, responseType: Podcast.self)
+    }
+
     /// 指定 URL から音声データをダウンロードする。
     ///
     /// **セキュリティ**: 外部署名 URL（GCS 等）に対してヘッダを付けない。
@@ -119,6 +129,23 @@ final class APIClient {
     }
 
     // MARK: - Settings
+
+    /// ユーザー設定選択（難易度・再生速度）を取得する。
+    func fetchPreferences() async throws -> Preferences {
+        try await request(.preferences, responseType: Preferences.self)
+    }
+
+    /// ユーザー設定選択を更新する。指定した項目のみ送る。
+    /// - Parameters:
+    ///   - defaultDifficulty: 新しい既定難易度（任意）。
+    ///   - defaultPlaybackSpeed: 新しい既定再生速度（任意）。
+    /// - Returns: 更新後の設定選択。
+    func updatePreferences(defaultDifficulty: String?, defaultPlaybackSpeed: Double?) async throws -> Preferences {
+        var body: [String: Any] = [:]
+        if let defaultDifficulty { body["default_difficulty"] = defaultDifficulty }
+        if let defaultPlaybackSpeed { body["default_playback_speed"] = defaultPlaybackSpeed }
+        return try await request(.updatePreferences, body: body, responseType: Preferences.self)
+    }
 
     /// 登録済みの RSS 配信元一覧を取得する。
     func fetchSources() async throws -> RssSourcesResponse {
