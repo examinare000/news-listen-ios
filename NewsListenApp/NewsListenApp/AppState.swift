@@ -39,23 +39,19 @@ enum ArticleOpenMode: String, CaseIterable, Identifiable {
 final class AppState: ObservableObject {
     /// 各設定値に対応する `UserDefaults` のキー。
     private enum Keys {
-        static let apiBaseURL = "api_base_url"
-        static let apiKey = "api_key"
         static let defaultDifficulty = "default_difficulty"
         static let defaultPlaybackSpeed = "default_playback_speed"
         static let articleOpenMode = "article_open_mode"
         static let timeFormat = "time_format"
     }
 
-    /// API のベース URL。変更時に `UserDefaults` へ保存する。
-    @Published var apiBaseURL: String {
-        didSet { UserDefaults.standard.set(apiBaseURL, forKey: Keys.apiBaseURL) }
-    }
+    /// API のベース URL。ビルド時に `Secrets.xcconfig` → Info.plist 経由で注入する（ADR-037）。
+    /// ユーザー入力・UserDefaults 保存は廃止し、実行時は不変。
+    let apiBaseURL: String
 
-    /// API キー。変更時に `UserDefaults` へ保存する。
-    @Published var apiKey: String {
-        didSet { UserDefaults.standard.set(apiKey, forKey: Keys.apiKey) }
-    }
+    /// API キー（共有ゲートウェイキー）。ビルド時に `Secrets.xcconfig` → Info.plist 経由で
+    /// 注入する（ADR-037）。ユーザー入力・UserDefaults 保存は廃止し、実行時は不変。
+    let apiKey: String
 
     /// Podcast 生成時の既定難易度。変更時に `UserDefaults` へ保存する。
     @Published var defaultDifficulty: String {
@@ -181,15 +177,14 @@ final class AppState: ObservableObject {
 
     /// 永続化済みの設定を読み込んで状態を初期化する。
     ///
-    /// 各値は「ユーザーが保存した値(UserDefaults) > ビルド注入値(Info.plist) > 既定値」の優先順位で決定する。
+    /// API URL・キーはビルド注入値(Info.plist←Secrets.xcconfig)のみを読む（ADR-037、#25）。
+    /// その他の値は「ユーザーが保存した値(UserDefaults) > 既定値」の優先順位で決定する。
     /// - Parameter sessionStore: セッショントークンの保管先。既定は Keychain。テストで差し替える。
     init(sessionStore: SessionStore = KeychainSessionStore()) {
         self.sessionStore = sessionStore
-        // 優先順位: ユーザーが保存した値(UserDefaults) > ビルド注入値(Info.plist) > 空。
-        self.apiBaseURL = UserDefaults.standard.string(forKey: Keys.apiBaseURL)
-            ?? Self.injectedValue("APIBaseURL") ?? ""
-        self.apiKey = UserDefaults.standard.string(forKey: Keys.apiKey)
-            ?? Self.injectedValue("APIKey") ?? ""
+        // API URL・キーはビルド時注入のみ（ユーザー入力・UserDefaults フォールバックは廃止）。
+        self.apiBaseURL = Self.injectedValue("APIBaseURL") ?? ""
+        self.apiKey = Self.injectedValue("APIKey") ?? ""
         self.defaultDifficulty = UserDefaults.standard.string(forKey: Keys.defaultDifficulty) ?? "toeic_900"
         self.defaultPlaybackSpeed = UserDefaults.standard.double(forKey: Keys.defaultPlaybackSpeed).nonZero ?? 1.0
         self.articleOpenMode = ArticleOpenMode(rawValue: UserDefaults.standard.string(forKey: Keys.articleOpenMode) ?? "") ?? .inApp
