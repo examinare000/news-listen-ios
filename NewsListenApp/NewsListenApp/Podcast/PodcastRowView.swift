@@ -96,7 +96,7 @@ struct PodcastRowView: View {
         case .downloaded:
             Image(systemName: "checkmark.circle.fill")
                 .font(.title3)
-                .foregroundStyle(.green)
+                .foregroundStyle(DSColor.success)
                 .accessibilityLabel("ダウンロード済み")
         }
     }
@@ -109,7 +109,7 @@ struct PodcastRowView: View {
             DSBadge("生成中", systemImage: "hourglass", tint: DSColor.accent)
                 .accessibilityLabel("生成中")
         case "failed", "partial_failed":
-            DSBadge("失敗", systemImage: "exclamationmark.triangle.fill", tint: .red)
+            DSBadge("失敗", systemImage: "exclamationmark.triangle.fill", tint: DSColor.danger)
                 .accessibilityLabel("生成失敗")
                 .accessibilityValue(podcast.errorMessage ?? "")
         case "completed":

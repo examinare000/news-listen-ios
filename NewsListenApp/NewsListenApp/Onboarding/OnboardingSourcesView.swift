@@ -28,8 +28,8 @@ struct OnboardingSourcesView: View {
             List {
                 Section {
                     Text("気になるサイトを選んで購読しましょう。あとから設定でいつでも追加・削除できます。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(DSFont.meta)
+                        .foregroundStyle(DSColor.inkSecondary)
                 }
                 Section("おすすめサイト") {
                     ForEach(featuredSites) { site in
@@ -65,7 +65,7 @@ struct OnboardingSourcesView: View {
             AsyncImage(url: site.thumbnailURL.flatMap(URL.init(string:))) { image in
                 image.resizable().scaledToFill()
             } placeholder: {
-                Image(systemName: "globe").foregroundStyle(.secondary)
+                Image(systemName: "globe").foregroundStyle(DSColor.inkTertiary)
             }
             .frame(width: 32, height: 32)
             .clipShape(RoundedRectangle(cornerRadius: 6))

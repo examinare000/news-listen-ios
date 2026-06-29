@@ -98,13 +98,13 @@ struct SettingsView: View {
         Section("RSS ソース") {
             if appState.apiClient == nil {
                 Text("API URL とキーを設定すると RSS ソースを管理できます")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(DSFont.caption)
+                    .foregroundStyle(DSColor.inkSecondary)
             } else {
                 ForEach(viewModel.sources) { source in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(source.name).font(.headline)
-                        Text(source.url).font(.caption).foregroundStyle(.secondary)
+                        Text(source.name).font(DSFont.headline).foregroundStyle(DSColor.ink)
+                        Text(source.url).font(DSFont.caption).foregroundStyle(DSColor.inkTertiary)
                     }
                 }
                 .onDelete { indexSet in
@@ -130,15 +130,15 @@ struct SettingsView: View {
                         AsyncImage(url: site.thumbnailURL.flatMap(URL.init(string:))) { image in
                             image.resizable().scaledToFill()
                         } placeholder: {
-                            Image(systemName: "globe").foregroundStyle(.secondary)
+                            Image(systemName: "globe").foregroundStyle(DSColor.inkTertiary)
                         }
                         .frame(width: 28, height: 28)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(site.name).font(.headline)
+                            Text(site.name).font(DSFont.headline).foregroundStyle(DSColor.ink)
                             if let description = site.description {
-                                Text(description).font(.caption).foregroundStyle(.secondary)
+                                Text(description).font(DSFont.caption).foregroundStyle(DSColor.inkTertiary)
                             }
                         }
                         Spacer()

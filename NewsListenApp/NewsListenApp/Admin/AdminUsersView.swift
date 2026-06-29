@@ -36,15 +36,15 @@ struct AdminUsersView: View {
 
             Section("ユーザー一覧") {
                 if let error = viewModel.errorMessage {
-                    Text(error).foregroundStyle(.red).font(.footnote)
+                    Text(error).foregroundStyle(DSColor.danger).font(DSFont.footnote)
                 }
                 ForEach(viewModel.users) { user in
                     HStack {
                         VStack(alignment: .leading) {
-                            Text(user.displayName)
+                            Text(user.displayName).foregroundStyle(DSColor.ink)
                             Text("\(user.username) / \(user.role)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(DSFont.caption)
+                                .foregroundStyle(DSColor.inkTertiary)
                         }
                         Spacer()
                         // 自分自身のロール変更・削除はさせない（自己ロックアウト防止。
@@ -63,6 +63,8 @@ struct AdminUsersView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(DSColor.paper.ignoresSafeArea())
         .navigationTitle("ユーザー管理")
         .task { await viewModel.load() }
     }
