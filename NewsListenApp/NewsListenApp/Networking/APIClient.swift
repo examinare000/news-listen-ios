@@ -180,6 +180,34 @@ final class APIClient {
         try validateResponse(response)
     }
 
+    // MARK: - Push（APNs デバイストークン）
+
+    /// iOS APNs デバイストークンを登録する（Bearer 要・冪等）。
+    /// - Parameter token: APNs デバイストークン（16 進文字列）。
+    func registerDeviceToken(_ token: String) async throws {
+        try await requestVoid(.registerDeviceToken, body: ["device_token": token])
+    }
+
+    /// iOS APNs デバイストークンを解除する（Bearer 要・冪等）。
+    ///
+    /// token はクエリパラメータで渡す（既存 `removeSource` と同じ規約）。
+    /// - Parameter token: 解除する APNs デバイストークン。
+    func unregisterDeviceToken(_ token: String) async throws {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent(APIEndpoint.unregisterDeviceToken.path),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [URLQueryItem(name: "token", value: token)]
+        var req = URLRequest(url: components.url!)
+        req.httpMethod = "DELETE"
+        req.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        if let sessionToken {
+            req.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        }
+        let (_, response) = try await session.data(for: req)
+        try validateResponse(response)
+    }
+
     // MARK: - Auth（セッション）
 
     /// ログインしてセッショントークンとユーザー情報を取得する。

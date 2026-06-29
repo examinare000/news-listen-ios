@@ -18,6 +18,8 @@ struct PodcastView: View {
     private let cacheManager: AudioCacheManager
     /// ネットワーク監視。
     private let networkMonitor: NetworkMonitoring
+    /// アプリ全体で共有する設定状態（通知ディープリンクの監視に使う）。
+    @EnvironmentObject private var appState: AppState
 
     /// ビューを生成する。
     /// - Parameters:
@@ -54,6 +56,16 @@ struct PodcastView: View {
         .task { await viewModel.loadPodcasts() }
         // タブ離脱時に再生を止め、AVPlayer / TimeObserver を解放する。
         .onDisappear { viewModel.stopPlayback() }
+        // 通知タップで指定された Podcast を再生する（ディープリンク・issue #80）。
+        // コールドスタート（既に値が入っている）と起動後の両方に対応する。
+        .task(id: appState.selectedPodcastId) { await consumeDeepLink() }
+    }
+
+    /// 通知ディープリンクで指定された Podcast を再生し、消費後に状態をクリアする。
+    private func consumeDeepLink() async {
+        guard let id = appState.selectedPodcastId else { return }
+        await viewModel.playById(id)
+        appState.selectedPodcastId = nil
     }
 
     /// 読み込み状態・空状態・一覧を出し分ける主コンテンツ。

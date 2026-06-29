@@ -37,6 +37,10 @@ enum APIEndpoint {
     case preferences
     /// ユーザー設定選択を更新。
     case updatePreferences
+    /// iOS APNs デバイストークンを登録（Bearer 要）。
+    case registerDeviceToken
+    /// iOS APNs デバイストークンを解除（Bearer 要・クエリ param token）。
+    case unregisterDeviceToken
 
     // 認証・ユーザー管理
     /// ログイン（セッション発行）。
@@ -87,6 +91,7 @@ enum APIEndpoint {
         case .onboardingStatus: return "/settings/onboarding"
         case .completeOnboarding: return "/settings/onboarding/complete"
         case .preferences, .updatePreferences: return "/settings/preferences"
+        case .registerDeviceToken, .unregisterDeviceToken: return "/notifications/device-tokens"
         case .login: return "/auth/login"
         case .logout: return "/auth/logout"
         case .me, .updateProfile: return "/auth/me"
@@ -112,13 +117,14 @@ enum APIEndpoint {
         case .starArticle, .dismissArticle, .addSource, .completeOnboarding,
              .login, .logout, .changePassword, .createUser,
              .passkeyRegisterOptions, .passkeyRegisterVerify,
-             .passkeyLoginOptions, .passkeyLoginVerify:
+             .passkeyLoginOptions, .passkeyLoginVerify,
+             .registerDeviceToken:
             return "POST"
         case .updateProfile, .updateUser, .updatePlaybackPosition:
             return "PATCH"
         case .updatePreferences:
             return "PUT"
-        case .removeSource, .deleteUser, .passkeyDeleteCredential:
+        case .removeSource, .deleteUser, .passkeyDeleteCredential, .unregisterDeviceToken:
             return "DELETE"
         }
     }

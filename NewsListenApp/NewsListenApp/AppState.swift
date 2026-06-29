@@ -86,6 +86,14 @@ final class AppState: ObservableObject {
     /// ログイン中ユーザー。未ログイン時は `nil`。
     @Published var currentUser: AuthUser?
 
+    /// プッシュ通知タップで開く対象 Podcast ID（ディープリンク・issue #80）。
+    /// 設定されると Podcast タブへ遷移して再生する。遷移後は受け手が nil に戻す。
+    @Published var selectedPodcastId: String?
+
+    /// 取得済みの APNs デバイストークン（16 進）。未取得なら `nil`。
+    /// 資格情報ではないがログには出さない。認証確立後に backend へ登録する。
+    private(set) var apnsDeviceToken: String?
+
     /// セッショントークンの保管先（既定は Keychain、テストはインメモリ）。
     private let sessionStore: SessionStore
 
@@ -109,6 +117,30 @@ final class AppState: ObservableObject {
         sessionStore.token = response.token
         currentUser = response.user
         authStatus = .authenticated
+        // ログイン直後、取得済みトークンがあれば backend に登録する。
+        Task { await registerDeviceTokenIfPossible() }
+    }
+
+    // MARK: - Push（APNs デバイストークン）
+
+    /// AppDelegate から APNs デバイストークンを受け取り、可能なら backend へ登録する。
+    /// - Parameter token: 16 進のデバイストークン。
+    func didRegisterDeviceToken(_ token: String) {
+        apnsDeviceToken = token
+        Task { await registerDeviceTokenIfPossible() }
+    }
+
+    /// 認証済みかつトークン取得済みのとき、デバイストークンを backend へ登録する（ベストエフォート）。
+    func registerDeviceTokenIfPossible() async {
+        guard case .authenticated = authStatus,
+              let apiClient, let token = apnsDeviceToken else { return }
+        _ = try? await apiClient.registerDeviceToken(token)
+    }
+
+    /// プッシュ通知タップで対象 Podcast へ遷移する（ディープリンク）。
+    /// - Parameter podcastId: 遷移先の Podcast ID。
+    func handleNotificationPodcastId(_ podcastId: String) {
+        selectedPodcastId = podcastId
     }
 
     /// 保存済みトークンで `/auth/me` を解決し、認証状態を確定する。
@@ -125,6 +157,8 @@ final class AppState: ObservableObject {
             authStatus = .authenticated
             // 認証確立後、サーバーの preferences を同期する（失敗時は既存のローカル値を保持）
             await refreshPreferences()
+            // 起動時に取得済みのデバイストークンがあれば backend へ登録する。
+            await registerDeviceTokenIfPossible()
         } catch {
             sessionStore.token = nil
             currentUser = nil
@@ -154,6 +188,10 @@ final class AppState: ObservableObject {
     /// サーバ失効に失敗してもローカルのトークン・状態は必ず落とす（ベストエフォート）。
     func logout() async {
         if let apiClient {
+            // 他ユーザーに通知が届かないよう、ログアウト前にデバイストークンを解除する。
+            if let token = apnsDeviceToken {
+                _ = try? await apiClient.unregisterDeviceToken(token)
+            }
             _ = try? await apiClient.logout()
         }
         sessionStore.token = nil
