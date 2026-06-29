@@ -15,8 +15,8 @@ struct AudioPlayerView: View {
     /// 再生状態と操作を提供する ViewModel。
     @ObservedObject var vm: PodcastViewModel
 
-    /// 速度切替 Picker に並べる選択肢（倍率）。
-    private let speeds: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5]
+    /// 速度切替 Picker に並べる選択肢（倍率）。ロック画面/CC と共有する単一の真実。
+    private let speeds: [Float] = PlaybackConstants.speeds
 
     var body: some View {
         VStack(spacing: 16) {
@@ -51,7 +51,7 @@ struct AudioPlayerView: View {
             // 再生コントロール
             HStack(spacing: 40) {
                 Button {
-                    vm.seek(to: max(0, vm.currentTime - 15))
+                    vm.seek(to: max(0, vm.currentTime - PlaybackConstants.skipBackwardSeconds))
                 } label: {
                     Image(systemName: "gobackward.15")
                         .font(.title2)
@@ -69,7 +69,7 @@ struct AudioPlayerView: View {
                 .accessibilityHint(vm.isPlaying ? "再生を一時停止します" : "再生を開始します")
 
                 Button {
-                    vm.seek(to: min(vm.duration, vm.currentTime + 30))
+                    vm.seek(to: min(vm.duration, vm.currentTime + PlaybackConstants.skipForwardSeconds))
                 } label: {
                     Image(systemName: "goforward.30")
                         .font(.title2)
