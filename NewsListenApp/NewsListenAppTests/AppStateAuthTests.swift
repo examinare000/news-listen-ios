@@ -55,4 +55,23 @@ final class AppStateAuthTests: XCTestCase {
             XCTFail("トークン無しでは unauthenticated になるべき")
         }
     }
+
+    // MARK: - APNs プッシュ（issue #80）
+
+    func testHandleNotificationPodcastIdSetsSelectedPodcastId() {
+        let appState = AppState(sessionStore: InMemorySessionStore())
+
+        appState.handleNotificationPodcastId("pod123")
+
+        XCTAssertEqual(appState.selectedPodcastId, "pod123")
+    }
+
+    func testDidRegisterDeviceTokenStoresTokenWithoutCrashWhenUnauthenticated() {
+        // 未認証・apiClient nil でもクラッシュせず、トークンを保持して登録を保留する。
+        let appState = AppState(sessionStore: InMemorySessionStore())
+
+        appState.didRegisterDeviceToken("devicetokenhex")
+
+        XCTAssertEqual(appState.apnsDeviceToken, "devicetokenhex")
+    }
 }
