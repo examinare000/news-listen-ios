@@ -126,3 +126,22 @@ struct PodcastRowView: View {
         DifficultyLabel.text(for: difficulty)
     }
 }
+
+#if DEBUG
+private struct PodcastRowGallery: View {
+    var body: some View {
+        List {
+            PodcastRowView(podcast: PreviewSamples.podcasts[0], isPlaying: true, downloadState: .downloaded)
+            PodcastRowView(podcast: PreviewSamples.podcasts[1], isPlaying: false, downloadState: .downloading)
+            PodcastRowView(podcast: PreviewSamples.podcasts[2], isPlaying: false, downloadState: .notDownloaded, onDownloadTap: {})
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(DSColor.paper)
+        .environmentObject(PreviewSamples.appState())
+    }
+}
+
+#Preview("PodcastRow / Light") { PodcastRowGallery() }
+#Preview("PodcastRow / Dark") { PodcastRowGallery().preferredColorScheme(.dark) }
+#endif

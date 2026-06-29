@@ -113,3 +113,16 @@ struct PodcastView: View {
         )
     }
 }
+
+#if DEBUG
+#Preview("Podcast List / Light") {
+    PodcastView(apiClient: PreviewSamples.apiClient())
+        .environmentObject(PreviewSamples.appState())
+}
+
+#Preview("Podcast List / Dark") {
+    PodcastView(apiClient: PreviewSamples.apiClient())
+        .environmentObject(PreviewSamples.appState())
+        .preferredColorScheme(.dark)
+}
+#endif

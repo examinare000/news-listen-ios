@@ -95,3 +95,14 @@ struct LoginView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Login / Light") {
+    LoginView(apiClient: PreviewSamples.apiClient(), onSuccess: { _ in })
+}
+
+#Preview("Login / Dark") {
+    LoginView(apiClient: PreviewSamples.apiClient(), onSuccess: { _ in })
+        .preferredColorScheme(.dark)
+}
+#endif

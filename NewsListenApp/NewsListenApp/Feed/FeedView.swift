@@ -187,3 +187,16 @@ struct FeedView: View {
         )
     }
 }
+
+#if DEBUG
+#Preview("Feed / Light") {
+    FeedView(apiClient: PreviewSamples.apiClient())
+        .environmentObject(PreviewSamples.appState())
+}
+
+#Preview("Feed / Dark") {
+    FeedView(apiClient: PreviewSamples.apiClient())
+        .environmentObject(PreviewSamples.appState())
+        .preferredColorScheme(.dark)
+}
+#endif

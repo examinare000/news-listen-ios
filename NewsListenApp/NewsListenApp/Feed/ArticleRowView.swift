@@ -53,3 +53,30 @@ struct ArticleRowView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("ArticleRow / Light") {
+    List(PreviewSamples.articles) { article in
+        ArticleRowView(article: article)
+            .listRowBackground(DSColor.paper)
+            .listRowSeparatorTint(DSColor.hairline)
+    }
+    .listStyle(.plain)
+    .scrollContentBackground(.hidden)
+    .background(DSColor.paper)
+    .environmentObject(PreviewSamples.appState())
+}
+
+#Preview("ArticleRow / Dark") {
+    List(PreviewSamples.articles) { article in
+        ArticleRowView(article: article)
+            .listRowBackground(DSColor.paper)
+            .listRowSeparatorTint(DSColor.hairline)
+    }
+    .listStyle(.plain)
+    .scrollContentBackground(.hidden)
+    .background(DSColor.paper)
+    .environmentObject(PreviewSamples.appState())
+    .preferredColorScheme(.dark)
+}
+#endif

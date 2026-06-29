@@ -133,3 +133,24 @@ struct AudioPlayerView: View {
         return String(format: "×%.2f", speed)
     }
 }
+
+#if DEBUG
+#Preview("Player / Light") {
+    VStack {
+        Spacer()
+        AudioPlayerView(vm: PreviewSamples.playerViewModel())
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(DSColor.paper)
+}
+
+#Preview("Player / Dark") {
+    VStack {
+        Spacer()
+        AudioPlayerView(vm: PreviewSamples.playerViewModel())
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(DSColor.paper)
+    .preferredColorScheme(.dark)
+}
+#endif
