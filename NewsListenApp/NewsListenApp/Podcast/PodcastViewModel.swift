@@ -9,6 +9,7 @@
 import Foundation
 import Combine
 import AVFoundation
+import MediaPlayer
 import SwiftUI
 
 /// 音声再生の準備状態を表す列挙型。
@@ -63,6 +64,14 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private var timeObserver: Any?
     /// 再生位置をサーバーへ定期同期するタイマー。
     private var syncTimer: Timer?
+    /// リモートコマンド・音声通知の購読を設定済みか（多重登録防止）。
+    private var backgroundPlaybackConfigured = false
+    /// 割り込み（電話等）発生前に再生中だったか。割り込み終了時の再開判定に使う。
+    private var wasPlayingBeforeInterruption = false
+    /// 登録した MPRemoteCommand とその解除トークン。deinit で確実に解除する。
+    private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
+    /// 登録した音声通知オブザーバ。deinit で確実に解除する。
+    private var audioNotificationObservers: [NSObjectProtocol] = []
 
     /// ViewModel を生成する。
     /// - Parameters:
@@ -201,6 +210,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
         // マナーモード（消音スイッチ ON）でも再生されるよう .playback を指定する。
         // 既定の .soloAmbient だと無音になり「再生されない」不具合になるため。
         configureAudioSession()
+        // ロック画面/コントロールセンター操作と割り込み対応を一度だけ設定する。
+        configureBackgroundPlayback()
 
         stopPlayback()
         currentPodcast = podcast
@@ -220,13 +231,21 @@ final class PodcastViewModel: NSObject, ObservableObject {
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
-            self?.currentTime = time.seconds
-            let itemDuration = playerItem.duration.seconds
-            self?.duration = itemDuration.isNaN ? 0 : itemDuration
+            // queue: .main 指定によりこのクロージャは常にメインスレッドで呼ばれるため、
+            // MainActor 隔離を明示して @Published / Now Playing 更新を安全に行う。
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.currentTime = time.seconds
+                let itemDuration = playerItem.duration.seconds
+                self.duration = itemDuration.isNaN ? 0 : itemDuration
+                // ロック画面の経過/総時間のみ軽量更新する（辞書全構築は離散イベント時のみ）。
+                self.updateNowPlayingElapsed()
+            }
         }
 
         player?.play()
         isPlaying = true
+        updateNowPlayingInfo()
 
         // 再生位置をサーバーへ定期同期（15秒ごと）。
         startPlaybackPositionSync()
@@ -242,6 +261,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
             player.rate = playbackSpeed
         }
         isPlaying.toggle()
+        updateNowPlayingInfo()
     }
 
     /// 指定位置へシークする。
@@ -249,6 +269,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     func seek(to seconds: Double) {
         player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
         currentTime = seconds
+        updateNowPlayingInfo()
     }
 
     /// 再生速度を設定する。再生中なら即座に反映する。
@@ -256,6 +277,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     func setSpeed(_ speed: Float) {
         playbackSpeed = speed
         if isPlaying { player?.rate = speed }
+        updateNowPlayingInfo()
     }
 
     /// 再生を停止し、`AVPlayer`・タイムオブザーバ・再生状態を解放/リセットする。
@@ -275,6 +297,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
         isPlaying = false
         currentTime = 0
         duration = 0
+
+        // ロック画面/コントロールセンターの再生情報を消す。
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
     /// 音声セッションを `.playback` / `.spokenAudio` に設定する。
@@ -288,6 +313,187 @@ final class PodcastViewModel: NSObject, ObservableObject {
             // セッション設定の失敗は致命的ではない（音量が小さくなる程度）ため、
             // 再生自体は継続させ、エラーのみ記録する。
             errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Background Playback (Now Playing / Remote Command / 割り込み)
+
+    /// ロック画面/コントロールセンター操作と割り込み対応を一度だけ設定する。
+    /// 再生のたびに呼ばれるが、多重登録を避けるためフラグで初回のみ実行する。
+    private func configureBackgroundPlayback() {
+        guard !backgroundPlaybackConfigured else { return }
+        backgroundPlaybackConfigured = true
+        configureRemoteCommands()
+        registerAudioNotifications()
+    }
+
+    /// `MPRemoteCommandCenter` の各コマンドを ViewModel の操作へ配線する。
+    ///
+    /// `addTarget(self, action:)` はシングルトンの command center が `self` を強参照し、
+    /// `deinit` が発火せずリーク・ターゲット累積を招くため、`[weak self]` クロージャ方式で登録し、
+    /// 解除トークンを保持して `deinit` で確実に外す。コマンドはメインスレッドで配信されるため
+    /// `MainActor.assumeIsolated` で `@MainActor` 隔離を明示する。
+    private func configureRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+
+        func register(
+            _ command: MPRemoteCommand,
+            _ body: @escaping (PodcastViewModel, MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus
+        ) {
+            let target = command.addTarget { [weak self] event in
+                MainActor.assumeIsolated {
+                    guard let self else { return .commandFailed }
+                    return body(self, event)
+                }
+            }
+            remoteCommandTargets.append((command, target))
+        }
+
+        register(center.playCommand) { vm, _ in
+            guard vm.player != nil else { return .noSuchContent }
+            if !vm.isPlaying { vm.togglePlayPause() }
+            return .success
+        }
+        register(center.pauseCommand) { vm, _ in
+            guard vm.player != nil else { return .noSuchContent }
+            if vm.isPlaying { vm.togglePlayPause() }
+            return .success
+        }
+        register(center.togglePlayPauseCommand) { vm, _ in
+            guard vm.player != nil else { return .noSuchContent }
+            vm.togglePlayPause()
+            return .success
+        }
+
+        // スキップ秒は AudioPlayerView と共有定数で揃える。
+        center.skipBackwardCommand.preferredIntervals = [NSNumber(value: PlaybackConstants.skipBackwardSeconds)]
+        register(center.skipBackwardCommand) { vm, _ in
+            guard vm.player != nil else { return .noSuchContent }
+            vm.seek(to: max(0, vm.currentTime - PlaybackConstants.skipBackwardSeconds))
+            return .success
+        }
+        center.skipForwardCommand.preferredIntervals = [NSNumber(value: PlaybackConstants.skipForwardSeconds)]
+        register(center.skipForwardCommand) { vm, _ in
+            guard vm.player != nil else { return .noSuchContent }
+            vm.seek(to: min(vm.duration, vm.currentTime + PlaybackConstants.skipForwardSeconds))
+            return .success
+        }
+
+        register(center.changePlaybackPositionCommand) { vm, event in
+            guard vm.player != nil,
+                  let positionEvent = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            vm.seek(to: positionEvent.positionTime)
+            return .success
+        }
+
+        center.changePlaybackRateCommand.supportedPlaybackRates =
+            PlaybackConstants.speeds.map { NSNumber(value: $0) }
+        register(center.changePlaybackRateCommand) { vm, event in
+            // 他のコマンドと整合させ、未再生時は no-op で .noSuchContent を返す。
+            guard vm.player != nil,
+                  let rateEvent = event as? MPChangePlaybackRateCommandEvent else { return .noSuchContent }
+            vm.setSpeed(rateEvent.playbackRate)
+            return .success
+        }
+    }
+
+    /// 割り込み・ルート変更の通知購読を登録する。
+    ///
+    /// `AVAudioSession` の通知はメインスレッド配信が保証されないため、`queue: .main` を指定して
+    /// 必ずメインで受け、`@MainActor`/`@Published` 状態を安全に更新する。解除トークンを保持し deinit で外す。
+    private func registerAudioNotifications() {
+        let nc = NotificationCenter.default
+        let interruption = nc.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated { self?.handleInterruption(note) }
+        }
+        let route = nc.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated { self?.handleRouteChange(note) }
+        }
+        audioNotificationObservers.append(contentsOf: [interruption, route])
+    }
+
+    /// 現在の再生状態を `MPNowPlayingInfoCenter` に反映する。再生対象が無ければ消す。
+    /// タイトル・難易度などを含む辞書を全構築するため、再生/一時停止・シーク・速度変更などの
+    /// 離散イベント時に呼ぶ（高頻度の経過更新は ``updateNowPlayingElapsed()`` を使う）。
+    private func updateNowPlayingInfo() {
+        guard let podcast = currentPodcast else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = NowPlayingInfo.make(
+            podcast: podcast,
+            elapsed: currentTime,
+            duration: duration,
+            rate: playbackSpeed,
+            isPlaying: isPlaying
+        )
+    }
+
+    /// 経過/総時間のみを既存の Now Playing 辞書に上書きする軽量更新。
+    /// 0.5 秒ごとの periodic observer から呼び、辞書全構築のコストを避ける。
+    private func updateNowPlayingElapsed() {
+        guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, currentTime)
+        if duration.isFinite, duration > 0 {
+            info[MPMediaItemPropertyPlaybackDuration] = duration
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    // MARK: - Interruption / Route Change Handlers
+
+    /// 電話などの割り込みに応じて一時停止/再開する。割り込み前に再生中だった場合のみ再開する。
+    private func handleInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+        switch type {
+        case .began:
+            wasPlayingBeforeInterruption = isPlaying
+            if isPlaying { togglePlayPause() }
+        case .ended:
+            let options: AVAudioSession.InterruptionOptions
+            if let raw = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                options = AVAudioSession.InterruptionOptions(rawValue: raw)
+            } else {
+                options = []
+            }
+            if InterruptionPolicy.shouldResume(options: options), wasPlayingBeforeInterruption, !isPlaying {
+                // セッションを再有効化してから再開する。
+                try? AVAudioSession.sharedInstance().setActive(true)
+                togglePlayPause()
+            }
+            wasPlayingBeforeInterruption = false
+        @unknown default:
+            break
+        }
+    }
+
+    /// イヤホン抜去などルート変更に応じて一時停止する（旧デバイス喪失時）。
+    private func handleRouteChange(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
+        if InterruptionPolicy.shouldPause(forRouteChangeReason: reason), isPlaying {
+            togglePlayPause()
+        }
+    }
+
+    deinit {
+        // 音声通知オブザーバとリモートコマンドのターゲットを解除する。
+        // いずれも [weak self] クロージャ方式のため self を強参照せず deinit は確実に発火し、
+        // シングルトン（NotificationCenter / MPRemoteCommandCenter）への残存を防ぐ。
+        // これらの解除 API はスレッド安全で actor 分離に依存しない。
+        for observer in audioNotificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        for (command, target) in remoteCommandTargets {
+            command.removeTarget(target)
         }
     }
 

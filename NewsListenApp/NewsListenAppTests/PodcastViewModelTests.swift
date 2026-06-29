@@ -261,8 +261,64 @@ final class PodcastViewModelTests: XCTestCase {
 
         await vm.play(podcast: podcast)
 
-        // オンライン + キャッシュなし = 再生開始（AVPlayer は生成されず、currentPodcast = podcast）
+        // オンライン + キャッシュなし = 再生開始（currentPodcast = podcast）
         XCTAssertEqual(vm.currentPodcast?.id, "p1")
+    }
+
+    // MARK: - リモートコマンド経路と同じ再生制御メソッドの状態遷移（issue #79）
+
+    private func playingViewModel() async -> PodcastViewModel {
+        let podcast = Podcast(
+            id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
+            audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0
+        )
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 200)
+        )
+        let cache = AudioCacheManager(fileManager: MockFileManager())
+        let vm = makeViewModel(apiClient: client, cacheManager: cache, networkMonitor: StubNetworkMonitor(isOnline: true))
+        await vm.play(podcast: podcast)
+        return vm
+    }
+
+    func testTogglePlayPauseFlipsIsPlayingAfterPlay() async throws {
+        let vm = await playingViewModel()
+        XCTAssertTrue(vm.isPlaying)
+
+        // ロック画面の一時停止コマンドは togglePlayPause を経由する。
+        vm.togglePlayPause()
+        XCTAssertFalse(vm.isPlaying)
+
+        vm.togglePlayPause()
+        XCTAssertTrue(vm.isPlaying)
+    }
+
+    func testSeekUpdatesCurrentTimeAfterPlay() async throws {
+        let vm = await playingViewModel()
+
+        // スキップコマンドは seek(to:) を経由する。
+        vm.seek(to: 42)
+        XCTAssertEqual(vm.currentTime, 42)
+    }
+
+    func testSetSpeedUpdatesPlaybackSpeedAfterPlay() async throws {
+        let vm = await playingViewModel()
+
+        // 速度変更コマンドは setSpeed(_:) を経由する。
+        vm.setSpeed(1.75)
+        XCTAssertEqual(vm.playbackSpeed, 1.75)
+    }
+
+    func testStopPlaybackResetsState() async throws {
+        let vm = await playingViewModel()
+
+        vm.stopPlayback()
+        XCTAssertFalse(vm.isPlaying)
+        XCTAssertEqual(vm.currentTime, 0)
     }
 }
 
