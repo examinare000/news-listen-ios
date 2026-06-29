@@ -78,7 +78,7 @@ final class AudioCacheManager {
     /// キャッシュディレクトリ内の全ファイルサイズ合計（バイト）。
     /// - Returns: Total size in bytes.
     func cacheSize() -> Int64 {
-        var total: Int64 = 0
+        let total: Int64 = 0
         guard fileManager.fileExists(atPath: cacheDirectory.path) else { return 0 }
         // リスト取得は FileManagerProtocol にないため、ディレクトリ属性の合計値で判定
         // テストでは MockFileManager が個別管理するため十分。

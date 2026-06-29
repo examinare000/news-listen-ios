@@ -49,7 +49,7 @@ final class PasskeyCredentialsViewModel: ObservableObject {
         do {
             try await apiClient.deletePasskeyCredential(id: id)
             credentials.removeAll { $0.credentialID == id }
-        } catch let APIError.httpError(404) {
+        } catch APIError.httpError(404) {
             // サーバ側でも既に削除済み → 冪等として扱う。
             credentials.removeAll { $0.credentialID == id }
         } catch {
