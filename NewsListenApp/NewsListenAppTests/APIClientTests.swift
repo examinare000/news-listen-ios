@@ -291,6 +291,47 @@ final class APIClientTests: XCTestCase {
 
         XCTAssertEqual(podcast.playbackPositionSeconds, 0.0)
     }
+
+    // MARK: - APNs デバイストークン
+
+    func testRegisterDeviceTokenSendsPostWithBody() async throws {
+        let mockSession = MockURLSession(data: Data(), statusCode: 201)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "secret-key",
+            sessionToken: "test-token",
+            session: mockSession
+        )
+
+        try await client.registerDeviceToken("abc123token")
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/notifications/device-tokens")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "POST")
+        XCTAssertEqual(mockSession.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
+        XCTAssertEqual(mockSession.lastRequest?.value(forHTTPHeaderField: "X-API-Key"), "secret-key")
+
+        let body = try XCTUnwrap(mockSession.lastRequest?.httpBody)
+        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        XCTAssertEqual(json?["device_token"] as? String, "abc123token")
+    }
+
+    func testUnregisterDeviceTokenSendsDeleteWithQuery() async throws {
+        let mockSession = MockURLSession(data: Data(), statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "secret-key",
+            sessionToken: "test-token",
+            session: mockSession
+        )
+
+        try await client.unregisterDeviceToken("abc123token")
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/notifications/device-tokens")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "DELETE")
+        XCTAssertEqual(mockSession.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
+        let query = mockSession.lastRequest?.url?.query ?? ""
+        XCTAssertTrue(query.contains("token=abc123token"), "query should carry the token: \(query)")
+    }
 }
 
 // MARK: - MockURLSession
