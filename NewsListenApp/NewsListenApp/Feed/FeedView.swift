@@ -50,6 +50,8 @@ struct FeedView: View {
                     articleList
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .dsScreenBackground()
             .navigationTitle("フィード")
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
@@ -90,10 +92,10 @@ struct FeedView: View {
     private var articleList: some View {
         ZStack {
             List(viewModel.articles) { article in
-                HStack(spacing: 12) {
+                HStack(spacing: DSSpacing.m) {
                     if viewModel.isSelectionMode {
                         Image(systemName: viewModel.selectedIds.contains(article.id) ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(viewModel.selectedIds.contains(article.id) ? .blue : .secondary)
+                            .foregroundStyle(viewModel.selectedIds.contains(article.id) ? DSColor.accent : DSColor.inkTertiary)
                             .onTapGesture {
                                 viewModel.toggleSelection(article.id)
                             }
@@ -102,6 +104,9 @@ struct FeedView: View {
                     ArticleRowView(article: article)
                         .contentShape(Rectangle())
                 }
+                .listRowBackground(DSColor.paper)
+                .listRowSeparatorTint(DSColor.hairline)
+                .listRowInsets(EdgeInsets(top: 0, leading: DSSpacing.l, bottom: 0, trailing: DSSpacing.l))
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     if !viewModel.isSelectionMode {
                         Button(role: .destructive) {
@@ -132,6 +137,8 @@ struct FeedView: View {
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(DSColor.paper)
             .refreshable { await viewModel.loadFeed() }
 
             VStack {
@@ -147,14 +154,15 @@ struct FeedView: View {
     private var bulkStarButton: some View {
         Button(action: { Task { await viewModel.bulkStar() } }) {
             Text("\(viewModel.selectedIds.count)件を一括スター")
-                .font(.headline)
+                .font(DSFont.body.weight(.semibold))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, DSSpacing.m)
                 .foregroundStyle(.white)
-                .background(Color.blue)
-                .cornerRadius(8)
+                .background(DSColor.accent)
+                .clipShape(RoundedRectangle(cornerRadius: DSRadius.control, style: .continuous))
+                .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 4)
         }
-        .padding()
+        .padding(DSSpacing.l)
         .accessibilityLabel("選択中の記事を一括スター")
         .accessibilityValue("\(viewModel.selectedIds.count)件")
     }

@@ -2,7 +2,8 @@
 //  ArticleRowView.swift
 //  NewsListenApp
 //
-//  Feed の記事1件の行表示。ソース・公開日・タイトルと関連スコアの横バーを示す（設計 §7）。
+//  Feed の記事1件の行表示。アイブロウ（ソース · 公開日）・セリフ見出し・関連スコアバーで
+//  雑誌的な階層を作る（Editorial デザインシステム適用）。
 //
 
 import SwiftUI
@@ -15,22 +16,28 @@ struct ArticleRowView: View {
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(article.title)
-                .font(.headline)
-                .lineLimit(3)
-            HStack {
+        VStack(alignment: .leading, spacing: DSSpacing.s) {
+            // アイブロウ: ソース · 公開日（小さな大文字＋字間広め）
+            HStack(spacing: DSSpacing.s) {
                 Text(article.source)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
+                Text("·")
                 Text(formattedDate)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
             }
-            scoreBar
+            .dsEyebrow()
+
+            // セリフ見出し（雑誌のリードタイトル）
+            Text(article.title)
+                .font(DSFont.headline)
+                .foregroundStyle(DSColor.ink)
+                .lineLimit(3)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            RelevanceBar(score: article.score)
+                .padding(.top, DSSpacing.xs)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, DSSpacing.s)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("記事: \(article.title)")
         .accessibilityValue("ソース: \(article.source)、公開日: \(formattedDate)")
@@ -44,26 +51,5 @@ struct ArticleRowView: View {
         } else {
             return String(article.publishedAt.prefix(10))
         }
-    }
-
-    /// スコア（0〜1）を横バーで可視化するサブビュー。
-    private var scoreBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.secondary.opacity(0.15))
-                Capsule()
-                    .fill(Color.accentColor)
-                    .frame(width: geo.size.width * clampedScore)
-            }
-        }
-        .frame(height: 4)
-        .accessibilityLabel("関連スコア")
-        .accessibilityValue(String(format: "%.0f%%", clampedScore * 100))
-    }
-
-    /// バー描画用に 0〜1 の範囲へ丸めたスコア。
-    private var clampedScore: CGFloat {
-        CGFloat(min(max(article.score, 0), 1))
     }
 }

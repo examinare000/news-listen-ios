@@ -57,6 +57,8 @@ struct SettingsView: View {
                 difficultySection
                 playbackSection
             }
+            .scrollContentBackground(.hidden)
+            .background(DSColor.paper.ignoresSafeArea())
             .navigationTitle("設定")
             .sheet(isPresented: $showAddSource) { addSourceSheet }
             .alert("エラー", isPresented: errorBinding) {
@@ -201,6 +203,8 @@ struct SettingsView: View {
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
             }
+            .scrollContentBackground(.hidden)
+            .background(DSColor.paper.ignoresSafeArea())
             .navigationTitle("RSS ソースを追加")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

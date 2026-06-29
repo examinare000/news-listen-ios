@@ -33,38 +33,35 @@ struct PodcastRowView: View {
     }
 
     var body: some View {
-        HStack {
+        HStack(spacing: DSSpacing.m) {
             Image(systemName: isPlaying ? "waveform" : "headphones")
                 .font(.title2)
-                .foregroundStyle(isPlaying ? .blue : .secondary)
+                .foregroundStyle(isPlaying ? DSColor.accent : DSColor.inkTertiary)
+                .symbolEffect(.variableColor.iterative, isActive: isPlaying)
                 .frame(width: 36)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: DSSpacing.s) {
                 Text(podcast.japaneseIntroText.prefix(60))
-                    .font(.headline)
+                    .font(DSFont.headline)
+                    .foregroundStyle(DSColor.ink)
                     .lineLimit(2)
-                HStack {
-                    Text(difficultyLabel(podcast.difficulty))
-                        .font(.caption)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.1))
-                        .clipShape(Capsule())
+                HStack(spacing: DSSpacing.s) {
+                    DSBadge(difficultyLabel(podcast.difficulty))
                     Text(podcast.formattedDuration)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(DSFont.caption)
+                        .foregroundStyle(DSColor.inkSecondary)
                     statusBadge
                     Spacer()
                     Text(formattedDate)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(DSFont.caption)
+                        .foregroundStyle(DSColor.inkSecondary)
                 }
             }
 
             // ダウンロード状態ボタン
             downloadButton
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, DSSpacing.s)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Podcast: \(String(podcast.japaneseIntroText.prefix(60)))")
         .accessibilityValue("難易度: \(difficultyLabel(podcast.difficulty))、長さ: \(podcast.formattedDuration)、作成日: \(formattedDate)" + (isPlaying ? "、再生中" : ""))
@@ -88,7 +85,7 @@ struct PodcastRowView: View {
             Button(action: { onDownloadTap?() }) {
                 Image(systemName: "arrow.down.circle")
                     .font(.title3)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(DSColor.accent)
             }
             .accessibilityLabel("ダウンロード")
             .accessibilityHint("Podcast をダウンロードします")
@@ -109,14 +106,10 @@ struct PodcastRowView: View {
     private var statusBadge: some View {
         switch podcast.status {
         case "processing":
-            Label("生成中", systemImage: "hourglass")
-                .font(.caption2)
-                .foregroundStyle(.blue)
+            DSBadge("生成中", systemImage: "hourglass", tint: DSColor.accent)
                 .accessibilityLabel("生成中")
         case "failed", "partial_failed":
-            Label("失敗", systemImage: "exclamationmark.triangle.fill")
-                .font(.caption2)
-                .foregroundStyle(.red)
+            DSBadge("失敗", systemImage: "exclamationmark.triangle.fill", tint: .red)
                 .accessibilityLabel("生成失敗")
                 .accessibilityValue(podcast.errorMessage ?? "")
         case "completed":

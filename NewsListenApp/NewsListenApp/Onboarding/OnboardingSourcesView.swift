@@ -37,6 +37,8 @@ struct OnboardingSourcesView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(DSColor.paper.ignoresSafeArea())
             .navigationTitle("おすすめサイト")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -69,9 +71,9 @@ struct OnboardingSourcesView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(site.name).font(.headline)
+                Text(site.name).font(DSFont.headline).foregroundStyle(DSColor.ink)
                 if let description = site.description {
-                    Text(description).font(.caption).foregroundStyle(.secondary)
+                    Text(description).font(DSFont.caption).foregroundStyle(DSColor.inkSecondary)
                 }
             }
             Spacer()
