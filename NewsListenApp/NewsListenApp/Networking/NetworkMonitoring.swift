@@ -10,6 +10,12 @@ import Combine
 import Network
 
 /// ネットワーク接続状態を提供するプロトコル。
+///
+/// 唯一の本番実装 ``NetworkMonitor`` が `@MainActor`（`ObservableObject`/`@Published`）であり、
+/// 利用側（``PodcastViewModel`` / ``PodcastView``）も `@MainActor` 文脈で `isOnline` を参照する。
+/// Swift 6 では `@MainActor` 型の非分離プロトコルへの適合が「分離付き適合」となり非分離文脈から
+/// 使えないため、プロトコル自体を `@MainActor` にして適合・利用の分離を揃える（要件 #32）。
+@MainActor
 protocol NetworkMonitoring {
     /// ネットワークがオンラインかどうか。
     var isOnline: Bool { get }

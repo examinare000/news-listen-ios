@@ -24,6 +24,9 @@ struct PodcastView: View {
     ///   - apiClient: ViewModel に注入する API クライアント。
     ///   - cacheManager: 音声キャッシュマネージャ（既定: `AudioCacheManager()`）。
     ///   - networkMonitor: ネットワーク監視（既定: `NetworkMonitor()`）。
+    /// - Note: `@MainActor` 化した ``NetworkMonitoring`` の既定値生成を分離文脈で行うため、
+    ///   ビューの init も `@MainActor` にする（View 生成は常にメインで行われるため安全）。
+    @MainActor
     init(
         apiClient: APIClient,
         cacheManager: AudioCacheManager = AudioCacheManager(),

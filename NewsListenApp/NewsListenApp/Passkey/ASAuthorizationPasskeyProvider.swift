@@ -100,7 +100,11 @@ private final class PasskeyRegistrationDelegate: NSObject, ASAuthorizationContro
 
     private let continuation: CheckedContinuation<PasskeyRegistrationCredential, Error>
 
-    init(continuation: CheckedContinuation<PasskeyRegistrationCredential, Error>) {
+    // delegate は @MainActor 隔離（ASAuthorizationControllerDelegate 由来）。この init を呼ぶ
+    // withCheckedThrowingContinuation の本体は、本ビルドの並行性設定下で「nonisolated 文脈」として
+    // 診断され、@MainActor 隔離の init を呼べない。init は Sendable な continuation を格納するだけで
+    // 分離が不要なため nonisolated にして解消する（コールバックメソッドは引き続き @MainActor）。
+    nonisolated init(continuation: CheckedContinuation<PasskeyRegistrationCredential, Error>) {
         self.continuation = continuation
     }
 
@@ -147,7 +151,10 @@ private final class PasskeyAssertionDelegate: NSObject, ASAuthorizationControlle
 
     private let continuation: CheckedContinuation<PasskeyAssertionCredential, Error>
 
-    init(continuation: CheckedContinuation<PasskeyAssertionCredential, Error>) {
+    // 登録 delegate と同様、continuation 格納のみの init は分離不要。withCheckedThrowingContinuation
+    // の本体が「nonisolated 文脈」として診断され @MainActor 隔離の init を呼べないため、nonisolated に
+    // して解消する（コールバックメソッドは @MainActor を維持）。
+    nonisolated init(continuation: CheckedContinuation<PasskeyAssertionCredential, Error>) {
         self.continuation = continuation
     }
 

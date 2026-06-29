@@ -505,7 +505,11 @@ final class PodcastViewModel: NSObject, ObservableObject {
         // 既に起動していれば何もしない。
         guard syncTimer == nil else { return }
         syncTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] _ in
-            self?.syncPlaybackPositionIfNeeded()
+            // タイマーは @MainActor 文脈の本メソッドからメインランループへ登録され発火もメインで
+            // 行われるため、既存の Observer 同様 assumeIsolated で @MainActor 隔離を明示する。
+            MainActor.assumeIsolated {
+                self?.syncPlaybackPositionIfNeeded()
+            }
         }
     }
 
