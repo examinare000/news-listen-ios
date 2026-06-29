@@ -6,5 +6,9 @@
 	<array>
 		<string>webcredentials:$(PASSKEY_RP_ID)</string>
 	</array>
+	<!-- APNs プッシュ通知（issue #80）。開発/TestFlight は development（APNs sandbox）、
+	     App Store 配布ビルドでは production へ切り替える。 -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>
