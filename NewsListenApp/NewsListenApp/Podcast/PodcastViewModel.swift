@@ -9,6 +9,7 @@
 import Foundation
 import Combine
 import AVFoundation
+import MediaPlayer
 import SwiftUI
 
 /// 音声再生の準備状態を表す列挙型。
@@ -63,6 +64,10 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private var timeObserver: Any?
     /// 再生位置をサーバーへ定期同期するタイマー。
     private var syncTimer: Timer?
+    /// リモートコマンド・音声通知の購読を設定済みか（多重登録防止）。
+    private var backgroundPlaybackConfigured = false
+    /// 割り込み（電話等）発生前に再生中だったか。割り込み終了時の再開判定に使う。
+    private var wasPlayingBeforeInterruption = false
 
     /// ViewModel を生成する。
     /// - Parameters:
@@ -201,6 +206,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
         // マナーモード（消音スイッチ ON）でも再生されるよう .playback を指定する。
         // 既定の .soloAmbient だと無音になり「再生されない」不具合になるため。
         configureAudioSession()
+        // ロック画面/コントロールセンター操作と割り込み対応を一度だけ設定する。
+        configureBackgroundPlayback()
 
         stopPlayback()
         currentPodcast = podcast
@@ -220,13 +227,21 @@ final class PodcastViewModel: NSObject, ObservableObject {
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
-            self?.currentTime = time.seconds
-            let itemDuration = playerItem.duration.seconds
-            self?.duration = itemDuration.isNaN ? 0 : itemDuration
+            // queue: .main 指定によりこのクロージャは常にメインスレッドで呼ばれるため、
+            // MainActor 隔離を明示して @Published / Now Playing 更新を安全に行う。
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.currentTime = time.seconds
+                let itemDuration = playerItem.duration.seconds
+                self.duration = itemDuration.isNaN ? 0 : itemDuration
+                // ロック画面の経過/総時間をリアルタイム更新する。
+                self.updateNowPlayingInfo()
+            }
         }
 
         player?.play()
         isPlaying = true
+        updateNowPlayingInfo()
 
         // 再生位置をサーバーへ定期同期（15秒ごと）。
         startPlaybackPositionSync()
@@ -242,6 +257,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
             player.rate = playbackSpeed
         }
         isPlaying.toggle()
+        updateNowPlayingInfo()
     }
 
     /// 指定位置へシークする。
@@ -249,6 +265,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     func seek(to seconds: Double) {
         player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
         currentTime = seconds
+        updateNowPlayingInfo()
     }
 
     /// 再生速度を設定する。再生中なら即座に反映する。
@@ -256,6 +273,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     func setSpeed(_ speed: Float) {
         playbackSpeed = speed
         if isPlaying { player?.rate = speed }
+        updateNowPlayingInfo()
     }
 
     /// 再生を停止し、`AVPlayer`・タイムオブザーバ・再生状態を解放/リセットする。
@@ -275,6 +293,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
         isPlaying = false
         currentTime = 0
         duration = 0
+
+        // ロック画面/コントロールセンターの再生情報を消す。
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
     /// 音声セッションを `.playback` / `.spokenAudio` に設定する。
@@ -289,6 +310,155 @@ final class PodcastViewModel: NSObject, ObservableObject {
             // 再生自体は継続させ、エラーのみ記録する。
             errorMessage = error.localizedDescription
         }
+    }
+
+    // MARK: - Background Playback (Now Playing / Remote Command / 割り込み)
+
+    /// ロック画面/コントロールセンター操作と割り込み対応を一度だけ設定する。
+    /// 再生のたびに呼ばれるが、多重登録を避けるためフラグで初回のみ実行する。
+    private func configureBackgroundPlayback() {
+        guard !backgroundPlaybackConfigured else { return }
+        backgroundPlaybackConfigured = true
+        configureRemoteCommands()
+        registerAudioNotifications()
+    }
+
+    /// `MPRemoteCommandCenter` の各コマンドを ViewModel の操作へ配線する。
+    private func configureRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.addTarget(self, action: #selector(handlePlayCommand(_:)))
+        center.pauseCommand.addTarget(self, action: #selector(handlePauseCommand(_:)))
+        center.togglePlayPauseCommand.addTarget(self, action: #selector(handleToggleCommand(_:)))
+
+        // スキップ秒は AudioPlayerView の戻る15s/進む30s と揃える。
+        center.skipBackwardCommand.preferredIntervals = [15]
+        center.skipBackwardCommand.addTarget(self, action: #selector(handleSkipBackwardCommand(_:)))
+        center.skipForwardCommand.preferredIntervals = [30]
+        center.skipForwardCommand.addTarget(self, action: #selector(handleSkipForwardCommand(_:)))
+
+        center.changePlaybackPositionCommand.addTarget(self, action: #selector(handleChangePositionCommand(_:)))
+
+        center.changePlaybackRateCommand.supportedPlaybackRates =
+            [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5].map { NSNumber(value: $0) }
+        center.changePlaybackRateCommand.addTarget(self, action: #selector(handleChangeRateCommand(_:)))
+    }
+
+    /// 割り込み・ルート変更の通知購読を登録する。
+    private func registerAudioNotifications() {
+        let nc = NotificationCenter.default
+        nc.addObserver(
+            self, selector: #selector(handleInterruption(_:)),
+            name: AVAudioSession.interruptionNotification, object: nil
+        )
+        nc.addObserver(
+            self, selector: #selector(handleRouteChange(_:)),
+            name: AVAudioSession.routeChangeNotification, object: nil
+        )
+    }
+
+    /// 現在の再生状態を `MPNowPlayingInfoCenter` に反映する。再生対象が無ければ消す。
+    private func updateNowPlayingInfo() {
+        guard let podcast = currentPodcast else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = NowPlayingInfo.make(
+            podcast: podcast,
+            elapsed: currentTime,
+            duration: duration,
+            rate: playbackSpeed,
+            isPlaying: isPlaying
+        )
+    }
+
+    // MARK: - Remote Command Handlers
+
+    @objc private func handlePlayCommand(_ event: MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noSuchContent }
+        if !isPlaying { togglePlayPause() }
+        return .success
+    }
+
+    @objc private func handlePauseCommand(_ event: MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noSuchContent }
+        if isPlaying { togglePlayPause() }
+        return .success
+    }
+
+    @objc private func handleToggleCommand(_ event: MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noSuchContent }
+        togglePlayPause()
+        return .success
+    }
+
+    @objc private func handleSkipForwardCommand(_ event: MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noSuchContent }
+        seek(to: min(duration, currentTime + 30))
+        return .success
+    }
+
+    @objc private func handleSkipBackwardCommand(_ event: MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noSuchContent }
+        seek(to: max(0, currentTime - 15))
+        return .success
+    }
+
+    @objc private func handleChangePositionCommand(_ event: MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        guard player != nil,
+              let positionEvent = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+        seek(to: positionEvent.positionTime)
+        return .success
+    }
+
+    @objc private func handleChangeRateCommand(_ event: MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        guard let rateEvent = event as? MPChangePlaybackRateCommandEvent else { return .commandFailed }
+        setSpeed(rateEvent.playbackRate)
+        return .success
+    }
+
+    // MARK: - Interruption / Route Change Handlers
+
+    /// 電話などの割り込みに応じて一時停止/再開する。割り込み前に再生中だった場合のみ再開する。
+    @objc private func handleInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+        switch type {
+        case .began:
+            wasPlayingBeforeInterruption = isPlaying
+            if isPlaying { togglePlayPause() }
+        case .ended:
+            let options: AVAudioSession.InterruptionOptions
+            if let raw = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                options = AVAudioSession.InterruptionOptions(rawValue: raw)
+            } else {
+                options = []
+            }
+            if InterruptionPolicy.shouldResume(options: options), wasPlayingBeforeInterruption, !isPlaying {
+                // セッションを再有効化してから再開する。
+                try? AVAudioSession.sharedInstance().setActive(true)
+                togglePlayPause()
+            }
+            wasPlayingBeforeInterruption = false
+        @unknown default:
+            break
+        }
+    }
+
+    /// イヤホン抜去などルート変更に応じて一時停止する（旧デバイス喪失時）。
+    @objc private func handleRouteChange(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
+        if InterruptionPolicy.shouldPause(forRouteChangeReason: reason), isPlaying {
+            togglePlayPause()
+        }
+    }
+
+    deinit {
+        // 通知購読は解除する（removeObserver(self) はスレッド安全で actor 分離に依存しない）。
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - Playback Position Sync
