@@ -188,7 +188,8 @@ final class AppState: ObservableObject {
     /// サーバ失効に失敗してもローカルのトークン・状態は必ず落とす（ベストエフォート）。
     func logout() async {
         if let apiClient {
-            // 他ユーザーに通知が届かないよう、ログアウト前にデバイストークンを解除する。
+            // 他ユーザーへの誤配信を避けるため、ログアウト前にデバイストークンの解除を試みる
+            // （ベストエフォート。失敗してもサーバ側セッション破棄でトークンは事実上孤立する）。
             if let token = apnsDeviceToken {
                 _ = try? await apiClient.unregisterDeviceToken(token)
             }

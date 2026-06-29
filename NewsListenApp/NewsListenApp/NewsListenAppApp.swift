@@ -109,9 +109,11 @@ struct ContentView: View {
                 .tag(2)
         }
         // 通知タップで遷移先 Podcast が指定されたら Podcast タブへ切り替える。
+        // .task(id:) はマウント時にも発火するため、コールドスタート（ContentView 生成前に
+        // selectedPodcastId が確定済み）でも初期値を拾える（onChange はマウント済みの変化のみで取りこぼす）。
         // 実際の再生は PodcastView 側が selectedPodcastId を監視して行う。
-        .onChange(of: appState.selectedPodcastId) { _, newValue in
-            if newValue != nil { selectedTab = 1 }
+        .task(id: appState.selectedPodcastId) {
+            if appState.selectedPodcastId != nil { selectedTab = 1 }
         }
         // 起動ごとに onboarding 状態を取得し、未完了なら追加ステップを被せる。
         // 3分岐ルーティングではなく cover にすることで launch をブロックしない。
