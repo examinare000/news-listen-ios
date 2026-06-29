@@ -59,7 +59,7 @@ struct AccountSettingsView: View {
             Button("パスワードを変更") { Task { await changePassword() } }
 
             if let message {
-                Text(message).font(.footnote).foregroundStyle(.secondary)
+                Text(message).font(DSFont.footnote).foregroundStyle(DSColor.inkSecondary)
             }
 
             // 管理者のみ: ユーザー管理画面
@@ -88,23 +88,24 @@ struct AccountSettingsView: View {
                             ProgressView()
                                 .scaleEffect(0.8, anchor: .center)
                             Text("読み込み中…")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(DSFont.caption)
+                                .foregroundStyle(DSColor.inkSecondary)
                         }
                     } else {
                         Text("登録済み Passkey はありません")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(DSFont.caption)
+                            .foregroundStyle(DSColor.inkSecondary)
                     }
                 } else {
                     ForEach(credentialsViewModel.credentials) { credential in
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(credential.name ?? "（名前なし）")
-                                    .font(.body)
+                                    .font(DSFont.body)
+                                    .foregroundStyle(DSColor.ink)
                                 Text("登録日: \(extractDate(credential.createdAt))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(DSFont.caption)
+                                    .foregroundStyle(DSColor.inkTertiary)
                             }
                             Spacer()
                             Button(role: .destructive) {
@@ -121,8 +122,8 @@ struct AccountSettingsView: View {
 
                 if let error = credentialsViewModel.errorMessage {
                     Text(error)
-                        .foregroundStyle(.red)
-                        .font(.footnote)
+                        .foregroundStyle(DSColor.danger)
+                        .font(DSFont.footnote)
                 }
             }
             .sheet(isPresented: $showPasskeyRegistration) {
@@ -144,11 +145,11 @@ struct AccountSettingsView: View {
                             ProgressView()
                                 .scaleEffect(0.8, anchor: .center)
                             Text("Passkey を登録しています…")
-                                .font(.body)
+                                .font(DSFont.body)
                         }
                     } else {
                         Text("デバイスで新しい Passkey を登録します。")
-                            .font(.body)
+                            .font(DSFont.body)
                         Button("登録を開始") {
                             Task { await registrationViewModel.register() }
                         }
@@ -156,11 +157,13 @@ struct AccountSettingsView: View {
 
                     if let error = registrationViewModel.errorMessage {
                         Text(error)
-                            .foregroundStyle(.red)
-                            .font(.footnote)
+                            .foregroundStyle(DSColor.danger)
+                            .font(DSFont.footnote)
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(DSColor.paper.ignoresSafeArea())
             .navigationTitle("Passkey を登録")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

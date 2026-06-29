@@ -27,6 +27,9 @@ enum DSFont {
     static let meta = Font.system(.subheadline)
     /// 補助キャプション。SF。
     static let caption = Font.system(.caption)
+    /// エラー・フィードバック等のやや小さい補助テキスト（`.footnote` 相当・caption より僅かに大きい）。
+    /// 安全に関わるエラー文言の可読性を落とさないため caption とは別に保持する。
+    static let footnote = Font.system(.footnote)
     /// アイブロウ（ソース名など）。SF・semibold。呼び出し側で大文字＋トラッキングを与える。
     static let eyebrow = Font.system(.caption, design: .default).weight(.semibold)
 }

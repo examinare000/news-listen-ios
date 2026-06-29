@@ -124,7 +124,7 @@ struct FeedView: View {
                         } label: {
                             Label("Star", systemImage: "star.fill")
                         }
-                        .tint(.yellow)
+                        .tint(DSColor.star)
                         .accessibilityLabel("記事をスター")
                     }
                 }
@@ -157,7 +157,7 @@ struct FeedView: View {
                 .font(DSFont.body.weight(.semibold))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, DSSpacing.m)
-                .foregroundStyle(.white)
+                .foregroundStyle(DSColor.onAccent)
                 .background(DSColor.accent)
                 .clipShape(RoundedRectangle(cornerRadius: DSRadius.control, style: .continuous))
                 .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 4)

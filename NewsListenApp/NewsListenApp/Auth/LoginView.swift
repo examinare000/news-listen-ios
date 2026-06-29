@@ -55,8 +55,8 @@ struct LoginView: View {
 
                 if let error = viewModel.errorMessage {
                     Text(error)
-                        .foregroundStyle(.red)
-                        .font(.footnote)
+                        .foregroundStyle(DSColor.danger)
+                        .font(DSFont.footnote)
                 }
 
                 Button {
@@ -84,8 +84,8 @@ struct LoginView: View {
 
                     if let error = passkeyViewModel.errorMessage {
                         Text(error)
-                            .foregroundStyle(.red)
-                            .font(.footnote)
+                            .foregroundStyle(DSColor.danger)
+                            .font(DSFont.footnote)
                     }
                 }
             }
