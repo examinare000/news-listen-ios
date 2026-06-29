@@ -18,6 +18,11 @@ struct NewsListenAppApp: App {
     /// アプリ全体で共有する設定状態。
     @StateObject private var appState = AppState()
 
+    /// グローバル外観（ナビゲーション見出しのセリフ化・紙背景）を起動時に一度だけ設定する。
+    init() {
+        DSAppearance.configure()
+    }
+
     /// 設定状態・認証状態に応じてルート画面を出し分けるシーン。
     ///
     /// 注入漏れ → 設定不備案内、注入済みで認証未解決 → ローディング、未ログイン → ログイン、
@@ -54,6 +59,7 @@ struct NewsListenAppApp: App {
                     }
                 }
             }
+            .tint(DSColor.accent)
             .environmentObject(appState)
         }
     }

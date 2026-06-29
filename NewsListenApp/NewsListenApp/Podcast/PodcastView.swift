@@ -43,6 +43,8 @@ struct PodcastView: View {
                         .transition(.move(edge: .bottom))
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .dsScreenBackground()
             .navigationTitle("Podcast")
             .animation(.spring(), value: viewModel.currentPodcast?.id)
             .alert("エラー", isPresented: errorBinding) {
@@ -93,8 +95,13 @@ struct PodcastView: View {
                 }
             }
             .accessibilityHint("タップで再生を開始します")
+            .listRowBackground(DSColor.paper)
+            .listRowSeparatorTint(DSColor.hairline)
+            .listRowInsets(EdgeInsets(top: DSSpacing.xs, leading: DSSpacing.l, bottom: DSSpacing.xs, trailing: DSSpacing.l))
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(DSColor.paper)
         .refreshable { await viewModel.loadPodcasts() }
     }
 
@@ -106,3 +113,16 @@ struct PodcastView: View {
         )
     }
 }
+
+#if DEBUG
+#Preview("Podcast List / Light") {
+    PodcastView(apiClient: PreviewSamples.apiClient())
+        .environmentObject(PreviewSamples.appState())
+}
+
+#Preview("Podcast List / Dark") {
+    PodcastView(apiClient: PreviewSamples.apiClient())
+        .environmentObject(PreviewSamples.appState())
+        .preferredColorScheme(.dark)
+}
+#endif

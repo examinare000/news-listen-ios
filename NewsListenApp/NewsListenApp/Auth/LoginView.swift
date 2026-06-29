@@ -33,6 +33,19 @@ struct LoginView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    VStack(spacing: DSSpacing.s) {
+                        Text("News Listen")
+                            .font(DSFont.display)
+                            .foregroundStyle(DSColor.ink)
+                        Text("読んで、聴いて、英語を")
+                            .dsEyebrow()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DSSpacing.l)
+                    .listRowBackground(Color.clear)
+                }
+
                 Section("ログイン") {
                     TextField("ユーザーID", text: $viewModel.username)
                         .autocorrectionDisabled()
@@ -76,7 +89,20 @@ struct LoginView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(DSColor.paper.ignoresSafeArea())
             .navigationTitle("ログイン")
         }
     }
 }
+
+#if DEBUG
+#Preview("Login / Light") {
+    LoginView(apiClient: PreviewSamples.apiClient(), onSuccess: { _ in })
+}
+
+#Preview("Login / Dark") {
+    LoginView(apiClient: PreviewSamples.apiClient(), onSuccess: { _ in })
+        .preferredColorScheme(.dark)
+}
+#endif

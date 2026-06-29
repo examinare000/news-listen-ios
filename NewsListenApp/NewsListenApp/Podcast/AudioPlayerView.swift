@@ -19,18 +19,23 @@ struct AudioPlayerView: View {
     private let speeds: [Float] = PlaybackConstants.speeds
 
     var body: some View {
-        VStack(spacing: 16) {
-            // 日本語イントロ表示
-            if let podcast = vm.currentPodcast, !podcast.japaneseIntroText.isEmpty {
-                Text(podcast.japaneseIntroText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal)
-                    .multilineTextAlignment(.center)
+        VStack(spacing: DSSpacing.l) {
+            // 再生中ラベル＋日本語イントロ（セリフで雑誌的に）
+            VStack(spacing: DSSpacing.s) {
+                Text("再生中")
+                    .dsEyebrow()
+                if let podcast = vm.currentPodcast, !podcast.japaneseIntroText.isEmpty {
+                    Text(podcast.japaneseIntroText)
+                        .font(DSFont.body)
+                        .foregroundStyle(DSColor.ink)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                }
             }
+            .padding(.horizontal)
 
             // シークバー
-            VStack(spacing: 4) {
+            VStack(spacing: DSSpacing.xs) {
                 Slider(
                     value: Binding(
                         get: { vm.currentTime },
@@ -38,23 +43,25 @@ struct AudioPlayerView: View {
                     ),
                     in: 0...max(vm.duration, 1)
                 )
+                .tint(DSColor.accent)
                 HStack {
                     Text(formatTime(vm.currentTime))
                     Spacer()
                     Text(formatTime(vm.duration))
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(DSFont.caption.monospacedDigit())
+                .foregroundStyle(DSColor.inkSecondary)
             }
             .padding(.horizontal)
 
             // 再生コントロール
-            HStack(spacing: 40) {
+            HStack(spacing: DSSpacing.xxl + DSSpacing.s) {
                 Button {
                     vm.seek(to: max(0, vm.currentTime - PlaybackConstants.skipBackwardSeconds))
                 } label: {
                     Image(systemName: "gobackward.15")
                         .font(.title2)
+                        .foregroundStyle(DSColor.ink)
                 }
                 .accessibilityLabel("15秒戻す")
                 .accessibilityHint("再生位置を15秒前に移動します")
@@ -63,7 +70,9 @@ struct AudioPlayerView: View {
                     vm.togglePlayPause()
                 } label: {
                     Image(systemName: vm.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(.largeTitle))
+                        .font(.system(size: 60))
+                        .foregroundStyle(DSColor.accent)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .accessibilityLabel(vm.isPlaying ? "一時停止" : "再生")
                 .accessibilityHint(vm.isPlaying ? "再生を一時停止します" : "再生を開始します")
@@ -73,6 +82,7 @@ struct AudioPlayerView: View {
                 } label: {
                     Image(systemName: "goforward.30")
                         .font(.title2)
+                        .foregroundStyle(DSColor.ink)
                 }
                 .accessibilityLabel("30秒進む")
                 .accessibilityHint("再生位置を30秒先に移動します")
@@ -88,12 +98,19 @@ struct AudioPlayerView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .tint(DSColor.accent)
             .padding(.horizontal)
         }
-        .padding(.vertical)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .padding()
+        .padding(.vertical, DSSpacing.l)
+        .frame(maxWidth: .infinity)
+        .background(DSColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: DSRadius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DSRadius.card, style: .continuous)
+                .strokeBorder(DSColor.hairline, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: -2)
+        .padding(DSSpacing.l)
     }
 
     /// 秒数を `分:秒`（例: `1:05`）の表示用文字列へ整形する。非有限値は `0:00` を返す。
@@ -116,3 +133,24 @@ struct AudioPlayerView: View {
         return String(format: "×%.2f", speed)
     }
 }
+
+#if DEBUG
+#Preview("Player / Light") {
+    VStack {
+        Spacer()
+        AudioPlayerView(vm: PreviewSamples.playerViewModel())
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(DSColor.paper)
+}
+
+#Preview("Player / Dark") {
+    VStack {
+        Spacer()
+        AudioPlayerView(vm: PreviewSamples.playerViewModel())
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(DSColor.paper)
+    .preferredColorScheme(.dark)
+}
+#endif
