@@ -56,7 +56,7 @@ private struct DSTokenGallery: View {
             HStack(spacing: DSSpacing.s) {
                 DSBadge("TOEIC 900")
                 DSBadge("生成中", systemImage: "hourglass", tint: DSColor.accent)
-                DSBadge("失敗", systemImage: "exclamationmark.triangle.fill", tint: .red)
+                DSBadge("失敗", systemImage: "exclamationmark.triangle.fill", tint: DSColor.danger)
             }
 
             RelevanceBar(score: 0.82).frame(width: 180)

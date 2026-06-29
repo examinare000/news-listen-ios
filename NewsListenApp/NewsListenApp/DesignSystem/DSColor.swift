@@ -34,6 +34,23 @@ enum DSColor {
     static let accentSoft = adaptiveAlpha(light: 0xA8402E, lightAlpha: 0.10,
                                           dark: 0xE08A6E, darkAlpha: 0.16)
 
+    // MARK: - セマンティック状態色
+    // 状態（エラー/成功/スター）を表す色も直値（.red 等）を避けトークン化する。
+    // Editorial の温かい紙面に馴染むよう、彩度を抑えた色味にする（汎用 Material 色は使わない）。
+
+    /// エラー・破壊的操作。アクセントの朱と混同しないよう、やや明るく彩度の高い赤にする。
+    static let danger = adaptive(light: 0xC0392B, dark: 0xE57373)
+    /// 成功・ダウンロード完了。落ち着いた森緑。
+    static let success = adaptive(light: 0x4F7A3A, dark: 0x8BB87A)
+    /// スター・強調。黄ではなく落ち着いた金。
+    static let star = adaptive(light: 0xC8902E, dark: 0xE0B65C)
+    /// アクセント面の上に乗せる前景（テキスト/アイコン）。
+    /// アクセントはライト=濃い朱／ダーク=明るい朱のため、前景は逆相の温白/墨を適応的に選び
+    /// 双方のモードでコントラストを確保する（白固定だとダークで可読性が落ちる）。
+    /// 値は意図的に ``paper`` と同位相（紙面色）。アクセント面上の前景と背景紙は常に同じ明暗相を取るため、
+    /// `paper` を再調整する場合は本トークンも併せて見直す。
+    static let onAccent = adaptive(light: 0xFBF9F4, dark: 0x14130F)
+
     /// UIKit 外観（`UINavigationBar` 等）設定用の `UIColor` 版トークン。
     enum UI {
         /// 紙（背景）。`DSColor.paper` の UIColor 版。
