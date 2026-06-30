@@ -18,6 +18,8 @@ struct PodcastView: View {
     private let cacheManager: AudioCacheManager
     /// ネットワーク監視。
     private let networkMonitor: NetworkMonitoring
+    /// 再生待ちキューのシート表示状態（issue #81）。
+    @State private var showQueue = false
 
     /// ビューを生成する。
     /// - Parameters:
@@ -50,6 +52,15 @@ struct PodcastView: View {
             .dsScreenBackground()
             .navigationTitle("Podcast")
             .animation(.spring(), value: viewModel.currentPodcast?.id)
+            .toolbar {
+                // 再生待ち一覧（キュー）を開く。待機数をバッジ的に併記する。
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { showQueue = true } label: {
+                        Label("再生待ち\(viewModel.queue.upNext.isEmpty ? "" : "（\(viewModel.queue.upNext.count)）")", systemImage: "list.bullet")
+                    }
+                    .accessibilityLabel("再生待ちキュー")
+                }
+            }
             .alert("エラー", isPresented: errorBinding) {
                 Button("OK") { viewModel.errorMessage = nil }
             } message: {
@@ -59,6 +70,9 @@ struct PodcastView: View {
         .task { await viewModel.loadPodcasts() }
         // タブ離脱時に再生を止め、AVPlayer / TimeObserver を解放する。
         .onDisappear { viewModel.stopPlayback() }
+        .sheet(isPresented: $showQueue) {
+            QueueSheet(viewModel: viewModel)
+        }
     }
 
     /// 読み込み状態・空状態・一覧を出し分ける主コンテンツ。
@@ -94,10 +108,23 @@ struct PodcastView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 Task {
-                    await viewModel.play(podcast: podcast)
+                    await viewModel.playNow(podcast)
                 }
             }
             .accessibilityHint("タップで再生を開始します")
+            // 連続再生の導線（issue #81）: 次に再生 / キューに追加。
+            .contextMenu {
+                Button {
+                    Task { await viewModel.playNext(podcast) }
+                } label: {
+                    Label("次に再生", systemImage: "text.insert")
+                }
+                Button {
+                    Task { await viewModel.addToQueue(podcast) }
+                } label: {
+                    Label("キューに追加", systemImage: "text.append")
+                }
+            }
             .listRowBackground(DSColor.paper)
             .listRowSeparatorTint(DSColor.hairline)
             .listRowInsets(EdgeInsets(top: DSSpacing.xs, leading: DSSpacing.l, bottom: DSSpacing.xs, trailing: DSSpacing.l))
