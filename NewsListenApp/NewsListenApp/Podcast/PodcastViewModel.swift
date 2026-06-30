@@ -51,6 +51,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
     @Published private(set) var downloadedIds: Set<String> = []
     /// ダウンロード中 Podcast ID の集合（ViewModel のみが更新する）。
     @Published private(set) var downloadingIds: Set<String> = []
+    /// 再生キュー（連続再生・プレイリスト / issue #81）。
+    @Published private(set) var queue = PlaybackQueue()
 
     /// API 通信に使うクライアント。
     private let apiClient: APIClient
@@ -72,6 +74,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
     /// 登録した音声通知オブザーバ。deinit で確実に解除する。
     private var audioNotificationObservers: [NSObjectProtocol] = []
+    /// 再生終了（`didPlayToEndTime`）の購読トークン。次の再生開始/停止時に解除する（issue #81）。
+    private var endOfPlaybackObserver: NSObjectProtocol?
 
     /// ViewModel を生成する。
     /// - Parameters:
@@ -243,12 +247,76 @@ final class PodcastViewModel: NSObject, ObservableObject {
             }
         }
 
+        // 再生終了で次のキューへ自動遷移する（issue #81）。object に playerItem を指定し当該再生のみ購読。
+        endOfPlaybackObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                Task { await self.handlePlaybackEnded() }
+            }
+        }
+
         player?.play()
         isPlaying = true
         updateNowPlayingInfo()
 
         // 再生位置をサーバーへ定期同期（15秒ごと）。
         startPlaybackPositionSync()
+    }
+
+    // MARK: - 再生キュー（issue #81）
+
+    /// 再生終了時の自動次再生。キューに次があれば再生し、無ければ停止してプレイヤーを閉じる。
+    func handlePlaybackEnded() async {
+        if let next = queue.advance() {
+            await play(podcast: next)
+        } else {
+            // キュー終端: 再生を止め、ミニプレイヤーも閉じる（自然終了）。
+            stopPlayback()
+            currentPodcast = nil
+        }
+    }
+
+    /// このエピソードを今すぐ再生する（一覧タップ起点）。
+    /// キュー内にあればそこへジャンプ、無ければ現在の次に挿入してそこへジャンプする。
+    /// WHY(#81 review): start で丸ごと置換すると利用者が組んだ待機列が消えるため、挿入方式で保持する。
+    func playNow(_ podcast: Podcast) async {
+        if !queue.jump(to: podcast.id) {
+            queue.playNext(podcast)
+            _ = queue.jump(to: podcast.id)
+        }
+        await play(podcast: podcast)
+    }
+
+    /// キュー末尾に追加する（「キューに追加」）。何も再生していなければ即再生を開始する。
+    func addToQueue(_ podcast: Podcast) async {
+        let nothingPlaying = currentPodcast == nil
+        queue.add(podcast)
+        if nothingPlaying {
+            await playNow(podcast)
+        }
+    }
+
+    /// 現在の次に割り込む（「次に再生」）。何も再生していなければ即再生を開始する。
+    func playNext(_ podcast: Podcast) async {
+        let nothingPlaying = currentPodcast == nil
+        queue.playNext(podcast)
+        if nothingPlaying {
+            await playNow(podcast)
+        }
+    }
+
+    /// キューから取り除く。
+    func removeFromQueue(id: String) {
+        queue.remove(id: id)
+    }
+
+    /// 待機列（upNext）を SwiftUI の onMove 規約で並べ替える。
+    func moveUpNext(fromOffsets source: IndexSet, toOffset destination: Int) {
+        queue.reorderUpNext(fromOffsets: source, toOffset: destination)
     }
 
     /// 再生中なら一時停止し、停止中なら再生を再開する。
@@ -292,6 +360,11 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
         if let obs = timeObserver { player?.removeTimeObserver(obs) }
         timeObserver = nil
+        // 再生終了オブザーバを解除する（次の play で再登録・二重発火防止 / issue #81）。
+        if let endObs = endOfPlaybackObserver {
+            NotificationCenter.default.removeObserver(endObs)
+            endOfPlaybackObserver = nil
+        }
         player?.pause()
         player = nil
         isPlaying = false
@@ -491,6 +564,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
         // これらの解除 API はスレッド安全で actor 分離に依存しない。
         for observer in audioNotificationObservers {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let endObs = endOfPlaybackObserver {
+            NotificationCenter.default.removeObserver(endObs)
         }
         for (command, target) in remoteCommandTargets {
             command.removeTarget(target)
