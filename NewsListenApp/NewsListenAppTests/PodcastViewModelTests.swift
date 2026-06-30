@@ -22,7 +22,8 @@ final class PodcastViewModelTests: XCTestCase {
     private func queuePodcast(_ id: String) -> Podcast {
         Podcast(
             id: id, type: "single", articleIds: [], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/\(id).mp3", japaneseIntroText: "i",
+            audioUrl: "https://storage.example.com/\(id).mp3", title: "",
+            japaneseIntroText: "i",
             durationSeconds: 60, createdAt: "2026-05-31T06:00:00Z", status: "completed",
             errorMessage: nil, playbackPositionSeconds: 0
         )
@@ -132,7 +133,8 @@ final class PodcastViewModelTests: XCTestCase {
     func testResolvePlaybackURLReturnsCachedURL() {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
             playbackPositionSeconds: 0.0
         )
@@ -152,7 +154,8 @@ final class PodcastViewModelTests: XCTestCase {
     func testResolvePlaybackURLReturnsAudioURLWhenOnlineNoCached() {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
             playbackPositionSeconds: 0.0
         )
@@ -168,7 +171,8 @@ final class PodcastViewModelTests: XCTestCase {
     func testResolvePlaybackURLReturnsNilOfflineNoCached() {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
             playbackPositionSeconds: 0.0
         )
@@ -185,7 +189,8 @@ final class PodcastViewModelTests: XCTestCase {
     func testDownloadFetchesPodcastAndCachesAudio() async throws {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
             playbackPositionSeconds: 0.0
         )
@@ -277,7 +282,8 @@ final class PodcastViewModelTests: XCTestCase {
     func testPlayOfflineNoCachedSetsErrorMessage() async throws {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
             playbackPositionSeconds: 0.0
         )
@@ -303,7 +309,8 @@ final class PodcastViewModelTests: XCTestCase {
     func testPlayOnlineNoCachedResolvesAudioURL() async throws {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
             playbackPositionSeconds: 0.0
         )
@@ -331,7 +338,8 @@ final class PodcastViewModelTests: XCTestCase {
     private func playingViewModel() async -> PodcastViewModel {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/p1.mp3", japaneseIntroText: "test",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
             playbackPositionSeconds: 0.0
         )

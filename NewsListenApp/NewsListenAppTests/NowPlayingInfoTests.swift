@@ -15,13 +15,14 @@ import MediaPlayer
 @MainActor
 final class NowPlayingInfoTests: XCTestCase {
 
-    private func samplePodcast(intro: String = "今日のニュース要約です") -> Podcast {
+    private func samplePodcast(intro: String = "今日のニュース要約です", title: String = "") -> Podcast {
         Podcast(
             id: "p1",
             type: "daily",
             articleIds: ["a1"],
             difficulty: "toeic_900",
             audioUrl: "https://example.com/p1.mp3",
+            title: title,
             japaneseIntroText: intro,
             durationSeconds: 300,
             createdAt: "2026-06-29T06:00:00Z",
@@ -76,6 +77,24 @@ final class NowPlayingInfoTests: XCTestCase {
     func testTitleFallsBackWhenIntroEmpty() {
         let title = NowPlayingInfo.title(for: samplePodcast(intro: ""))
         XCTAssertFalse(title.isEmpty)
+    }
+
+    /// title フィールドが非空のとき、japaneseIntroText より優先される。
+    func testTitlePrefersTitleFieldOverIntro() {
+        let podcast = samplePodcast(intro: "イントロ", title: "速報タイトル")
+        XCTAssertEqual(NowPlayingInfo.title(for: podcast), "速報タイトル")
+    }
+
+    /// title フィールドが空のとき japaneseIntroText にフォールバックする。
+    func testTitleFallsBackToIntroWhenTitleFieldEmpty() {
+        let podcast = samplePodcast(intro: "今日のニュース", title: "")
+        XCTAssertEqual(NowPlayingInfo.title(for: podcast), "今日のニュース")
+    }
+
+    /// title フィールドも japaneseIntroText も空のとき "ニュースポッドキャスト" を返す。
+    func testTitleFallsBackToDefaultWhenBothEmpty() {
+        let podcast = samplePodcast(intro: "", title: "")
+        XCTAssertEqual(NowPlayingInfo.title(for: podcast), "ニュースポッドキャスト")
     }
 
     // MARK: - InterruptionPolicy
