@@ -17,6 +17,67 @@ final class PodcastViewModelTests: XCTestCase {
         return PodcastViewModel(apiClient: apiClient, cacheManager: cache, networkMonitor: network)
     }
 
+    // MARK: - issue #81: 再生キュー（連続再生）
+
+    private func queuePodcast(_ id: String) -> Podcast {
+        Podcast(
+            id: id, type: "single", articleIds: [], difficulty: "toeic_900",
+            audioUrl: "https://storage.example.com/\(id).mp3", japaneseIntroText: "i",
+            durationSeconds: 60, createdAt: "2026-05-31T06:00:00Z", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0
+        )
+    }
+
+    private func makeOnlineViewModel() -> PodcastViewModel {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key",
+            session: MockURLSession(data: Data("{}".utf8), statusCode: 200)
+        )
+        return makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+    }
+
+    func testAddToQueueStartsPlaybackWhenIdle() async {
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))
+        XCTAssertEqual(vm.currentPodcast?.id, "a")
+        XCTAssertEqual(vm.queue.current?.id, "a")
+    }
+
+    func testAutoAdvancePlaysNextOnEnd() async {
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))   // a を再生
+        await vm.addToQueue(queuePodcast("b"))   // b をキュー
+        await vm.handlePlaybackEnded()           // a 終了 → 自動で b へ
+        XCTAssertEqual(vm.queue.current?.id, "b")
+        XCTAssertEqual(vm.currentPodcast?.id, "b")
+    }
+
+    func testStopsWhenQueueExhaustedOnEnd() async {
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))   // a を再生（キューは [a] のみ）
+        await vm.handlePlaybackEnded()           // 次が無い → 停止
+        XCTAssertNil(vm.currentPodcast)
+        XCTAssertFalse(vm.isPlaying)
+    }
+
+    func testPlayNextInsertsAfterCurrent() async {
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))   // a を再生
+        await vm.addToQueue(queuePodcast("b"))   // [a, b]
+        await vm.playNext(queuePodcast("c"))     // a の次に c
+
+        XCTAssertEqual(vm.queue.upNext.map { $0.id }, ["c", "b"])
+    }
+
+    func testRemoveFromQueue() async {
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))
+        await vm.addToQueue(queuePodcast("b"))
+
+        vm.removeFromQueue(id: "b")
+        XCTAssertEqual(vm.queue.items.map { $0.id }, ["a"])
+    }
+
     func testLoadPodcastsPopulatesList() async throws {
         let mockJSON = #"""
         {"podcasts": [
