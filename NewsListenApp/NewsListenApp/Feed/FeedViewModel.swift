@@ -23,6 +23,14 @@ final class FeedViewModel: ObservableObject {
     @Published var selectedIds: Set<String> = []
     /// 一括処理の成功/失敗の統計情報（トースト表示用）。
     @Published var bulkActionResult: BulkActionResult?
+    /// タップで全文展開中の記事 ID（なければ `nil`）。issue #111。
+    @Published var expandedId: String?
+    /// 直近の Star/Dismiss（取り消し可能な保留中操作）。issue #111。
+    ///
+    /// Star/Dismiss は楽観的に一覧から消し、サーバ送信は `commitPending()` まで遅延する。
+    /// 確定前なら `undoLast()` で元に戻せる（サーバ側に un-star/un-dismiss API が無いため、
+    /// 取り消しは「まだ送っていない」遅延コミット方式で実現する）。
+    @Published private(set) var pendingAction: PendingArticleAction?
 
     /// API 通信に使うクライアント。
     private let apiClient: APIClient
@@ -35,6 +43,9 @@ final class FeedViewModel: ObservableObject {
 
     /// フィードを取得して `articles` を更新する。失敗時は `errorMessage` に反映する。
     func loadFeed() async {
+        // 保留中の Star/Dismiss は一覧を置き換える前に確定させる（issue #111）。
+        // これをしないとサーバ未反映の記事がリフレッシュで再出現し、楽観削除と id 重複する。
+        await commitPending()
         isLoading = true
         errorMessage = nil
         do {
@@ -46,26 +57,74 @@ final class FeedViewModel: ObservableObject {
         isLoading = false
     }
 
-    /// 記事を Star し、一覧から取り除く。失敗時は `errorMessage` に反映する。
+    /// 記事を Star する（楽観的に一覧から除去し、確定は `commitPending()` まで遅延）。issue #111。
+    /// 確定前は `undoLast()` で取り消せる。
     /// - Parameter article: 対象記事。
     func star(article: Article) async {
+        await stage(article: article, kind: .star)
+    }
+
+    /// 記事を Dismiss する（楽観的に一覧から除去し、確定は `commitPending()` まで遅延）。issue #111。
+    /// - Parameter article: 対象記事。
+    func dismiss(article: Article) async {
+        await stage(article: article, kind: .dismiss)
+    }
+
+    /// 操作を保留に積む（取り消しは直近1件）。
+    ///
+    /// 楽観削除を**先に**行って UI を即時更新し、直前の保留はその後に確定送信する。
+    /// こうすることで、連続スワイプ時に新しい操作の反映が前操作の通信完了を待たない（ラグ防止）。
+    private func stage(article: Article, kind: PendingArticleAction.Kind) async {
+        let previous = pendingAction
+        if let index = articles.firstIndex(where: { $0.id == article.id }) {
+            articles.remove(at: index)
+            expandedId = nil
+            pendingAction = PendingArticleAction(article: article, index: index, kind: kind)
+        } else {
+            // 対象がリフレッシュ等で一覧から消えている。新規 staging はせず、直前の保留のみ確定する。
+            pendingAction = nil
+        }
+        if let previous {
+            await commit(previous)
+        }
+    }
+
+    /// 直近の Star/Dismiss を取り消し、記事を元の位置へ戻す（サーバ未送信のため副作用なし）。issue #111。
+    func undoLast() {
+        guard let pending = pendingAction else { return }
+        let index = min(pending.index, articles.count)
+        articles.insert(pending.article, at: index)
+        pendingAction = nil
+    }
+
+    /// 保留中の操作をサーバへ確定送信する。失敗時は記事を戻し `errorMessage` に反映する。issue #111。
+    /// 取り消し猶予の経過・別操作・画面離脱・バックグラウンド遷移のタイミングで呼ぶ。
+    func commitPending() async {
+        guard let pending = pendingAction else { return }
+        // 再入防止のため先に保留を解除してから送信する（タイマー・onDisappear・別操作の同時到来でも 1 回のみ）。
+        pendingAction = nil
+        await commit(pending)
+    }
+
+    /// 指定の保留操作をサーバへ送信する。失敗時は記事を元の位置へ戻し `errorMessage` に反映する。
+    private func commit(_ pending: PendingArticleAction) async {
         do {
-            try await apiClient.starArticle(id: article.id)
-            articles.removeAll { $0.id == article.id }
+            switch pending.kind {
+            case .star:
+                try await apiClient.starArticle(id: pending.article.id)
+            case .dismiss:
+                try await apiClient.dismissArticle(id: pending.article.id)
+            }
         } catch {
+            let index = min(pending.index, articles.count)
+            articles.insert(pending.article, at: index)
             errorMessage = error.localizedDescription
         }
     }
 
-    /// 記事を Dismiss し、一覧から取り除く。失敗時は `errorMessage` に反映する。
-    /// - Parameter article: 対象記事。
-    func dismiss(article: Article) async {
-        do {
-            try await apiClient.dismissArticle(id: article.id)
-            articles.removeAll { $0.id == article.id }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+    /// タップで全文表示の展開/折り畳みをトグルする。issue #111。
+    func toggleExpand(_ id: String) {
+        expandedId = (expandedId == id) ? nil : id
     }
 
     /// 記事 ID の選択状態を切り替える。
@@ -125,6 +184,26 @@ final class FeedViewModel: ObservableObject {
         // 選択モードをリセット。
         isSelectionMode = false
         selectedIds.removeAll()
+    }
+}
+
+/// 取り消し可能な保留中の Star/Dismiss 操作（issue #111）。
+struct PendingArticleAction {
+    /// 操作種別。
+    enum Kind { case star, dismiss }
+    /// 対象記事。
+    let article: Article
+    /// 楽観的削除前の一覧内インデックス（取り消し時に元の位置へ戻すため）。
+    let index: Int
+    /// 操作種別。
+    let kind: Kind
+
+    /// 取り消しトーストに出す文言。
+    var message: String {
+        switch kind {
+        case .star: return "スターしました"
+        case .dismiss: return "削除しました"
+        }
     }
 }
 

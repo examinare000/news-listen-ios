@@ -32,7 +32,8 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertNil(vm.errorMessage)
     }
 
-    func testStarArticleRemovesItFromFeed() async throws {
+    func testStarStagesAndRemovesArticle() async throws {
+        // star は楽観削除 + 保留（確定は commitPending まで遅延）。issue #111。
         let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
         let article = sampleArticle()
         vm.articles = [article]
@@ -40,9 +41,10 @@ final class FeedViewModelTests: XCTestCase {
         await vm.star(article: article)
 
         XCTAssertTrue(vm.articles.isEmpty)
+        XCTAssertEqual(vm.pendingAction?.kind, .star)
     }
 
-    func testDismissArticleRemovesItFromFeed() async throws {
+    func testDismissStagesAndRemovesArticle() async throws {
         let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"dismissed","article_id":"a1"}"#))
         let article = sampleArticle()
         vm.articles = [article]
@@ -50,6 +52,7 @@ final class FeedViewModelTests: XCTestCase {
         await vm.dismiss(article: article)
 
         XCTAssertTrue(vm.articles.isEmpty)
+        XCTAssertEqual(vm.pendingAction?.kind, .dismiss)
     }
 
     func testLoadFeedSetsErrorMessageOnFailure() async throws {
@@ -125,5 +128,114 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertTrue(vm.articles.isEmpty)
         XCTAssertTrue(vm.selectedIds.isEmpty)
         XCTAssertFalse(vm.isSelectionMode)
+    }
+
+    // MARK: - issue #111: ジェスチャ UX（楽観的削除 + 取り消し + 展開）
+
+    func testStarStagesPendingActionAndRemovesOptimistically() async throws {
+        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
+        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+
+        await vm.star(article: sampleArticle(id: "a1"))
+
+        // 楽観的に一覧から消え、直近操作が保留（取り消し可能）になる。
+        XCTAssertEqual(vm.articles.map { $0.id }, ["a2"])
+        XCTAssertEqual(vm.pendingAction?.article.id, "a1")
+        XCTAssertEqual(vm.pendingAction?.kind, .star)
+    }
+
+    func testUndoLastReinsertsArticleAtOriginalIndex() async throws {
+        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a2"}"#))
+        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2"), sampleArticle(id: "a3")]
+
+        await vm.dismiss(article: sampleArticle(id: "a2"))   // index 1 を削除
+        XCTAssertEqual(vm.articles.map { $0.id }, ["a1", "a3"])
+
+        vm.undoLast()
+
+        // 元の位置（index 1）に戻る。保留は解除。
+        XCTAssertEqual(vm.articles.map { $0.id }, ["a1", "a2", "a3"])
+        XCTAssertNil(vm.pendingAction)
+    }
+
+    func testCommitPendingSuccessClearsPendingAndKeepsRemoval() async throws {
+        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
+        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+
+        await vm.star(article: sampleArticle(id: "a1"))
+        await vm.commitPending()
+
+        XCTAssertNil(vm.pendingAction)
+        XCTAssertEqual(vm.articles.map { $0.id }, ["a2"])   // 確定済み（戻らない）
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    func testCommitPendingFailureReinsertsAndSetsError() async throws {
+        // 失敗するクライアント。初回 star は保留のみ（API 未呼出）、commit で 500 → 復元。
+        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+
+        await vm.star(article: sampleArticle(id: "a1"))
+        await vm.commitPending()
+
+        XCTAssertEqual(vm.articles.map { $0.id }, ["a1", "a2"])   // 復元
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertNil(vm.pendingAction)
+    }
+
+    func testStagingNewActionCommitsPrevious() async throws {
+        // モックを直接持ち、直前操作が実際にサーバへ送信されたことを検証する（API 経路の確証）。
+        let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
+        let vm = FeedViewModel(apiClient: APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
+        ))
+        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+
+        await vm.star(article: sampleArticle(id: "a1"))   // 保留 a1（API 未送信）
+        XCTAssertNil(mock.lastRequest)                     // まだ送信されていない
+        await vm.dismiss(article: sampleArticle(id: "a2"))  // 直前 a1 を確定送信し a2 を保留
+
+        XCTAssertEqual(vm.pendingAction?.article.id, "a2")
+        XCTAssertEqual(vm.pendingAction?.kind, .dismiss)
+        XCTAssertTrue(vm.articles.isEmpty)
+        // 直前の star(a1) がサーバへ確定送信された。
+        XCTAssertEqual(mock.lastRequest?.url?.path, "/articles/a1/star")
+    }
+
+    func testLoadFeedCommitsPendingBeforeReplacingArticles() async throws {
+        // リフレッシュ前に保留を確定し、id 重複（楽観削除した記事の再出現）を防ぐ。issue #111 H1。
+        let json = #"{"articles":[{"id":"a1","title":"X","url":"https://e.com","source":"s","score":0.5,"published_at":"2026-05-31T06:00:00Z"}],"date":"2026-05-31"}"#
+        let mock = MockURLSession(data: json.data(using: .utf8)!, statusCode: 200)
+        let vm = FeedViewModel(apiClient: APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
+        ))
+        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+
+        await vm.star(article: sampleArticle(id: "a1"))   // 保留 a1
+        await vm.loadFeed()                                // 取得前に a1 を確定
+
+        XCTAssertNil(vm.pendingAction)                     // 保留は解消済み
+        // a1 が二重にならない（重複 id 無し）。
+        XCTAssertEqual(vm.articles.map { $0.id }, ["a1"])
+    }
+
+    func testStageClearsExpandedId() async throws {
+        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
+        vm.articles = [sampleArticle(id: "a1")]
+        vm.expandedId = "a1"
+
+        await vm.star(article: sampleArticle(id: "a1"))
+
+        XCTAssertNil(vm.expandedId)   // 操作で展開状態は解除される
+    }
+
+    func testToggleExpandTogglesExpandedId() {
+        let vm = FeedViewModel(apiClient: makeClient(json: "{}"))
+
+        vm.toggleExpand("a1")
+        XCTAssertEqual(vm.expandedId, "a1")
+
+        vm.toggleExpand("a1")
+        XCTAssertNil(vm.expandedId)
     }
 }

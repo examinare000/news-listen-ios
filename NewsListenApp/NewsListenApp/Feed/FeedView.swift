@@ -26,6 +26,8 @@ struct FeedView: View {
     @StateObject private var viewModel: FeedViewModel
     /// 外部 Safari で開くための環境アクション。
     @Environment(\.openURL) private var openURL
+    /// アプリのライフサイクル状態（バックグラウンド遷移で保留操作を確定するため）。
+    @Environment(\.scenePhase) private var scenePhase
     /// アプリ内 Safari で提示中の URL（なければ `nil`）。
     @State private var safariURL: IdentifiableURL?
 
@@ -86,67 +88,96 @@ struct FeedView: View {
             SafariView(url: item.url)
                 .ignoresSafeArea()
         }
+        // バックグラウンド遷移時に保留中の Star/Dismiss を確定送信する（取りこぼし防止・issue #111）。
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase != .active {
+                Task { await viewModel.commitPending() }
+            }
+        }
     }
 
-    /// 記事一覧の `List`。左右スワイプで Star/Dismiss、タップで記事を開く。
+    /// 記事一覧。通常時はジェスチャ対応カード（右スワイプ Star / 左スワイプ Dismiss /
+    /// タップ展開 / ダブルタップでソース表示）、選択モードでは選択行を表示する（issue #111）。
     private var articleList: some View {
-        ZStack {
-            List(viewModel.articles) { article in
-                HStack(spacing: DSSpacing.m) {
-                    if viewModel.isSelectionMode {
-                        Image(systemName: viewModel.selectedIds.contains(article.id) ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(viewModel.selectedIds.contains(article.id) ? DSColor.accent : DSColor.inkTertiary)
-                            .onTapGesture {
-                                viewModel.toggleSelection(article.id)
-                            }
-                    }
-
-                    ArticleRowView(article: article)
-                        .contentShape(Rectangle())
-                }
-                .listRowBackground(DSColor.paper)
-                .listRowSeparatorTint(DSColor.hairline)
-                .listRowInsets(EdgeInsets(top: 0, leading: DSSpacing.l, bottom: 0, trailing: DSSpacing.l))
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    if !viewModel.isSelectionMode {
-                        Button(role: .destructive) {
-                            Task { await viewModel.dismiss(article: article) }
-                        } label: {
-                            Label("Dismiss", systemImage: "xmark")
+        ZStack(alignment: .bottom) {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(viewModel.articles) { article in
+                        row(for: article)
+                        // 末尾記事の後ろには区切り線を出さない。
+                        if article.id != viewModel.articles.last?.id {
+                            Divider().overlay(DSColor.hairline)
                         }
-                        .accessibilityLabel("記事を削除")
-                    }
-                }
-                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    if !viewModel.isSelectionMode {
-                        Button {
-                            Task { await viewModel.star(article: article) }
-                        } label: {
-                            Label("Star", systemImage: "star.fill")
-                        }
-                        .tint(DSColor.star)
-                        .accessibilityLabel("記事をスター")
-                    }
-                }
-                .onTapGesture {
-                    if viewModel.isSelectionMode {
-                        viewModel.toggleSelection(article.id)
-                    } else {
-                        open(article)
                     }
                 }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
             .background(DSColor.paper)
             .refreshable { await viewModel.loadFeed() }
+            // 画面離脱時は保留中の Star/Dismiss を確定送信する（取り消し猶予の終了）。
+            .onDisappear { Task { await viewModel.commitPending() } }
 
-            VStack {
-                Spacer()
+            VStack(spacing: DSSpacing.s) {
+                // 誤操作の取り消し導線（保留中のみ表示・一定時間で自動確定）。
+                if let pending = viewModel.pendingAction {
+                    undoToast(pending)
+                }
                 if viewModel.isSelectionMode && !viewModel.selectedIds.isEmpty {
                     bulkStarButton
                 }
             }
+        }
+    }
+
+    /// 1 行の表示。選択モードでは選択行、通常時はスワイプ対応カード。
+    @ViewBuilder
+    private func row(for article: Article) -> some View {
+        if viewModel.isSelectionMode {
+            HStack(spacing: DSSpacing.m) {
+                Image(systemName: viewModel.selectedIds.contains(article.id) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(viewModel.selectedIds.contains(article.id) ? DSColor.accent : DSColor.inkTertiary)
+                ArticleRowView(article: article)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, DSSpacing.l)
+            .contentShape(Rectangle())
+            .onTapGesture { viewModel.toggleSelection(article.id) }
+            .accessibilityHint("タップで選択を切り替えます")
+        } else {
+            SwipeableArticleCard(
+                article: article,
+                isExpanded: viewModel.expandedId == article.id,
+                onTap: { viewModel.toggleExpand(article.id) },
+                onDoubleTap: { open(article) },
+                onStar: { Task { await viewModel.star(article: article) } },
+                onDismiss: { Task { await viewModel.dismiss(article: article) } }
+            )
+        }
+    }
+
+    /// 取り消しトースト。表示中に一定時間が経過したら自動で確定送信する。
+    private func undoToast(_ pending: PendingArticleAction) -> some View {
+        HStack(spacing: DSSpacing.m) {
+            Text(pending.message)
+                .font(DSFont.body)
+                .foregroundStyle(DSColor.onAccent)
+            Spacer(minLength: 0)
+            Button("取り消す") { viewModel.undoLast() }
+                .font(DSFont.body.weight(.semibold))
+                .foregroundStyle(DSColor.star)
+        }
+        .padding(.horizontal, DSSpacing.l)   // カプセル内側の余白
+        .padding(.vertical, DSSpacing.m)
+        .background(DSColor.ink)
+        .clipShape(RoundedRectangle(cornerRadius: DSRadius.control, style: .continuous))
+        .padding(.horizontal, DSSpacing.l)   // 画面端からの外側マージン
+        .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(pending.message)
+        .accessibilityHint("取り消すには取り消すボタンを押します")
+        // 4 秒後に自動確定。取り消し（pendingAction 解除）でこのビューが消えると task は中断される。
+        .task {
+            try? await Task.sleep(for: .seconds(4))
+            await viewModel.commitPending()
         }
     }
 
