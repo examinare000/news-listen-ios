@@ -17,6 +17,8 @@ struct AccountSettingsView: View {
     @StateObject private var registrationViewModel: PasskeyRegistrationViewModel
     /// Passkey クレデンシャル一覧を担う ViewModel。
     @StateObject private var credentialsViewModel: PasskeyCredentialsViewModel
+    /// ログイン中のデバイス（セッション）を担う ViewModel（issue #84）。
+    @StateObject private var sessionsViewModel: SessionsViewModel
 
     /// 入力中の表示名。
     @State private var displayName = ""
@@ -28,6 +30,8 @@ struct AccountSettingsView: View {
     @State private var message: String?
     /// Passkey 登録シートの表示状態。
     @State private var showPasskeyRegistration = false
+    /// 「他のデバイスからログアウト」確認ダイアログの表示状態（issue #84）。
+    @State private var showRevokeOthersConfirm = false
 
     /// ビューを生成する。
     /// - Parameter apiClient: Passkey 操作に使うクライアント。未設定時は `nil`。
@@ -38,6 +42,7 @@ struct AccountSettingsView: View {
             provider: ASAuthorizationPasskeyProvider()
         ))
         _credentialsViewModel = StateObject(wrappedValue: PasskeyCredentialsViewModel(apiClient: apiClient))
+        _sessionsViewModel = StateObject(wrappedValue: SessionsViewModel(apiClient: apiClient))
     }
 
     var body: some View {
@@ -132,6 +137,89 @@ struct AccountSettingsView: View {
             .task {
                 await credentialsViewModel.loadCredentials()
             }
+
+            // ログイン中のデバイス（issue #84）
+            sessionsSection
+        }
+    }
+
+    /// ログイン中のデバイス（セッション）一覧・個別/一括失効セクション。
+    @ViewBuilder
+    private var sessionsSection: some View {
+        Section("ログイン中のデバイス") {
+            // 他のデバイスからログアウト（現在以外が無ければ無効）。
+            Button("他のデバイスからログアウト", role: .destructive) {
+                showRevokeOthersConfirm = true
+            }
+            .disabled(sessionsViewModel.sessions.filter { !$0.current }.isEmpty)
+
+            if sessionsViewModel.sessions.isEmpty {
+                if sessionsViewModel.isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.8, anchor: .center)
+                        Text("読み込み中…").font(DSFont.caption).foregroundStyle(DSColor.inkSecondary)
+                    }
+                } else {
+                    Text("ログイン中のデバイスはありません")
+                        .font(DSFont.caption)
+                        .foregroundStyle(DSColor.inkSecondary)
+                }
+            } else {
+                ForEach(sessionsViewModel.sessions) { session in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(session.deviceLabel ?? "不明なデバイス")
+                                    .font(DSFont.body)
+                                    .foregroundStyle(DSColor.ink)
+                                if session.current {
+                                    Text("現在のデバイス")
+                                        .font(DSFont.caption)
+                                        .foregroundStyle(DSColor.inkSecondary)
+                                }
+                            }
+                            Text(sessionDateLine(session))
+                                .font(DSFont.caption)
+                                .foregroundStyle(DSColor.inkTertiary)
+                        }
+                        Spacer()
+                        // 現在のデバイスはこの画面から失効しない（＝ログアウト操作）。
+                        if !session.current {
+                            Button(role: .destructive) {
+                                Task { await sessionsViewModel.revokeSession(id: session.id) }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("デバイスをログアウト: \(session.deviceLabel ?? "不明なデバイス")")
+                        }
+                    }
+                }
+            }
+
+            if let error = sessionsViewModel.errorMessage {
+                Text(error).foregroundStyle(DSColor.danger).font(DSFont.footnote)
+            }
+            if let count = sessionsViewModel.revokedOthersCount {
+                Text("他の \(count) 台のデバイスからログアウトしました")
+                    .foregroundStyle(DSColor.inkSecondary)
+                    .font(DSFont.footnote)
+            }
+        }
+        .task {
+            await sessionsViewModel.loadSessions()
+        }
+        .confirmationDialog(
+            "他のデバイスからログアウトしますか？",
+            isPresented: $showRevokeOthersConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("ログアウト", role: .destructive) {
+                Task { await sessionsViewModel.revokeOthers() }
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("現在のデバイス以外のすべてのセッションが失効します。")
         }
     }
 
@@ -187,6 +275,15 @@ struct AccountSettingsView: View {
     /// 例: "2025-06-26T12:34:56Z" → "2025-06-26"
     private func extractDate(_ isoString: String) -> String {
         String(isoString.prefix(10))
+    }
+
+    /// セッション行の日付表記（ログイン日 + 最終利用日があれば併記・issue #84 review）。
+    private func sessionDateLine(_ session: SessionItem) -> String {
+        var line = "ログイン: \(extractDate(session.createdAt))"
+        if let lastUsed = session.lastUsedAt {
+            line += "　最終利用: \(extractDate(lastUsed))"
+        }
+        return line
     }
 
     /// 表示名をサーバへ保存し、ローカル状態も更新する。
