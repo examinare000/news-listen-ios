@@ -18,9 +18,14 @@ struct NewsListenAppApp: App {
     /// アプリ全体で共有する設定状態。
     @StateObject private var appState = AppState()
 
+    /// MetricKit クラッシュ診断の購読者（issue #83）。購読を維持するため保持する。
+    private static let crashReporter = CrashReporter()
+
     /// グローバル外観（ナビゲーション見出しのセリフ化・紙背景）を起動時に一度だけ設定する。
+    /// あわせて MetricKit のクラッシュ診断購読を開始する（次回起動時に前回クラッシュが配信される）。
     init() {
         DSAppearance.configure()
+        Self.crashReporter.register()
     }
 
     /// 設定状態・認証状態に応じてルート画面を出し分けるシーン。
