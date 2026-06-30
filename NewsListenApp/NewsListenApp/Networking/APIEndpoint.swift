@@ -80,6 +80,9 @@ enum APIEndpoint {
     /// 現在以外のセッションを一括失効。
     case revokeOtherSessions
 
+    /// クライアントのエラー/クラッシュ報告（issue #83・認証セッション不要・X-API-Key のみ）。
+    case clientErrors
+
     /// エンドポイントへの相対パス（baseURL に連結して使う）。
     var path: String {
         switch self {
@@ -111,6 +114,7 @@ enum APIEndpoint {
         case .sessions: return "/auth/sessions"
         case .revokeSession(let id): return "/auth/sessions/\(id)"
         case .revokeOtherSessions: return "/auth/sessions/revoke-others"
+        case .clientErrors: return "/client-errors"
         }
     }
 
@@ -123,7 +127,7 @@ enum APIEndpoint {
         case .starArticle, .dismissArticle, .addSource, .completeOnboarding,
              .login, .logout, .changePassword, .createUser,
              .passkeyRegisterOptions, .passkeyRegisterVerify,
-             .passkeyLoginOptions, .passkeyLoginVerify, .revokeOtherSessions:
+             .passkeyLoginOptions, .passkeyLoginVerify, .revokeOtherSessions, .clientErrors:
             return "POST"
         case .updateProfile, .updateUser, .updatePlaybackPosition:
             return "PATCH"

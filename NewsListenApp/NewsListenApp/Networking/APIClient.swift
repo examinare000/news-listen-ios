@@ -343,6 +343,14 @@ final class APIClient {
         try await request(.revokeOtherSessions, body: [:], responseType: RevokeSessionsAPIResponse.self)
     }
 
+    /// クライアントのエラー/クラッシュを backend へ報告する（issue #83・認証不要・X-API-Key のみ）。
+    func reportClientError(_ payload: ClientErrorPayload) async throws {
+        var body: [String: Any] = ["source": payload.source, "kind": payload.kind]
+        if let message = payload.message { body["message"] = message }
+        if let context = payload.context { body["context"] = context }
+        try await requestVoid(.clientErrors, body: body)
+    }
+
     // MARK: - Private helpers
 
     /// エンドポイントへリクエストを送り、レスポンスを指定型へデコードして返す。
