@@ -41,7 +41,6 @@ struct ArticleRowView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("記事: \(article.title)")
         .accessibilityValue("ソース: \(article.source)、公開日: \(formattedDate)")
-        .accessibilityHint("タップで記事を開きます。左スワイプでスター、右スワイプで削除できます")
     }
 
     /// timeFormat 設定に応じた日付表記を返す。
