@@ -72,6 +72,14 @@ enum APIEndpoint {
     /// 指定クレデンシャルの削除（Bearer 要・パス param は base64url 文字列）。
     case passkeyDeleteCredential(id: String)
 
+    // ログイン中のデバイス/セッション（issue #84・Bearer 要）
+    /// 自分の有効セッション一覧の取得。
+    case sessions
+    /// 指定セッションの個別失効。
+    case revokeSession(id: String)
+    /// 現在以外のセッションを一括失効。
+    case revokeOtherSessions
+
     /// エンドポイントへの相対パス（baseURL に連結して使う）。
     var path: String {
         switch self {
@@ -100,6 +108,9 @@ enum APIEndpoint {
         case .passkeyLoginVerify: return "/auth/passkey/login/verify"
         case .passkeyCredentials: return "/auth/passkey/credentials"
         case .passkeyDeleteCredential(let id): return "/auth/passkey/credentials/\(id)"
+        case .sessions: return "/auth/sessions"
+        case .revokeSession(let id): return "/auth/sessions/\(id)"
+        case .revokeOtherSessions: return "/auth/sessions/revoke-others"
         }
     }
 
@@ -107,18 +118,18 @@ enum APIEndpoint {
     var method: String {
         switch self {
         case .feed, .podcasts, .podcast, .sources, .featuredSources, .onboardingStatus,
-             .me, .listUsers, .passkeyCredentials, .preferences:
+             .me, .listUsers, .passkeyCredentials, .preferences, .sessions:
             return "GET"
         case .starArticle, .dismissArticle, .addSource, .completeOnboarding,
              .login, .logout, .changePassword, .createUser,
              .passkeyRegisterOptions, .passkeyRegisterVerify,
-             .passkeyLoginOptions, .passkeyLoginVerify:
+             .passkeyLoginOptions, .passkeyLoginVerify, .revokeOtherSessions:
             return "POST"
         case .updateProfile, .updateUser, .updatePlaybackPosition:
             return "PATCH"
         case .updatePreferences:
             return "PUT"
-        case .removeSource, .deleteUser, .passkeyDeleteCredential:
+        case .removeSource, .deleteUser, .passkeyDeleteCredential, .revokeSession:
             return "DELETE"
         }
     }

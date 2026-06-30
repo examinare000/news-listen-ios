@@ -324,6 +324,21 @@ final class APIClient {
         try await requestVoid(.passkeyDeleteCredential(id: id))
     }
 
+    /// 自分の有効セッション（ログイン中デバイス）一覧を取得する（Bearer 要・issue #84）。
+    func listSessions() async throws -> SessionsAPIResponse {
+        try await request(.sessions, responseType: SessionsAPIResponse.self)
+    }
+
+    /// 指定セッションを個別失効する（Bearer 要・他人/不在は 404・冪等）。
+    func revokeSession(id: String) async throws {
+        try await requestVoid(.revokeSession(id: id))
+    }
+
+    /// 現在以外のセッションを一括失効する（「他のデバイスからログアウト」）。
+    func revokeOtherSessions() async throws -> RevokeSessionsAPIResponse {
+        try await request(.revokeOtherSessions, body: [:], responseType: RevokeSessionsAPIResponse.self)
+    }
+
     // MARK: - Private helpers
 
     /// エンドポイントへリクエストを送り、レスポンスを指定型へデコードして返す。
