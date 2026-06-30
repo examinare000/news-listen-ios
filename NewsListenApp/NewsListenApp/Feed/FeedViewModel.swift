@@ -115,11 +115,34 @@ final class FeedViewModel: ObservableObject {
             case .dismiss:
                 try await apiClient.dismissArticle(id: pending.article.id)
             }
+        } catch APIError.rateLimited(let retryAfter) {
+            // 生成上限到達（issue #82）。記事を戻し、次回可能時刻を添えて案内する。
+            let index = min(pending.index, articles.count)
+            articles.insert(pending.article, at: index)
+            errorMessage = Self.generationLimitMessage(retryAfter: retryAfter)
         } catch {
             let index = min(pending.index, articles.count)
             articles.insert(pending.article, at: index)
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// 生成上限メッセージ（次回可能時刻があれば併記・issue #82）。
+    static func generationLimitMessage(retryAfter seconds: Int?) -> String {
+        guard let seconds, seconds > 0 else {
+            return "本日の生成上限に達しました"
+        }
+        let when: String
+        let minutes = (seconds + 59) / 60   // 切り上げ
+        if seconds < 60 {
+            when = "まもなく"
+        } else if minutes < 60 {
+            // web（lib/format.ts）と揃えるため derived minutes で分岐し「約60分後」を避ける。
+            when = "約\(minutes)分後"
+        } else {
+            when = "約\((seconds + 3599) / 3600)時間後"
+        }
+        return "本日の生成上限に達しました（\(when)に可能）"
     }
 
     /// タップで全文表示の展開/折り畳みをトグルする。issue #111。
@@ -153,29 +176,39 @@ final class FeedViewModel: ObservableObject {
 
         var successCount = 0
         var failureCount = 0
+        // 生成上限（429）に当たったら次回可能時刻を控え、まとめて案内する（issue #82・web とパリティ）。
+        var limitRetryAfter: Int??
 
-        // 各記事を並行で Star する。
-        await withTaskGroup(of: (String, Bool).self) { group in
+        // 各記事を並行で Star する。失敗は error を持ち帰り、429 を判別できるようにする。
+        await withTaskGroup(of: (String, Error?).self) { group in
             for id in ids {
                 group.addTask {
                     do {
                         try await self.apiClient.starArticle(id: id)
-                        return (id, true)
+                        return (id, nil)
                     } catch {
-                        return (id, false)
+                        return (id, error)
                     }
                 }
             }
 
             // 結果を収集し、成功分は一覧から削除する。
-            for await (id, success) in group {
-                if success {
+            for await (id, error) in group {
+                if error == nil {
                     successCount += 1
                     articles.removeAll { $0.id == id }
                 } else {
                     failureCount += 1
+                    if case APIError.rateLimited(let retryAfter)? = error {
+                        limitRetryAfter = retryAfter   // 直近の上限到達を保持
+                    }
                 }
             }
+        }
+
+        // 生成上限に当たっていれば上限メッセージを優先表示する。
+        if let retryAfter = limitRetryAfter {
+            errorMessage = Self.generationLimitMessage(retryAfter: retryAfter)
         }
 
         // 結果をセッションに保存。

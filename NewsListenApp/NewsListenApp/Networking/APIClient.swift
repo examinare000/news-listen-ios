@@ -22,6 +22,9 @@ enum APIError: LocalizedError {
     case invalidURL
     /// HTTP ステータスが 2xx 以外だった。
     case httpError(statusCode: Int)
+    /// 生成上限など 429 Too Many Requests（Retry-After 秒・issue #82）。
+    /// 既存の `httpError(404)` 等のパターンを壊さないよう 429 専用の別ケースにする。
+    case rateLimited(retryAfter: Int?)
     /// レスポンスボディの JSON デコードに失敗した。
     case decodingError(Error)
 
@@ -30,6 +33,7 @@ enum APIError: LocalizedError {
         switch self {
         case .invalidURL: return "Invalid URL"
         case .httpError(let code): return "HTTP Error \(code)"
+        case .rateLimited: return "リクエストが多すぎます。しばらくしてからお試しください。"
         case .decodingError(let e): return "Decoding error: \(e.localizedDescription)"
         }
     }
@@ -396,6 +400,11 @@ final class APIClient {
     private func validateResponse(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard 200..<300 ~= http.statusCode else {
+            if http.statusCode == 429 {
+                // Retry-After（秒）があれば添えて 429 専用エラーを投げる（issue #82）。
+                let retryAfter = (http.value(forHTTPHeaderField: "Retry-After")).flatMap { Int($0) }
+                throw APIError.rateLimited(retryAfter: retryAfter)
+            }
             throw APIError.httpError(statusCode: http.statusCode)
         }
     }
