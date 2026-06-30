@@ -184,6 +184,37 @@ final class APIClientTests: XCTestCase {
         }
     }
 
+    // issue #82: 429 は rateLimited(retryAfter:) として Retry-After を添えて送出する。
+    func testStar429ThrowsRateLimitedWithRetryAfter() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+        do {
+            try await client.starArticle(id: "a1")
+            XCTFail("429 で rateLimited が送出されるべき")
+        } catch APIError.rateLimited(let retryAfter) {
+            XCTAssertEqual(retryAfter, 43200)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
+    func testStar429WithoutHeaderHasNilRetryAfter() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 429)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            try await client.starArticle(id: "a1")
+            XCTFail("429 で rateLimited が送出されるべき")
+        } catch APIError.rateLimited(let retryAfter) {
+            XCTAssertNil(retryAfter)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
     // MARK: - Preferences (Settings sync)
 
     func testFetchPreferencesDecodesResponse() async throws {
@@ -299,11 +330,14 @@ final class APIClientTests: XCTestCase {
 final class MockURLSession: URLSessionProtocol {
     let data: Data
     let statusCode: Int
+    /// レスポンスヘッダ（issue #82: Retry-After 検証用。既定 nil）。
+    let headerFields: [String: String]?
     var lastRequest: URLRequest?
 
-    init(data: Data, statusCode: Int) {
+    init(data: Data, statusCode: Int, headerFields: [String: String]? = nil) {
         self.data = data
         self.statusCode = statusCode
+        self.headerFields = headerFields
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -312,7 +346,7 @@ final class MockURLSession: URLSessionProtocol {
             url: request.url!,
             statusCode: statusCode,
             httpVersion: nil,
-            headerFields: nil
+            headerFields: headerFields
         )!
         return (data, response)
     }

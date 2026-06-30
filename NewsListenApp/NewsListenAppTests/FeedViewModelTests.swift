@@ -229,6 +229,47 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertNil(vm.expandedId)   // 操作で展開状態は解除される
     }
 
+    // MARK: - issue #82: 生成上限 429 メッセージ
+
+    func testGenerationLimitMessageFormatsRetryTime() {
+        XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: nil), "本日の生成上限に達しました")
+        XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: 30), "本日の生成上限に達しました（まもなくに可能）")
+        XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: 90), "本日の生成上限に達しました（約2分後に可能）")
+        XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: 43200), "本日の生成上限に達しました（約12時間後に可能）")
+        // 境界（3599秒）: web と揃えて「約60分後」ではなく「約1時間後」（review #1）。
+        XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: 3599), "本日の生成上限に達しました（約1時間後に可能）")
+    }
+
+    func testBulkStarSurfaces429LimitMessage() async throws {
+        // 一括 Star が 429（生成上限）に当たったら上限メッセージを出す（web とパリティ・review #2）。
+        let mock = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])
+        let vm = FeedViewModel(apiClient: APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
+        ))
+        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+        vm.selectedIds = ["a1", "a2"]
+
+        await vm.bulkStar()
+
+        XCTAssertEqual(vm.errorMessage, "本日の生成上限に達しました（約12時間後に可能）")
+    }
+
+    func testStarOn429SetsLimitMessageAndRestoresArticle() async throws {
+        // 429 + Retry-After を返すクライアントで star を確定させると、記事が戻り上限メッセージが出る。
+        let mock = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])
+        let vm = FeedViewModel(apiClient: APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
+        ))
+        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+
+        await vm.star(article: sampleArticle(id: "a1"))   // 楽観削除 + 保留
+        await vm.commitPending()                          // 確定 → 429
+
+        XCTAssertEqual(vm.articles.map { $0.id }, ["a1", "a2"])   // 記事が戻る
+        XCTAssertEqual(vm.errorMessage, "本日の生成上限に達しました（約12時間後に可能）")
+        XCTAssertNil(vm.pendingAction)
+    }
+
     func testToggleExpandTogglesExpandedId() {
         let vm = FeedViewModel(apiClient: makeClient(json: "{}"))
 
