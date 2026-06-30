@@ -44,11 +44,12 @@ enum NowPlayingInfo {
         return info
     }
 
-    /// ロック画面に表示するタイトルを決める。日本語イントロがあれば使い、無ければ汎用名。
+    /// ロック画面に表示するタイトルを決める。
+    /// フォールバック階層（title → japaneseIntroText → "ニュースポッドキャスト"）は `Podcast.displayTitle` に集約済み。
+    /// ここでは `displayTitle` をそのまま返すだけで、独自の trim やデフォルト処理は行わない。
     /// - Parameter podcast: 対象の Podcast。
     static func title(for podcast: Podcast) -> String {
-        let intro = podcast.japaneseIntroText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return intro.isEmpty ? "ニュースポッドキャスト" : intro
+        podcast.displayTitle
     }
 }
 
