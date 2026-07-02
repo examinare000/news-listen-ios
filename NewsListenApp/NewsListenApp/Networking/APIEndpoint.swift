@@ -25,6 +25,8 @@ enum APIEndpoint {
     case sources
     /// RSS 配信元の追加。
     case addSource
+    /// 既存 RSS 配信元の名称・URL の更新。
+    case updateSource
     /// 指定 URL の RSS 配信元の削除。
     case removeSource(url: String)
     /// システム提供のおすすめサイト一覧の取得。
@@ -92,7 +94,7 @@ enum APIEndpoint {
         case .podcasts: return "/podcasts"
         case .podcast(let id): return "/podcasts/\(id)"
         case .updatePlaybackPosition(let id): return "/podcasts/\(id)/position"
-        case .sources, .addSource: return "/settings/sources"
+        case .sources, .addSource, .updateSource: return "/settings/sources"
         case .removeSource: return "/settings/sources"
         case .featuredSources: return "/settings/featured-sources"
         case .onboardingStatus: return "/settings/onboarding"
@@ -131,7 +133,7 @@ enum APIEndpoint {
             return "POST"
         case .updateProfile, .updateUser, .updatePlaybackPosition:
             return "PATCH"
-        case .updatePreferences:
+        case .updatePreferences, .updateSource:
             return "PUT"
         case .removeSource, .deleteUser, .passkeyDeleteCredential, .revokeSession:
             return "DELETE"
