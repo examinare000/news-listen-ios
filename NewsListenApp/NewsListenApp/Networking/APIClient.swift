@@ -166,6 +166,17 @@ final class APIClient {
         return try await request(.addSource, body: body, responseType: RssSourcesResponse.self)
     }
 
+    /// 既存 RSS 配信元の名称・URL を更新し、更新後の一覧を返す（issue #112）。
+    /// - Parameters:
+    ///   - oldURL: 更新対象を特定する既存の RSS フィード URL。
+    ///   - name: 新しい表示名。
+    ///   - url: 新しい RSS フィード URL（変更しない場合は `oldURL` と同値を渡す）。
+    /// - Returns: 更新後の RSS 配信元一覧。
+    func updateSource(oldURL: String, name: String, url: String) async throws -> RssSourcesResponse {
+        let body = ["old_url": oldURL, "name": name, "url": url]
+        return try await request(.updateSource, body: body, responseType: RssSourcesResponse.self)
+    }
+
     /// 指定 URL の RSS 配信元を削除する。
     /// - Parameter url: 削除対象の RSS フィード URL。
     func removeSource(url: String) async throws {

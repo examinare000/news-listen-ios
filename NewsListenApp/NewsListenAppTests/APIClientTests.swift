@@ -322,6 +322,36 @@ final class APIClientTests: XCTestCase {
 
         XCTAssertEqual(podcast.playbackPositionSeconds, 0.0)
     }
+
+    // MARK: - RSS ソース編集 (issue #112)
+
+    func testUpdateSourceSendsPutRequestWithBody() async throws {
+        let mockJSON = #"""
+        {"sources": [{"name":"New Name","url":"https://new.example.com/feed"}]}
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let response = try await client.updateSource(
+            oldURL: "https://old.example.com/feed",
+            name: "New Name",
+            url: "https://new.example.com/feed"
+        )
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/settings/sources")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "PUT")
+        let body = try XCTUnwrap(mockSession.lastRequest?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+        XCTAssertEqual(json["old_url"], "https://old.example.com/feed")
+        XCTAssertEqual(json["name"], "New Name")
+        XCTAssertEqual(json["url"], "https://new.example.com/feed")
+        XCTAssertEqual(response.sources.count, 1)
+        XCTAssertEqual(response.sources[0].name, "New Name")
+    }
 }
 
 // MARK: - MockURLSession
