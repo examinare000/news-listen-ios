@@ -11,11 +11,11 @@ import SwiftUI
 /// 設定タブのルートビュー。
 ///
 /// 記事の開き方・RSS ソース管理・デフォルト難易度・再生速度・API 設定を扱う。
-/// RSS ソースの取得/追加/削除は ``SettingsViewModel`` 経由で行う。
+/// RSS ソースの取得/追加/編集/削除は ``SettingsViewModel`` 経由で行う。
 struct SettingsView: View {
     /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var appState: AppState
-    /// RSS ソースの取得・追加・削除を担う ViewModel。
+    /// RSS ソースの取得・追加・編集・削除を担う ViewModel。
     ///
     /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
     /// （`FeedView` と同様、プレースホルダ生成 + 後差し替えのアンチパターンを避ける）。
@@ -23,6 +23,8 @@ struct SettingsView: View {
 
     /// RSS ソース追加シートの表示状態。
     @State private var showAddSource = false
+    /// 編集シートで開いている編集対象の RSS ソース（`nil` なら非表示・issue #112）。
+    @State private var editingSource: RssSource?
     /// 追加シートで入力中のソース名。
     @State private var newSourceName = ""
     /// 追加シートで入力中の RSS URL。
@@ -61,6 +63,9 @@ struct SettingsView: View {
             .background(DSColor.paper.ignoresSafeArea())
             .navigationTitle("設定")
             .sheet(isPresented: $showAddSource) { addSourceSheet }
+            .sheet(item: $editingSource) { source in
+                EditSourceSheet(source: source, viewModel: viewModel)
+            }
             .alert("エラー", isPresented: errorBinding) {
                 Button("OK") { viewModel.errorMessage = nil }
             } message: {
@@ -90,27 +95,60 @@ struct SettingsView: View {
         }
     }
 
-    /// RSS ソースの一覧・削除・追加を行うセクション。
+    /// 購読中一覧の初回読み込み中かどうか。
+    ///
+    /// 見出しの件数とセクション本体の空状態表示の両方がこの条件で分岐するため、
+    /// 二重定義による不整合（見出しは「(0)」なのに本体はスピナー等）を防ぐよう一元化する。
+    private var isInitialLoadingSources: Bool {
+        viewModel.isLoading && viewModel.sources.isEmpty
+    }
+
+    /// 購読中 RSS ソースセクションの見出し。API 利用可能時は購読件数を添える。
+    ///
+    /// 初回読み込み中は件数が確定していないため「(0)」の誤表示を避けて件数を省略する。
+    private var rssSectionTitle: String {
+        guard appState.apiClient != nil, !isInitialLoadingSources else { return "購読中のRSSソース" }
+        return "購読中のRSSソース (\(viewModel.sources.count))"
+    }
+
+    /// 購読中 RSS ソースの一覧（件数・空状態）・編集・削除・追加を行うセクション（issue #112）。
     ///
     /// API クライアントが未設定（URL/キー不正）の場合は操作を提供せず、設定確認を促す。
+    /// 行タップで編集シートを開き、スワイプで削除する（従来挙動を踏襲）。
     @ViewBuilder
     private var rssSourcesSection: some View {
-        Section("RSS ソース") {
+        Section(rssSectionTitle) {
             if appState.apiClient == nil {
                 Text("API URL とキーを設定すると RSS ソースを管理できます")
                     .font(DSFont.caption)
                     .foregroundStyle(DSColor.inkSecondary)
             } else {
-                ForEach(viewModel.sources) { source in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(source.name).font(DSFont.headline).foregroundStyle(DSColor.ink)
-                        Text(source.url).font(DSFont.caption).foregroundStyle(DSColor.inkTertiary)
+                if viewModel.sources.isEmpty {
+                    // 初回読み込み中に「ありません」を誤表示しないよう見出しと同じ条件で区別する。
+                    if isInitialLoadingSources {
+                        ProgressView()
+                    } else {
+                        Text("購読中のRSSソースはありません")
+                            .font(DSFont.caption)
+                            .foregroundStyle(DSColor.inkSecondary)
                     }
-                }
-                .onDelete { indexSet in
-                    let urls = indexSet.map { viewModel.sources[$0].url }
-                    Task {
-                        for url in urls { await viewModel.removeSource(url: url) }
+                } else {
+                    ForEach(viewModel.sources) { source in
+                        Button {
+                            editingSource = source
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(source.name).font(DSFont.headline).foregroundStyle(DSColor.ink)
+                                Text(source.url).font(DSFont.caption).foregroundStyle(DSColor.inkTertiary)
+                            }
+                        }
+                        .accessibilityHint("タップすると名称と URL を編集できます")
+                    }
+                    .onDelete { indexSet in
+                        let urls = indexSet.map { viewModel.sources[$0].url }
+                        Task {
+                            for url in urls { await viewModel.removeSource(url: url) }
+                        }
                     }
                 }
                 Button("ソースを追加") { showAddSource = true }
@@ -237,5 +275,70 @@ struct SettingsView: View {
             get: { viewModel.errorMessage != nil },
             set: { if !$0 { viewModel.errorMessage = nil } }
         )
+    }
+}
+
+/// 既存 RSS ソースの名称・URL を編集する入力シート（issue #112）。
+///
+/// `sheet(item:)` から編集対象を受け取り、名称・URL をプリフィルする。
+/// 保存・キャンセルの操作はシート自身が担い、完了時に自分で dismiss する
+/// （親へ onSave/onCancel クロージャを逆流させない）。保存失敗時のエラーは
+/// `SettingsViewModel/errorMessage` 経由で親のアラートに表示される。
+private struct EditSourceSheet: View {
+    /// シートを閉じるための dismiss アクション。
+    @Environment(\.dismiss) private var dismiss
+
+    /// 編集対象の元ソース。更新 API の `oldURL`（対象特定キー）に使う。
+    let source: RssSource
+    /// 保存処理（`updateSource`）を委譲する ViewModel。親の `SettingsView` が所有する。
+    ///
+    /// body は `@Published` プロパティを読まない（表示は `source` と自前の `@State` のみ）ため、
+    /// 全 publish への購読で無駄な再描画を起こさないようプレーンな参照で保持する。
+    let viewModel: SettingsViewModel
+
+    /// 編集中のソース名（元の名称をプリフィル）。
+    @State private var name: String
+    /// 編集中の RSS URL（元の URL をプリフィル）。
+    @State private var url: String
+
+    /// ビューを生成する。
+    /// - Parameters:
+    ///   - source: 編集対象の RSS ソース。入力欄の初期値になる。
+    ///   - viewModel: 保存処理を委譲する ViewModel。
+    init(source: RssSource, viewModel: SettingsViewModel) {
+        self.source = source
+        self.viewModel = viewModel
+        _name = State(initialValue: source.name)
+        _url = State(initialValue: source.url)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("名前 (例: TechCrunch)", text: $name)
+                TextField("RSS URL", text: $url)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+            }
+            .scrollContentBackground(.hidden)
+            .background(DSColor.paper.ignoresSafeArea())
+            .navigationTitle("RSS ソースを編集")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        Task {
+                            await viewModel.updateSource(oldURL: source.url, name: name, url: url)
+                            dismiss()
+                        }
+                    }
+                    .disabled(name.isEmpty || url.isEmpty)
+                }
+            }
+        }
     }
 }
