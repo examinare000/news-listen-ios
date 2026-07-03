@@ -114,7 +114,8 @@ struct SettingsView: View {
     /// 購読中 RSS ソースの一覧（件数・空状態）・編集・削除・追加を行うセクション（issue #112）。
     ///
     /// API クライアントが未設定（URL/キー不正）の場合は操作を提供せず、設定確認を促す。
-    /// 行タップで編集シートを開き、スワイプで削除する（従来挙動を踏襲）。
+    /// 行タップの編集シートは admin ロール限定（ADR-047）。一般ユーザーには編集導線を
+    /// 表示せず、スワイプ削除（購読解除）と追加のみ提供する。
     @ViewBuilder
     private var rssSourcesSection: some View {
         Section(rssSectionTitle) {
@@ -134,15 +135,18 @@ struct SettingsView: View {
                     }
                 } else {
                     ForEach(viewModel.sources) { source in
-                        Button {
-                            editingSource = source
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(source.name).font(DSFont.headline).foregroundStyle(DSColor.ink)
-                                Text(source.url).font(DSFont.caption).foregroundStyle(DSColor.inkTertiary)
+                        if appState.currentUser?.isAdmin == true {
+                            Button {
+                                editingSource = source
+                            } label: {
+                                sourceRowLabel(source)
                             }
+                            .accessibilityHint("タップすると名称と URL を編集できます")
+                        } else {
+                            // 既存ソースの編集は admin 特権（ADR-047）。一般ユーザーには
+                            // 編集導線そのものを見せない（購読解除のスワイプと追加は残す）。
+                            sourceRowLabel(source)
                         }
-                        .accessibilityHint("タップすると名称と URL を編集できます")
                     }
                     .onDelete { indexSet in
                         let urls = indexSet.map { viewModel.sources[$0].url }
@@ -153,6 +157,14 @@ struct SettingsView: View {
                 }
                 Button("ソースを追加") { showAddSource = true }
             }
+        }
+    }
+
+    /// 購読中ソース行の表示部。編集可否（admin 判定）に依らず共通で使う。
+    private func sourceRowLabel(_ source: RssSource) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(source.name).font(DSFont.headline).foregroundStyle(DSColor.ink)
+            Text(source.url).font(DSFont.caption).foregroundStyle(DSColor.inkTertiary)
         }
     }
 
