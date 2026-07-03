@@ -2,13 +2,13 @@
 //  SettingsViewModel.swift
 //  NewsListenApp
 //
-//  Settings タブの状態とロジック。RSS ソースの取得・追加・削除を担う。
+//  Settings タブの状態とロジック。RSS ソースの取得・追加・編集・削除を担う。
 //
 
 import Foundation
 import Combine
 
-/// Settings タブの状態とロジックを担う ViewModel。RSS ソースの取得・追加・削除を行う。
+/// Settings タブの状態とロジックを担う ViewModel。RSS ソースの取得・追加・編集・削除を行う。
 @MainActor
 final class SettingsViewModel: ObservableObject {
     /// 登録済みの RSS ソース一覧。
@@ -68,6 +68,22 @@ final class SettingsViewModel: ObservableObject {
         guard let apiClient else { return }
         do {
             let response = try await apiClient.addSource(name: name, url: url)
+            sources = response.sources
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// 既存 RSS ソースの名称・URL を編集し、サーバが返す最新一覧で `sources` を更新する（issue #112）。
+    /// 失敗時は `errorMessage` に反映し、`sources` は変更しない。
+    /// - Parameters:
+    ///   - oldURL: 編集対象を特定する既存の RSS フィード URL。
+    ///   - name: 新しい表示名。
+    ///   - url: 新しい RSS フィード URL（変更しない場合は `oldURL` と同値）。
+    func updateSource(oldURL: String, name: String, url: String) async {
+        guard let apiClient else { return }
+        do {
+            let response = try await apiClient.updateSource(oldURL: oldURL, name: name, url: url)
             sources = response.sources
         } catch {
             errorMessage = error.localizedDescription

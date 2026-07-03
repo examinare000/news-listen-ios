@@ -4,25 +4,30 @@ import XCTest
 /// 呼び出しごとに異なるレスポンスを返すモックセッション。
 ///
 /// `MockURLSession` は固定データしか返せないため、load→add のように
-/// 複数回の通信で内容が変わるシナリオの検証に使う。
+/// 複数回の通信で内容が変わるシナリオや、成功→失敗の遷移の検証に使う。
 private final class SequentialSession: URLSessionProtocol {
-    /// 先頭から順に返す応答データのキュー。
-    private var responses: [Data]
+    /// 先頭から順に返す（データ, ステータスコード）のキュー。
+    private var responses: [(data: Data, statusCode: Int)]
 
-    /// - Parameter responses: 呼び出し順に返すデータ列。
+    /// - Parameter responses: 呼び出し順に返すデータ列（すべて 200 で返す）。
     init(_ responses: [Data]) {
-        self.responses = responses
+        self.responses = responses.map { ($0, 200) }
+    }
+
+    /// - Parameter results: 呼び出し順に返す（データ, ステータスコード）列。失敗遷移の検証用。
+    init(results: [(data: Data, statusCode: Int)]) {
+        self.responses = results
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        let data = responses.isEmpty ? Data() : responses.removeFirst()
+        let next: (data: Data, statusCode: Int) = responses.isEmpty ? (Data(), 200) : responses.removeFirst()
         let response = HTTPURLResponse(
             url: request.url!,
-            statusCode: 200,
+            statusCode: next.statusCode,
             httpVersion: nil,
             headerFields: nil
         )!
-        return (data, response)
+        return (next.data, response)
     }
 }
 
@@ -105,6 +110,60 @@ final class SettingsViewModelTests: XCTestCase {
 
         XCTAssertEqual(vm.sources.count, 1)
         XCTAssertEqual(vm.sources[0].name, "TechCrunch")
+    }
+
+    // MARK: - RSS ソース編集 (issue #112)
+
+    func testUpdateSourceReplacesSourcesWithServerResponse() async throws {
+        let initialJSON = #"""
+        {"sources": [
+            {"name":"HackerNews","url":"https://hnrss.org/frontpage"},
+            {"name":"Zenn","url":"https://zenn.dev/feed"}
+        ]}
+        """#.data(using: .utf8)!
+        // サーバは編集後も元の位置を保った一覧を返す（1件目のみ名称/URL 変更）。
+        let afterUpdateJSON = #"""
+        {"sources": [
+            {"name":"HN Frontpage","url":"https://hnrss.org/frontpage.atom"},
+            {"name":"Zenn","url":"https://zenn.dev/feed"}
+        ]}
+        """#.data(using: .utf8)!
+        let vm = SettingsViewModel(apiClient: makeClient(session: SequentialSession([initialJSON, afterUpdateJSON])))
+        await vm.loadSources()
+
+        await vm.updateSource(
+            oldURL: "https://hnrss.org/frontpage",
+            name: "HN Frontpage",
+            url: "https://hnrss.org/frontpage.atom"
+        )
+
+        XCTAssertEqual(vm.sources.count, 2)
+        XCTAssertEqual(vm.sources[0].name, "HN Frontpage")
+        XCTAssertEqual(vm.sources[0].url, "https://hnrss.org/frontpage.atom")
+        XCTAssertEqual(vm.sources[1].name, "Zenn")
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    func testUpdateSourceSetsErrorMessageOnFailure() async throws {
+        // 読み込み済みの一覧を持った状態で更新を失敗させ、「失敗時 sources 不変」を実証する
+        // （空のまま失敗させると空→空の確認にしかならないため）。
+        let initialJSON = #"""
+        {"sources": [{"name":"HackerNews","url":"https://hnrss.org/frontpage"}]}
+        """#.data(using: .utf8)!
+        let session = SequentialSession(results: [(initialJSON, 200), (Data(), 500)])
+        let vm = SettingsViewModel(apiClient: makeClient(session: session))
+        await vm.loadSources()
+
+        await vm.updateSource(
+            oldURL: "https://hnrss.org/frontpage",
+            name: "HN Frontpage",
+            url: "https://hnrss.org/frontpage.atom"
+        )
+
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertEqual(vm.sources.count, 1, "失敗時は sources を変更しない")
+        XCTAssertEqual(vm.sources[0].name, "HackerNews")
+        XCTAssertEqual(vm.sources[0].url, "https://hnrss.org/frontpage")
     }
 
     func testLoadFeaturedSitesSilentOnFailure() async throws {
