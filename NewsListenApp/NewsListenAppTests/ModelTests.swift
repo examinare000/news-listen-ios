@@ -49,6 +49,7 @@ final class ModelTests: XCTestCase {
             articleIds: ["abc123"],
             difficulty: "toeic_900",
             audioUrl: "https://storage.example.com/pod1.mp3",
+            title: "",
             japaneseIntroText: "今日のニュースは...",
             durationSeconds: 305,
             createdAt: "2026-05-31T06:00:00Z",
@@ -191,5 +192,100 @@ final class ModelTests: XCTestCase {
 
         let podcast = try JSONDecoder().decode(Podcast.self, from: json)
         XCTAssertEqual(podcast.playbackPositionSeconds, 0.0)
+    }
+
+    // MARK: - Podcast.title フィールド（新規 API フィールド）
+
+    /// APIレスポンスに "title" キーがあればデコードできる。
+    func testPodcastDecodesTitleField() throws {
+        let json = """
+        {
+            "id": "pod-title",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed",
+            "title": "速報：重要なニュースです"
+        }
+        """.data(using: .utf8)!
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+        XCTAssertEqual(podcast.title, "速報：重要なニュースです")
+    }
+
+    /// APIレスポンスに "title" キーが無い（既存データ）場合は空文字になり、デコードが壊れない。
+    func testPodcastTitleAbsentDefaultsToEmpty() throws {
+        let json = """
+        {
+            "id": "pod-notitle",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed"
+        }
+        """.data(using: .utf8)!
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+        XCTAssertEqual(podcast.title, "")
+    }
+
+    // MARK: - Podcast.displayTitle（表示用タイトルのフォールバック）
+
+    /// title が非空のときは displayTitle は title を返す。
+    func testDisplayTitleUsesTitleFieldWhenPresent() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "速報タイトル",
+            japaneseIntroText: "イントロテキスト",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0
+        )
+        XCTAssertEqual(podcast.displayTitle, "速報タイトル")
+    }
+
+    /// title が空文字のときは displayTitle は japaneseIntroText にフォールバックする。
+    func testDisplayTitleFallsBackToIntroWhenTitleEmpty() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "",
+            japaneseIntroText: "イントロテキスト",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0
+        )
+        XCTAssertEqual(podcast.displayTitle, "イントロテキスト")
+    }
+
+    /// title が空白のみのときも japaneseIntroText にフォールバックする。
+    func testDisplayTitleFallsBackToIntroWhenTitleIsWhitespaceOnly() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "   ",
+            japaneseIntroText: "イントロテキスト",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0
+        )
+        XCTAssertEqual(podcast.displayTitle, "イントロテキスト")
+    }
+
+    /// title と japaneseIntroText の両方が空のとき、デフォルト文字列を返す（空欄にならない）。
+    func testDisplayTitleFallsBackToDefaultWhenBothEmpty() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "",
+            japaneseIntroText: "",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0
+        )
+        XCTAssertEqual(podcast.displayTitle, "ニュースポッドキャスト")
     }
 }

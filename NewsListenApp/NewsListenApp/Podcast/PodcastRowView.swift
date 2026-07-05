@@ -41,7 +41,7 @@ struct PodcastRowView: View {
                 .frame(width: 36)
 
             VStack(alignment: .leading, spacing: DSSpacing.s) {
-                Text(podcast.japaneseIntroText.prefix(60))
+                Text(String(podcast.displayTitle.prefix(60)))
                     .font(DSFont.headline)
                     .foregroundStyle(DSColor.ink)
                     .lineLimit(2)
@@ -63,7 +63,7 @@ struct PodcastRowView: View {
         }
         .padding(.vertical, DSSpacing.s)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Podcast: \(String(podcast.japaneseIntroText.prefix(60)))")
+        .accessibilityLabel("Podcast: \(String(podcast.displayTitle.prefix(60)))")
         .accessibilityValue("難易度: \(difficultyLabel(podcast.difficulty))、長さ: \(podcast.formattedDuration)、作成日: \(formattedDate)" + (isPlaying ? "、再生中" : ""))
         .accessibilityHint("タップで再生を開始します")
     }

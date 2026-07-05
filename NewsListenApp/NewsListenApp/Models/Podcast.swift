@@ -19,6 +19,9 @@ struct Podcast: Codable, Identifiable {
     let difficulty: String
     /// 音声ファイルの URL（AVPlayer で再生する）。
     let audioUrl: String
+    /// ニュース内容を1センテンスに要約した日本語タイトル。
+    /// バックエンドが未デプロイまたは既存データの場合は空文字になる（後方互換）。
+    let title: String
     /// 再生前に提示する日本語イントロ要約。
     let japaneseIntroText: String
     /// 音声の長さ（秒）。
@@ -38,6 +41,7 @@ struct Podcast: Codable, Identifiable {
         case id, type, difficulty, status
         case articleIds = "article_ids"
         case audioUrl = "audio_url"
+        case title
         case japaneseIntroText = "japanese_intro_text"
         case durationSeconds = "duration_seconds"
         case createdAt = "created_at"
@@ -67,12 +71,31 @@ extension Podcast {
         self.articleIds = try container.decode([String].self, forKey: .articleIds)
         self.difficulty = try container.decode(String.self, forKey: .difficulty)
         self.audioUrl = try container.decode(String.self, forKey: .audioUrl)
+        // title は新規フィールド。既存レスポンスや未デプロイ環境でキーが欠落しても空文字で後方互換を保つ。
+        self.title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
         self.japaneseIntroText = try container.decode(String.self, forKey: .japaneseIntroText)
         self.durationSeconds = try container.decode(Int.self, forKey: .durationSeconds)
         self.createdAt = try container.decode(String.self, forKey: .createdAt)
         self.status = try container.decode(String.self, forKey: .status)
         self.errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         self.playbackPositionSeconds = try container.decodeIfPresent(Double.self, forKey: .playbackPositionSeconds) ?? 0.0
+    }
+}
+
+// MARK: - Display
+
+extension Podcast {
+    /// 表示用タイトル文字列。3段フォールバック（title → japaneseIntroText → デフォルト文字列）。
+    /// - `title`（trim後）が非空ならそれを返す。
+    /// - `japaneseIntroText`（trim後）が非空ならそれを返す。
+    /// - 両方空の場合は `"ニュースポッドキャスト"` を返す（空欄は決して表示しない）。
+    /// - Note: ロック画面 (`NowPlayingInfo`) とリスト行 (`PodcastRowView`) の両方がこのプロパティを経由することで
+    ///         最終デフォルトを含むフォールバック階層を一か所に集約する。
+    var displayTitle: String {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty { return trimmedTitle }
+        let trimmedIntro = japaneseIntroText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedIntro.isEmpty ? "ニュースポッドキャスト" : trimmedIntro
     }
 }
 

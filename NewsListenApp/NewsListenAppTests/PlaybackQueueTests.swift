@@ -7,7 +7,8 @@ final class PlaybackQueueTests: XCTestCase {
     private func podcast(_ id: String) -> Podcast {
         Podcast(
             id: id, type: "single", articleIds: [], difficulty: "toeic_900",
-            audioUrl: "https://example.com/\(id).wav", japaneseIntroText: "intro",
+            audioUrl: "https://example.com/\(id).wav", title: "",
+            japaneseIntroText: "intro",
             durationSeconds: 120, createdAt: "2026-05-31T06:00:00Z", status: "completed",
             errorMessage: nil, playbackPositionSeconds: 0
         )
