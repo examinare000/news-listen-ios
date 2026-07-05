@@ -129,6 +129,8 @@ struct PlaybackQueue {
 
     /// `Array.move(fromOffsets:toOffset:)`（SwiftUI 提供）と同じ規約での移動を自前実装する。
     private static func applyMove(to array: inout [Podcast], fromOffsets source: IndexSet, toOffset destination: Int) {
+        // shared-playback-spec §2.7: 範囲外の moveUpNext はクランプせず no-op。
+        guard !source.isEmpty, source.allSatisfy({ array.indices.contains($0) }), (0...array.count).contains(destination) else { return }
         let moving = source.sorted().map { array[$0] }
         for index in source.sorted(by: >) {
             array.remove(at: index)
