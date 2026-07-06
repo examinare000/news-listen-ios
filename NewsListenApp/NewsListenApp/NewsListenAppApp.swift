@@ -110,7 +110,7 @@ struct ContentView: View {
         // 3分岐ルーティングではなく cover にすることで launch をブロックしない。
         .task { await appState.refreshOnboardingStatus() }
         .fullScreenCover(isPresented: onboardingBinding) {
-            OnboardingSourcesView()
+            OnboardingSourcesView(apiClient: appState.apiClient)
                 .environmentObject(appState)
         }
     }

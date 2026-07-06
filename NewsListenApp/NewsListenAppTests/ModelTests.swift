@@ -155,6 +155,43 @@ final class ModelTests: XCTestCase {
         XCTAssertNil(preferences.defaultPlaybackSpeed)
     }
 
+    // MARK: - GenerationQuota (issue #164 / ADR-061)
+
+    func testGenerationQuotaDecodesFromJSON() throws {
+        let json = """
+        {
+            "limit": 5,
+            "used": 2,
+            "remaining": 3,
+            "reset_at": "2026-07-07T00:00:00Z"
+        }
+        """.data(using: .utf8)!
+
+        let quota = try JSONDecoder().decode(GenerationQuota.self, from: json)
+
+        XCTAssertEqual(quota.limit, 5)
+        XCTAssertEqual(quota.used, 2)
+        XCTAssertEqual(quota.remaining, 3)
+        XCTAssertEqual(quota.resetAt, "2026-07-07T00:00:00Z")
+    }
+
+    func testGenerationQuotaDecodesUnlimitedWithNullRemaining() throws {
+        // limit=0 は無制限を表し、remaining は null（ADR-061）。
+        let json = """
+        {
+            "limit": 0,
+            "used": 42,
+            "remaining": null,
+            "reset_at": "2026-07-07T00:00:00Z"
+        }
+        """.data(using: .utf8)!
+
+        let quota = try JSONDecoder().decode(GenerationQuota.self, from: json)
+
+        XCTAssertEqual(quota.limit, 0)
+        XCTAssertNil(quota.remaining)
+    }
+
     func testPodcastDecodesPlaybackPositionSeconds() throws {
         let json = """
         {

@@ -155,6 +155,11 @@ final class APIClient {
         return try await request(.updatePreferences, body: body, responseType: Preferences.self)
     }
 
+    /// Podcast 生成の本日残回数を取得する（issue #164 / ADR-061）。
+    func fetchGenerationQuota() async throws -> GenerationQuota {
+        try await request(.generationQuota, responseType: GenerationQuota.self)
+    }
+
     /// 登録済みの RSS 配信元一覧を取得する。
     func fetchSources() async throws -> RssSourcesResponse {
         try await request(.sources, responseType: RssSourcesResponse.self)
