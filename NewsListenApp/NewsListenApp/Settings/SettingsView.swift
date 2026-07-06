@@ -56,6 +56,7 @@ struct SettingsView: View {
                 feedSection
                 rssSourcesSection
                 featuredSitesSection
+                generationQuotaSection
                 difficultySection
                 playbackSection
             }
@@ -75,6 +76,7 @@ struct SettingsView: View {
         .task {
             await viewModel.loadSources()
             await viewModel.loadFeaturedSites()
+            await viewModel.loadGenerationQuota()
         }
     }
 
@@ -220,6 +222,39 @@ struct SettingsView: View {
                             .foregroundStyle(DSColor.danger)
                         Spacer()
                         Button("再試行") { Task { await viewModel.loadFeaturedSites() } }
+                            .buttonStyle(.borderless)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Podcast 生成の本日残回数を表示するセクション（issue #164 / ADR-061）。
+    ///
+    /// API クライアント未設定時は表示しない。`limit == 0` は無制限を表すため件数は出さない。
+    /// 取得失敗時はインライン警告 + 再試行を出す。
+    @ViewBuilder
+    private var generationQuotaSection: some View {
+        if appState.apiClient != nil {
+            Section("Podcast 生成") {
+                if let quota = viewModel.generationQuota {
+                    if quota.limit == 0 {
+                        Text("本日の生成回数: 無制限")
+                            .font(DSFont.body)
+                            .foregroundStyle(DSColor.ink)
+                    } else {
+                        Text("本日の残り生成回数: \(quota.remaining ?? 0) / \(quota.limit)")
+                            .font(DSFont.body)
+                            .foregroundStyle(DSColor.ink)
+                    }
+                }
+                if viewModel.generationQuotaLoadFailed {
+                    HStack {
+                        Text("生成残回数の取得に失敗しました")
+                            .font(DSFont.footnote)
+                            .foregroundStyle(DSColor.danger)
+                        Spacer()
+                        Button("再試行") { Task { await viewModel.loadGenerationQuota() } }
                             .buttonStyle(.borderless)
                     }
                 }
