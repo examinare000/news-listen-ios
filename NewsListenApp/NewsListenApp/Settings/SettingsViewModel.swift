@@ -19,6 +19,11 @@ final class SettingsViewModel: ObservableObject {
     @Published var isLoading = false
     /// 直近のエラーメッセージ（なければ `nil`）。アラート表示に使う。
     @Published var errorMessage: String?
+    /// 直近の `loadFeaturedSites()` が失敗したか（issue #164）。
+    ///
+    /// `featuredSites` は失敗時も空のまま既存仕様（`errorMessage` は汚さずセクション非表示）を
+    /// 維持しつつ、設定画面のインライン警告・再試行導線にこのフラグを使う。
+    @Published private(set) var featuredSitesLoadFailed = false
 
     /// API 通信に使うクライアント。
     ///
@@ -49,14 +54,18 @@ final class SettingsViewModel: ObservableObject {
 
     /// おすすめサイト一覧を取得して `featuredSites` を更新する。
     ///
-    /// 失敗してもおすすめ欄が出ないだけで RSS ソース管理は妨げないため、`errorMessage` には反映しない。
+    /// 失敗してもおすすめ欄が出ないだけで RSS ソース管理は妨げないため、`errorMessage`（アラート）
+    /// には反映しない。代わりに `featuredSitesLoadFailed` を立て、インライン表示 + 再試行に使う
+    /// （issue #164・完全サイレントの解消）。
     func loadFeaturedSites() async {
         guard let apiClient else { return }
         do {
             let response = try await apiClient.fetchFeaturedSites()
             featuredSites = response.sites
+            featuredSitesLoadFailed = false
         } catch {
             featuredSites = []
+            featuredSitesLoadFailed = true
         }
     }
 
@@ -99,6 +108,43 @@ final class SettingsViewModel: ObservableObject {
             sources.removeAll { $0.url == url }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - デフォルト難易度・再生速度のサーバー同期 (issue #164)
+    //
+    // 値そのものは AppState が保持・UserDefaults 永続化するため、ここではサーバー同期の
+    // 成否だけを担う。失敗時は既存の errorBinding アラートで見える化し、呼び出し側（View）が
+    // 戻り値を見て UI 値をロールバックできるようにする（無音失敗の解消）。
+
+    /// デフォルト難易度をサーバーへ同期する。
+    /// - Parameter value: 新しい既定難易度。
+    /// - Returns: 成功したら `true`、失敗したら `false`（`errorMessage` にも反映する）。
+    func syncDefaultDifficulty(_ value: String) async -> Bool {
+        await syncPreference { apiClient in
+            _ = try await apiClient.updatePreferences(defaultDifficulty: value, defaultPlaybackSpeed: nil)
+        }
+    }
+
+    /// デフォルト再生速度をサーバーへ同期する。
+    /// - Parameter value: 新しい既定再生速度。
+    /// - Returns: 成功したら `true`、失敗したら `false`（`errorMessage` にも反映する）。
+    func syncDefaultPlaybackSpeed(_ value: Double) async -> Bool {
+        await syncPreference { apiClient in
+            _ = try await apiClient.updatePreferences(defaultDifficulty: nil, defaultPlaybackSpeed: value)
+        }
+    }
+
+    /// 設定同期の成否を共通化する内部ヘルパー。apiClient 未設定時は同期対象が無いため成功扱いにする。
+    private func syncPreference(_ operation: (APIClient) async throws -> Void) async -> Bool {
+        guard let apiClient else { return true }
+        do {
+            try await operation(apiClient)
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = "設定の保存に失敗しました"
+            return false
         }
     }
 }
