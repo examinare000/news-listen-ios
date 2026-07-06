@@ -175,4 +175,63 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertTrue(vm.featuredSites.isEmpty)
         XCTAssertNil(vm.errorMessage)
     }
+
+    // MARK: - おすすめサイト取得失敗の可視化 (issue #164)
+
+    func testLoadFeaturedSitesSetsLoadFailedFlagOnFailure() async throws {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.loadFeaturedSites()
+
+        XCTAssertTrue(vm.featuredSitesLoadFailed)
+    }
+
+    func testLoadFeaturedSitesClearsLoadFailedFlagOnSuccess() async throws {
+        let json = #"{"sites": []}"#
+        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+
+        await vm.loadFeaturedSites()
+
+        XCTAssertFalse(vm.featuredSitesLoadFailed)
+    }
+
+    // MARK: - デフォルト難易度・再生速度のサーバー同期失敗の可視化 (issue #164)
+
+    func testSyncDefaultDifficultySetsErrorMessageOnFailure() async throws {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        let ok = await vm.syncDefaultDifficulty("toeic_600")
+
+        XCTAssertFalse(ok)
+        XCTAssertEqual(vm.errorMessage, "設定の保存に失敗しました")
+    }
+
+    func testSyncDefaultDifficultySucceedsAndClearsErrorMessage() async throws {
+        let json = #"{"default_difficulty":"toeic_600","default_playback_speed":null}"#
+        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+
+        let ok = await vm.syncDefaultDifficulty("toeic_600")
+
+        XCTAssertTrue(ok)
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    func testSyncDefaultPlaybackSpeedSetsErrorMessageOnFailure() async throws {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        let ok = await vm.syncDefaultPlaybackSpeed(1.5)
+
+        XCTAssertFalse(ok)
+        XCTAssertEqual(vm.errorMessage, "設定の保存に失敗しました")
+    }
+
+    func testSyncDefaultPlaybackSpeedSucceedsAndClearsErrorMessage() async throws {
+        let json = #"{"default_difficulty":null,"default_playback_speed":1.5}"#
+        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+
+        let ok = await vm.syncDefaultPlaybackSpeed(1.5)
+
+        XCTAssertTrue(ok)
+        XCTAssertNil(vm.errorMessage)
+    }
 }
