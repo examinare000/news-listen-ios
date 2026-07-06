@@ -56,6 +56,7 @@ struct SettingsView: View {
                 feedSection
                 rssSourcesSection
                 featuredSitesSection
+                generationQuotaSection
                 difficultySection
                 playbackSection
             }
@@ -75,6 +76,7 @@ struct SettingsView: View {
         .task {
             await viewModel.loadSources()
             await viewModel.loadFeaturedSites()
+            await viewModel.loadGenerationQuota()
         }
     }
 
@@ -92,6 +94,19 @@ struct SettingsView: View {
                 Text("相対表記 (N分前)").tag("relative")
             }
             .accessibilityHint("記事の公開日を絶対表記 (YYYY-MM-DD) または相対表記 (N分前など) で表示するか選択できます")
+
+            // サーバー設定同期の失敗を可視化する（issue #164）。ローカル値は保持済みのため
+            // アラームは出さず、控えめなインライン警告 + 再試行導線にとどめる。
+            if appState.preferencesSyncFailed {
+                HStack {
+                    Text("設定の同期に失敗しました。ローカルの値を表示しています。")
+                        .font(DSFont.footnote)
+                        .foregroundStyle(DSColor.danger)
+                    Spacer()
+                    Button("再試行") { Task { await appState.refreshPreferences() } }
+                        .buttonStyle(.borderless)
+                }
+            }
         }
     }
 
@@ -170,10 +185,11 @@ struct SettingsView: View {
 
     /// システム提供のおすすめサイトを一覧し、タップで即購読するセクション。
     ///
-    /// API クライアント未設定時、またはおすすめサイトが空の場合は表示しない。
+    /// API クライアント未設定時は表示しない。取得失敗時（issue #164）はインライン警告 +
+    /// 再試行を出すため、`featuredSites` が空でも `featuredSitesLoadFailed` なら表示する。
     @ViewBuilder
     private var featuredSitesSection: some View {
-        if appState.apiClient != nil, !viewModel.featuredSites.isEmpty {
+        if appState.apiClient != nil, !viewModel.featuredSites.isEmpty || viewModel.featuredSitesLoadFailed {
             Section("おすすめサイト") {
                 ForEach(viewModel.featuredSites) { site in
                     HStack(spacing: 10) {
@@ -199,6 +215,49 @@ struct SettingsView: View {
                         .buttonStyle(.borderless)
                     }
                 }
+                if viewModel.featuredSitesLoadFailed {
+                    HStack {
+                        Text("おすすめサイトの取得に失敗しました")
+                            .font(DSFont.footnote)
+                            .foregroundStyle(DSColor.danger)
+                        Spacer()
+                        Button("再試行") { Task { await viewModel.loadFeaturedSites() } }
+                            .buttonStyle(.borderless)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Podcast 生成の本日残回数を表示するセクション（issue #164 / ADR-061）。
+    ///
+    /// API クライアント未設定時は表示しない。`limit == 0` は無制限を表すため件数は出さない。
+    /// 取得失敗時はインライン警告 + 再試行を出す。
+    @ViewBuilder
+    private var generationQuotaSection: some View {
+        if appState.apiClient != nil {
+            Section("Podcast 生成") {
+                if let quota = viewModel.generationQuota {
+                    if quota.limit == 0 {
+                        Text("本日の生成回数: 無制限")
+                            .font(DSFont.body)
+                            .foregroundStyle(DSColor.ink)
+                    } else {
+                        Text("本日の残り生成回数: \(quota.remaining ?? 0) / \(quota.limit)")
+                            .font(DSFont.body)
+                            .foregroundStyle(DSColor.ink)
+                    }
+                }
+                if viewModel.generationQuotaLoadFailed {
+                    HStack {
+                        Text("生成残回数の取得に失敗しました")
+                            .font(DSFont.footnote)
+                            .foregroundStyle(DSColor.danger)
+                        Spacer()
+                        Button("再試行") { Task { await viewModel.loadGenerationQuota() } }
+                            .buttonStyle(.borderless)
+                    }
+                }
             }
         }
     }
@@ -213,11 +272,11 @@ struct SettingsView: View {
             }
             .onChange(of: appState.defaultDifficulty) { oldValue, newValue in
                 // ユーザーが難易度を変更したとき、サーバーへ同期する。
-                // 失敗時はローカルの defaultDifficulty はそのまま保持される（既に UserDefaults 保存済み）。
+                // 失敗時は errorBinding のアラートで通知し、UI 値をサーバー確認済みの
+                // 旧値へ戻す（issue #164・無音失敗の解消）。
                 Task {
-                    if let apiClient = appState.apiClient {
-                        _ = try? await apiClient.updatePreferences(defaultDifficulty: newValue, defaultPlaybackSpeed: nil)
-                    }
+                    let ok = await viewModel.syncDefaultDifficulty(newValue)
+                    if !ok { appState.defaultDifficulty = oldValue }
                 }
             }
         }
@@ -233,11 +292,11 @@ struct SettingsView: View {
             }
             .onChange(of: appState.defaultPlaybackSpeed) { oldValue, newValue in
                 // ユーザーが再生速度を変更したとき、サーバーへ同期する。
-                // 失敗時はローカルの defaultPlaybackSpeed はそのまま保持される（既に UserDefaults 保存済み）。
+                // 失敗時は errorBinding のアラートで通知し、UI 値をサーバー確認済みの
+                // 旧値へ戻す（issue #164・無音失敗の解消）。
                 Task {
-                    if let apiClient = appState.apiClient {
-                        _ = try? await apiClient.updatePreferences(defaultDifficulty: nil, defaultPlaybackSpeed: newValue)
-                    }
+                    let ok = await viewModel.syncDefaultPlaybackSpeed(newValue)
+                    if !ok { appState.defaultPlaybackSpeed = oldValue }
                 }
             }
         }
