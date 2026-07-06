@@ -18,6 +18,11 @@ struct AudioPlayerView: View {
     /// 速度切替 Picker に並べる選択肢（倍率）。ロック画面/CC と共有する単一の真実。
     private let speeds: [Float] = PlaybackConstants.speeds
 
+    /// トランスクリプト折りたたみの開閉状態。
+    /// WHY: 新規詳細画面を作らずこのプレイヤー内で完結させる（issue #162 のユーザー決定）ため、
+    ///      ナビゲーションではなく View ローカルの開閉状態として保持する。
+    @State private var isTranscriptExpanded = false
+
     var body: some View {
         VStack(spacing: DSSpacing.l) {
             // 再生中ラベル＋日本語イントロ（セリフで雑誌的に）
@@ -33,6 +38,14 @@ struct AudioPlayerView: View {
                 }
             }
             .padding(.horizontal)
+
+            // トランスクリプト（折りたたみ）
+            // WHY: segments が無い（旧エピソード・未デプロイ環境）場合は何も描画しない
+            //      グレースフルデグレードにより、レイアウトを不変に保つ（issue #162）。
+            if let podcast = vm.currentPodcast, podcast.hasTranscript {
+                transcriptSection(segments: podcast.segments ?? [])
+                    .padding(.horizontal)
+            }
 
             // シークバー
             VStack(spacing: DSSpacing.xs) {
@@ -131,6 +144,45 @@ struct AudioPlayerView: View {
             return String(format: "×%.1f", speed)
         }
         return String(format: "×%.2f", speed)
+    }
+
+    /// 文字起こしの折りたたみ表示セクション。
+    ///
+    /// 展開時は `ScrollView` で高さを有界にし、プレイヤー本体の操作（シーク・再生ボタン等）を
+    /// 押し下げないようにする。
+    /// - Parameter segments: 表示する発話一覧（非空であることを呼び出し側が保証する）。
+    @ViewBuilder
+    private func transcriptSection(segments: [TranscriptSegment]) -> some View {
+        DisclosureGroup(isExpanded: $isTranscriptExpanded) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: DSSpacing.m) {
+                    ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                        HStack(alignment: .top, spacing: DSSpacing.s) {
+                            Text(segment.speaker)
+                                .font(DSFont.caption.weight(.semibold))
+                                .foregroundStyle(DSColor.accent)
+                                .frame(minWidth: 20, alignment: .leading)
+                            Text(segment.text)
+                                .font(DSFont.body)
+                                .foregroundStyle(DSColor.ink)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("話者\(segment.speaker): \(segment.text)")
+                    }
+                }
+                .padding(.top, DSSpacing.s)
+            }
+            // WHY: 発話数が多い場合でもプレイヤー全体の高さを一定に保ち、
+            //      シークバーや再生ボタンの位置がずれないようにする。
+            .frame(maxHeight: 200)
+        } label: {
+            Text("トランスクリプト")
+                .font(DSFont.meta)
+                .foregroundStyle(DSColor.inkSecondary)
+        }
+        .tint(DSColor.accent)
+        .accessibilityHint(isTranscriptExpanded ? "トランスクリプトを折りたたみます" : "トランスクリプトを展開して表示します")
     }
 }
 
