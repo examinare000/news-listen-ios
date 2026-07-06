@@ -117,10 +117,15 @@ final class SettingsViewModel: ObservableObject {
 
     /// Podcast 生成の本日残回数を取得する（issue #164 / ADR-061）。
     /// 失敗時は `generationQuota` を `nil` のまま `generationQuotaLoadFailed` を立てる。
+    /// 404 時は graceful degradation: セクション非表示（`generationQuotaLoadFailed = false`）。
     func loadGenerationQuota() async {
         guard let apiClient else { return }
         do {
             generationQuota = try await apiClient.fetchGenerationQuota()
+            generationQuotaLoadFailed = false
+        } catch APIError.httpError(let statusCode) where statusCode == 404 {
+            // 404 = 旧 backend への graceful degradation。セクション非表示（警告なし）
+            generationQuota = nil
             generationQuotaLoadFailed = false
         } catch {
             generationQuota = nil
@@ -153,6 +158,7 @@ final class SettingsViewModel: ObservableObject {
     }
 
     /// 設定同期の成否を共通化する内部ヘルパー。apiClient 未設定時は同期対象が無いため成功扱いにする。
+    /// stale 判定は呼び出し側で行い、ここでは結果を返すだけ。
     private func syncPreference(_ operation: (APIClient) async throws -> Void) async -> Bool {
         guard let apiClient else { return true }
         do {

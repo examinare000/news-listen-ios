@@ -31,6 +31,23 @@ private final class SequentialSession: URLSessionProtocol {
     }
 }
 
+/// API 呼び出し回数をカウントする記録用モックセッション。
+private final class CallRecordingSession: URLSessionProtocol {
+    private(set) var callCount = 0
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        callCount += 1
+        let successJSON = #"{"default_difficulty":"toeic_600","default_playback_speed":null}"#.data(using: .utf8)!
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        return (successJSON, response)
+    }
+}
+
 @MainActor
 final class SettingsViewModelTests: XCTestCase {
 
@@ -257,5 +274,15 @@ final class SettingsViewModelTests: XCTestCase {
 
         XCTAssertNil(vm.generationQuota)
         XCTAssertTrue(vm.generationQuotaLoadFailed)
+    }
+
+    func testLoadGenerationQuota404GracefulDegradation() async throws {
+        // 404 時は graceful degradation: 生成残回数セクションを非表示（failed=false）
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 404))
+
+        await vm.loadGenerationQuota()
+
+        XCTAssertNil(vm.generationQuota)
+        XCTAssertFalse(vm.generationQuotaLoadFailed, "404時はgraceful degradation。セクション非表示")
     }
 }
