@@ -24,6 +24,10 @@ final class SettingsViewModel: ObservableObject {
     /// `featuredSites` は失敗時も空のまま既存仕様（`errorMessage` は汚さずセクション非表示）を
     /// 維持しつつ、設定画面のインライン警告・再試行導線にこのフラグを使う。
     @Published private(set) var featuredSitesLoadFailed = false
+    /// Podcast 生成の本日残回数（issue #164 / ADR-061）。未取得・取得失敗時は `nil`。
+    @Published private(set) var generationQuota: GenerationQuota?
+    /// 直近の `loadGenerationQuota()` が失敗したか。
+    @Published private(set) var generationQuotaLoadFailed = false
 
     /// API 通信に使うクライアント。
     ///
@@ -108,6 +112,19 @@ final class SettingsViewModel: ObservableObject {
             sources.removeAll { $0.url == url }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Podcast 生成の本日残回数を取得する（issue #164 / ADR-061）。
+    /// 失敗時は `generationQuota` を `nil` のまま `generationQuotaLoadFailed` を立てる。
+    func loadGenerationQuota() async {
+        guard let apiClient else { return }
+        do {
+            generationQuota = try await apiClient.fetchGenerationQuota()
+            generationQuotaLoadFailed = false
+        } catch {
+            generationQuota = nil
+            generationQuotaLoadFailed = true
         }
     }
 
