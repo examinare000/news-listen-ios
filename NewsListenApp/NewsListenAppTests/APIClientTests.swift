@@ -272,6 +272,29 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(mockSession.lastRequest?.value(forHTTPHeaderField: "X-API-Key"), "secret-key")
     }
 
+    // MARK: - Generation quota (issue #164 / ADR-061)
+
+    func testFetchGenerationQuotaCallsCorrectEndpoint() async throws {
+        let mockJSON = #"""
+        {"limit":5,"used":2,"remaining":3,"reset_at":"2026-07-07T00:00:00Z"}
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let quota = try await client.fetchGenerationQuota()
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/users/me/generation-quota")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "GET")
+        XCTAssertEqual(quota.limit, 5)
+        XCTAssertEqual(quota.used, 2)
+        XCTAssertEqual(quota.remaining, 3)
+        XCTAssertEqual(quota.resetAt, "2026-07-07T00:00:00Z")
+    }
+
     // MARK: - Podcast position sync
 
     func testUpdatePlaybackPositionCallsCorrectEndpoint() async throws {
