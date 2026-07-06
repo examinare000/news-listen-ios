@@ -85,9 +85,13 @@ final class APIClient {
     }
 
     /// 指定 ID の記事を Star する。
-    /// - Parameter id: 対象記事の ID。
-    func starArticle(id: String) async throws {
-        try await requestVoid(.starArticle(id: id))
+    /// - Parameters:
+    ///   - id: 対象記事の ID。
+    ///   - difficulty: 記事単位で指定する難易度（issue #163）。`nil` なら従来どおりボディなしで送り、
+    ///     生成は prefs のデフォルト難易度に委ねる。
+    func starArticle(id: String, difficulty: String? = nil) async throws {
+        let body: [String: Any]? = difficulty.map { ["difficulty": $0] }
+        try await requestVoid(.starArticle(id: id), body: body)
     }
 
     /// 指定 ID の記事を Dismiss する。
