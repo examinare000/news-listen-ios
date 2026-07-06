@@ -44,6 +44,57 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertEqual(vm.pendingAction?.kind, .star)
     }
 
+    // MARK: - issue #163: 記事単位の難易度指定 star
+
+    func testStarWithDifficultyStoresDifficultyOnPendingAction() async throws {
+        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
+        let article = sampleArticle()
+        vm.articles = [article]
+
+        await vm.star(article: article, difficulty: "toeic_600")
+
+        XCTAssertEqual(vm.pendingAction?.difficulty, "toeic_600")
+    }
+
+    func testStarWithoutDifficultyDefaultsPendingActionDifficultyToNil() async throws {
+        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
+        let article = sampleArticle()
+        vm.articles = [article]
+
+        await vm.star(article: article)
+
+        XCTAssertNil(vm.pendingAction?.difficulty)
+    }
+
+    func testCommitPendingSendsDifficultyInStarRequestBody() async throws {
+        let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
+        let vm = FeedViewModel(apiClient: APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
+        ))
+        vm.articles = [sampleArticle(id: "a1")]
+
+        await vm.star(article: sampleArticle(id: "a1"), difficulty: "ielts_7")
+        await vm.commitPending()
+
+        let body = try XCTUnwrap(mock.lastRequest?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+        XCTAssertEqual(json["difficulty"], "ielts_7")
+    }
+
+    func testCommitPendingWithoutDifficultySendsNoBody() async throws {
+        // 既存の「difficulty 未指定 = ボディなし」挙動が壊れていないことを保証する回帰テスト。
+        let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
+        let vm = FeedViewModel(apiClient: APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
+        ))
+        vm.articles = [sampleArticle(id: "a1")]
+
+        await vm.star(article: sampleArticle(id: "a1"))
+        await vm.commitPending()
+
+        XCTAssertNil(mock.lastRequest?.httpBody)
+    }
+
     func testDismissStagesAndRemovesArticle() async throws {
         let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"dismissed","article_id":"a1"}"#))
         let article = sampleArticle()

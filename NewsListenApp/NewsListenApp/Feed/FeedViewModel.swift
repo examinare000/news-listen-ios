@@ -59,9 +59,12 @@ final class FeedViewModel: ObservableObject {
 
     /// 記事を Star する（楽観的に一覧から除去し、確定は `commitPending()` まで遅延）。issue #111。
     /// 確定前は `undoLast()` で取り消せる。
-    /// - Parameter article: 対象記事。
-    func star(article: Article) async {
-        await stage(article: article, kind: .star)
+    /// - Parameters:
+    ///   - article: 対象記事。
+    ///   - difficulty: 記事単位で指定する難易度（issue #163）。`nil` なら従来どおり prefs の
+    ///     デフォルト難易度で生成する。
+    func star(article: Article, difficulty: String? = nil) async {
+        await stage(article: article, kind: .star, difficulty: difficulty)
     }
 
     /// 記事を Dismiss する（楽観的に一覧から除去し、確定は `commitPending()` まで遅延）。issue #111。
@@ -74,12 +77,12 @@ final class FeedViewModel: ObservableObject {
     ///
     /// 楽観削除を**先に**行って UI を即時更新し、直前の保留はその後に確定送信する。
     /// こうすることで、連続スワイプ時に新しい操作の反映が前操作の通信完了を待たない（ラグ防止）。
-    private func stage(article: Article, kind: PendingArticleAction.Kind) async {
+    private func stage(article: Article, kind: PendingArticleAction.Kind, difficulty: String? = nil) async {
         let previous = pendingAction
         if let index = articles.firstIndex(where: { $0.id == article.id }) {
             articles.remove(at: index)
             expandedId = nil
-            pendingAction = PendingArticleAction(article: article, index: index, kind: kind)
+            pendingAction = PendingArticleAction(article: article, index: index, kind: kind, difficulty: difficulty)
         } else {
             // 対象がリフレッシュ等で一覧から消えている。新規 staging はせず、直前の保留のみ確定する。
             pendingAction = nil
@@ -111,7 +114,7 @@ final class FeedViewModel: ObservableObject {
         do {
             switch pending.kind {
             case .star:
-                try await apiClient.starArticle(id: pending.article.id)
+                try await apiClient.starArticle(id: pending.article.id, difficulty: pending.difficulty)
             case .dismiss:
                 try await apiClient.dismissArticle(id: pending.article.id)
             }
@@ -230,6 +233,17 @@ struct PendingArticleAction {
     let index: Int
     /// 操作種別。
     let kind: Kind
+    /// 記事単位で指定された難易度（`.star` のみ有効・issue #163）。`nil` なら prefs のデフォルト難易度。
+    let difficulty: String?
+
+    /// 既存呼び出し（difficulty 未指定）との互換のため、明示的にデフォルト引数付き init を用意する
+    /// （構造体の自動生成 memberwise init はデフォルト引数を省略できないため）。
+    init(article: Article, index: Int, kind: Kind, difficulty: String? = nil) {
+        self.article = article
+        self.index = index
+        self.kind = kind
+        self.difficulty = difficulty
+    }
 
     /// 取り消しトーストに出す文言。
     var message: String {

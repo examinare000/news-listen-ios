@@ -224,7 +224,8 @@ final class AppState: ObservableObject {
         // API URL・キーはビルド時注入のみ（ユーザー入力・UserDefaults フォールバックは廃止）。
         self.apiBaseURL = Self.injectedValue("APIBaseURL") ?? ""
         self.apiKey = Self.injectedValue("APIKey") ?? ""
-        self.defaultDifficulty = UserDefaults.standard.string(forKey: Keys.defaultDifficulty) ?? "toeic_900"
+        // 既定難易度は toeic_600（issue #163: 記事単位 star 導入に合わせ全ユーザー共通の既定値を統一）。
+        self.defaultDifficulty = UserDefaults.standard.string(forKey: Keys.defaultDifficulty) ?? "toeic_600"
         self.defaultPlaybackSpeed = UserDefaults.standard.double(forKey: Keys.defaultPlaybackSpeed).nonZero ?? 1.0
         self.articleOpenMode = ArticleOpenMode(rawValue: UserDefaults.standard.string(forKey: Keys.articleOpenMode) ?? "") ?? .inApp
         self.timeFormat = UserDefaults.standard.string(forKey: Keys.timeFormat) ?? "absolute"

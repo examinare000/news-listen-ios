@@ -38,6 +38,40 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(mockSession.lastRequest?.httpMethod, "POST")
     }
 
+    // issue #163: 記事単位の難易度指定 star。
+    func testStarArticleWithoutDifficultySendsNoBody() async throws {
+        let mockJSON = #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "test-key",
+            session: mockSession
+        )
+
+        try await client.starArticle(id: "a1")
+
+        // 従来どおりボディなし（prefs のデフォルト難易度で生成される）。
+        XCTAssertNil(mockSession.lastRequest?.httpBody)
+    }
+
+    func testStarArticleWithDifficultySendsJSONBody() async throws {
+        let mockJSON = #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "test-key",
+            session: mockSession
+        )
+
+        try await client.starArticle(id: "a1", difficulty: "toeic_600")
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/articles/a1/star")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "POST")
+        let body = try XCTUnwrap(mockSession.lastRequest?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+        XCTAssertEqual(json["difficulty"], "toeic_600")
+    }
+
     func testAPIKeyIsIncludedInHeader() async throws {
         let mockJSON = #"{"articles":[],"date":"2026-05-31"}"#.data(using: .utf8)!
         let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
