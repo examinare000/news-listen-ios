@@ -234,4 +234,28 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertTrue(ok)
         XCTAssertNil(vm.errorMessage)
     }
+
+    // MARK: - 生成残回数の取得 (issue #164 / ADR-061)
+
+    func testLoadGenerationQuotaFetchesFromAPI() async throws {
+        let json = #"""
+        {"limit":5,"used":2,"remaining":3,"reset_at":"2026-07-07T00:00:00Z"}
+        """#
+        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+
+        await vm.loadGenerationQuota()
+
+        XCTAssertEqual(vm.generationQuota?.limit, 5)
+        XCTAssertEqual(vm.generationQuota?.remaining, 3)
+        XCTAssertFalse(vm.generationQuotaLoadFailed)
+    }
+
+    func testLoadGenerationQuotaSetsFailedFlagOnFailure() async throws {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.loadGenerationQuota()
+
+        XCTAssertNil(vm.generationQuota)
+        XCTAssertTrue(vm.generationQuotaLoadFailed)
+    }
 }
