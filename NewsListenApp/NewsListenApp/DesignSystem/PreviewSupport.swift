@@ -63,7 +63,12 @@ enum PreviewSamples {
             createdAt: "2026-06-29T07:00:00Z",
             status: "completed",
             errorMessage: nil,
-            playbackPositionSeconds: 72
+            playbackPositionSeconds: 72,
+            // WHY: p1 はトランスクリプト折りたたみ UI をプレビューで確認するためのサンプル。
+            segments: [
+                TranscriptSegment(speaker: "A", text: "米連邦準備制度が今回の会合で利上げを見送りました。"),
+                TranscriptSegment(speaker: "B", text: "一方、英国経済は予想外の回復を見せています。"),
+            ]
         ),
         Podcast(
             id: "p2",
@@ -77,7 +82,8 @@ enum PreviewSamples {
             createdAt: "2026-06-28T22:30:00Z",
             status: "processing",
             errorMessage: nil,
-            playbackPositionSeconds: 0
+            playbackPositionSeconds: 0,
+            segments: nil
         ),
         Podcast(
             id: "p3",
@@ -91,7 +97,8 @@ enum PreviewSamples {
             createdAt: "2026-06-28T19:00:00Z",
             status: "failed",
             errorMessage: "音声生成に失敗しました",
-            playbackPositionSeconds: 0
+            playbackPositionSeconds: 0,
+            segments: nil
         ),
     ]
 

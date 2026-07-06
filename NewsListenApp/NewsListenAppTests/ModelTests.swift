@@ -55,7 +55,8 @@ final class ModelTests: XCTestCase {
             createdAt: "2026-05-31T06:00:00Z",
             status: "completed",
             errorMessage: nil,
-            playbackPositionSeconds: 0.0
+            playbackPositionSeconds: 0.0,
+            segments: nil
         )
         XCTAssertEqual(podcast.formattedDuration, "5:05")
     }
@@ -282,7 +283,7 @@ final class ModelTests: XCTestCase {
             title: "速報タイトル",
             japaneseIntroText: "イントロテキスト",
             durationSeconds: 0, createdAt: "", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0
+            errorMessage: nil, playbackPositionSeconds: 0, segments: nil
         )
         XCTAssertEqual(podcast.displayTitle, "速報タイトル")
     }
@@ -295,7 +296,7 @@ final class ModelTests: XCTestCase {
             title: "",
             japaneseIntroText: "イントロテキスト",
             durationSeconds: 0, createdAt: "", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0
+            errorMessage: nil, playbackPositionSeconds: 0, segments: nil
         )
         XCTAssertEqual(podcast.displayTitle, "イントロテキスト")
     }
@@ -308,7 +309,7 @@ final class ModelTests: XCTestCase {
             title: "   ",
             japaneseIntroText: "イントロテキスト",
             durationSeconds: 0, createdAt: "", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0
+            errorMessage: nil, playbackPositionSeconds: 0, segments: nil
         )
         XCTAssertEqual(podcast.displayTitle, "イントロテキスト")
     }
@@ -321,8 +322,127 @@ final class ModelTests: XCTestCase {
             title: "",
             japaneseIntroText: "",
             durationSeconds: 0, createdAt: "", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0
+            errorMessage: nil, playbackPositionSeconds: 0, segments: nil
         )
         XCTAssertEqual(podcast.displayTitle, "ニュースポッドキャスト")
+    }
+
+    // MARK: - Podcast.segments（トランスクリプト表示・issue #162）
+
+    /// APIレスポンスに "segments" があれば話者・テキストの配列としてデコードできる。
+    func testPodcastDecodesSegmentsField() throws {
+        let json = """
+        {
+            "id": "pod-segments",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed",
+            "segments": [
+                {"speaker": "A", "text": "こんにちは。"},
+                {"speaker": "B", "text": "今日のニュースです。"}
+            ]
+        }
+        """.data(using: .utf8)!
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+        XCTAssertEqual(podcast.segments, [
+            TranscriptSegment(speaker: "A", text: "こんにちは。"),
+            TranscriptSegment(speaker: "B", text: "今日のニュースです。"),
+        ])
+    }
+
+    /// 旧エピソードなど "segments" キーが無い場合は nil になり、他フィールドのデコードは壊れない。
+    func testPodcastSegmentsAbsentDefaultsToNil() throws {
+        let json = """
+        {
+            "id": "pod-nosegments",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed"
+        }
+        """.data(using: .utf8)!
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+        XCTAssertNil(podcast.segments)
+        XCTAssertEqual(podcast.durationSeconds, 300)
+        XCTAssertEqual(podcast.status, "completed")
+    }
+
+    /// "segments" キーが null（JSON null）の場合も nil としてデコードできる。
+    func testPodcastSegmentsNullDefaultsToNil() throws {
+        let json = """
+        {
+            "id": "pod-nullsegments",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed",
+            "segments": null
+        }
+        """.data(using: .utf8)!
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+        XCTAssertNil(podcast.segments)
+    }
+
+    /// TranscriptSegment は Equatable。speaker/text が両方一致すれば等価。
+    func testTranscriptSegmentEquatable() {
+        let a = TranscriptSegment(speaker: "A", text: "同じ内容")
+        let b = TranscriptSegment(speaker: "A", text: "同じ内容")
+        let c = TranscriptSegment(speaker: "B", text: "同じ内容")
+        XCTAssertEqual(a, b)
+        XCTAssertNotEqual(a, c)
+    }
+
+    // MARK: - Podcast.hasTranscript（AudioPlayerView の折りたたみ表示可否・issue #162）
+
+    /// segments が非空配列を持つ場合、hasTranscript は true を返す。
+    func testHasTranscriptTrueWhenSegmentsNonEmpty() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: [TranscriptSegment(speaker: "A", text: "こんにちは")]
+        )
+        XCTAssertTrue(podcast.hasTranscript)
+    }
+
+    /// segments が nil の場合、hasTranscript は false を返す（旧エピソード・グレースフルデグレード）。
+    func testHasTranscriptFalseWhenSegmentsNil() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil
+        )
+        XCTAssertFalse(podcast.hasTranscript)
+    }
+
+    /// segments が空配列の場合も、表示すべき内容が無いため hasTranscript は false を返す。
+    func testHasTranscriptFalseWhenSegmentsEmpty() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: []
+        )
+        XCTAssertFalse(podcast.hasTranscript)
     }
 }

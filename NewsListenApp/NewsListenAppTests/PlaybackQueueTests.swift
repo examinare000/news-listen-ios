@@ -10,7 +10,7 @@ final class PlaybackQueueTests: XCTestCase {
             audioUrl: "https://example.com/\(id).wav", title: "",
             japaneseIntroText: "intro",
             durationSeconds: 120, createdAt: "2026-05-31T06:00:00Z", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0
+            errorMessage: nil, playbackPositionSeconds: 0, segments: nil
         )
     }
 
