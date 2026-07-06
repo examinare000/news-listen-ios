@@ -15,13 +15,17 @@ import SwiftUI
 struct OnboardingSourcesView: View {
     /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var appState: AppState
+    /// おすすめサイト取得・購読を担う ViewModel（issue #164・SettingsView と同様の流儀）。
+    @StateObject private var viewModel: OnboardingSourcesViewModel
 
-    /// おすすめサイト一覧。
-    @State private var featuredSites: [FeaturedSite] = []
-    /// 既に購読済みのサイト id（ボタン表示の切り替えに使う）。
-    @State private var addedIDs: Set<String> = []
     /// 「完了/スキップ」処理中フラグ。
     @State private var finishing = false
+
+    /// ビューを生成する。
+    /// - Parameter apiClient: ViewModel に注入する API クライアント。未設定時は `nil`。
+    init(apiClient: APIClient?) {
+        _viewModel = StateObject(wrappedValue: OnboardingSourcesViewModel(apiClient: apiClient))
+    }
 
     var body: some View {
         NavigationStack {
@@ -32,8 +36,21 @@ struct OnboardingSourcesView: View {
                         .foregroundStyle(DSColor.inkSecondary)
                 }
                 Section("おすすめサイト") {
-                    ForEach(featuredSites) { site in
+                    ForEach(viewModel.featuredSites) { site in
                         row(for: site)
+                    }
+                    // おすすめサイト取得の失敗を可視化する（issue #164・完全サイレントの解消）。
+                    // オンボーディング完走は阻害しないため、失敗時も「完了/スキップ」は有効なまま。
+                    if let error = viewModel.loadErrorMessage {
+                        HStack {
+                            Text(error).foregroundStyle(DSColor.danger).font(DSFont.footnote)
+                            Spacer()
+                            Button("再試行") { Task { await viewModel.loadFeaturedSites() } }
+                                .buttonStyle(.borderless)
+                        }
+                    }
+                    if let error = viewModel.subscribeErrorMessage {
+                        Text(error).foregroundStyle(DSColor.danger).font(DSFont.footnote)
                     }
                 }
             }
@@ -53,8 +70,7 @@ struct OnboardingSourcesView: View {
             }
         }
         .task {
-            guard let apiClient = appState.apiClient else { return }
-            featuredSites = (try? await apiClient.fetchFeaturedSites())?.sites ?? []
+            await viewModel.loadFeaturedSites()
         }
     }
 
@@ -77,26 +93,12 @@ struct OnboardingSourcesView: View {
                 }
             }
             Spacer()
-            let added = addedIDs.contains(site.id)
+            let added = viewModel.addedIDs.contains(site.id)
             Button(added ? "購読済み" : "購読") {
-                Task { await subscribe(site) }
+                Task { await viewModel.subscribe(site) }
             }
             .buttonStyle(.borderless)
             .disabled(added)
-        }
-    }
-
-    /// おすすめサイトを即購読する。成功（および既存重複）で購読済みにマークする。
-    private func subscribe(_ site: FeaturedSite) async {
-        guard let apiClient = appState.apiClient else { return }
-        do {
-            _ = try await apiClient.addSource(name: site.name, url: site.url)
-            addedIDs.insert(site.id)
-        } catch APIError.httpError(let statusCode) where statusCode == 409 {
-            // 既に登録済みなら購読済み扱い
-            addedIDs.insert(site.id)
-        } catch {
-            // それ以外の失敗は黙殺（ユーザーは再タップ・後から設定で追加できる）
         }
     }
 

@@ -39,6 +39,8 @@ enum APIEndpoint {
     case preferences
     /// ユーザー設定選択を更新。
     case updatePreferences
+    /// Podcast 生成の本日残回数を取得（issue #164 / ADR-061）。
+    case generationQuota
 
     // 認証・ユーザー管理
     /// ログイン（セッション発行）。
@@ -100,6 +102,7 @@ enum APIEndpoint {
         case .onboardingStatus: return "/settings/onboarding"
         case .completeOnboarding: return "/settings/onboarding/complete"
         case .preferences, .updatePreferences: return "/settings/preferences"
+        case .generationQuota: return "/users/me/generation-quota"
         case .login: return "/auth/login"
         case .logout: return "/auth/logout"
         case .me, .updateProfile: return "/auth/me"
@@ -124,7 +127,7 @@ enum APIEndpoint {
     var method: String {
         switch self {
         case .feed, .podcasts, .podcast, .sources, .featuredSources, .onboardingStatus,
-             .me, .listUsers, .passkeyCredentials, .preferences, .sessions:
+             .me, .listUsers, .passkeyCredentials, .preferences, .sessions, .generationQuota:
             return "GET"
         case .starArticle, .dismissArticle, .addSource, .completeOnboarding,
              .login, .logout, .changePassword, .createUser,

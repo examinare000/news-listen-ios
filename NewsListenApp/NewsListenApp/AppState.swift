@@ -86,13 +86,27 @@ final class AppState: ObservableObject {
     /// ログイン中ユーザー。未ログイン時は `nil`。
     @Published var currentUser: AuthUser?
 
+    /// 直近の `refreshPreferences()` が失敗したか（issue #164・サイレント失敗解消）。
+    ///
+    /// 失敗してもローカルの `defaultDifficulty`/`defaultPlaybackSpeed` は保持する既存仕様は
+    /// 変えず、失敗の有無だけを可視化して設定画面のインライン警告・再試行導線に使う。
+    @Published var preferencesSyncFailed = false
+
     /// セッショントークンの保管先（既定は Keychain、テストはインメモリ）。
     private let sessionStore: SessionStore
+
+    /// テスト時に ``APIClient`` を直接注入するための上書き（既定 `nil`）。
+    ///
+    /// 本番は `apiBaseURL`/`apiKey` から毎回 computed で生成するため使わない。
+    /// これが無いと `refreshPreferences()` 等の通信失敗パスを実際の APIClient 抜きに
+    /// 検証できず、TDD の Red-Green サイクルが回せない。
+    private let apiClientOverride: APIClient?
 
     /// 現在の設定から生成した ``APIClient``。URL・キーが未設定または URL 不正の場合は `nil`。
     ///
     /// セッショントークンがあれば付与し、ユーザー認証付きで通信する。
     var apiClient: APIClient? {
+        if let apiClientOverride { return apiClientOverride }
         guard !apiBaseURL.isEmpty, !apiKey.isEmpty,
               let url = URL(string: apiBaseURL) else { return nil }
         return APIClient(baseURL: url, apiKey: apiKey, sessionToken: sessionStore.token)
@@ -133,7 +147,7 @@ final class AppState: ObservableObject {
     }
 
     /// サーバーから preferences を取得し、ローカルの defaultDifficulty / defaultPlaybackSpeed を更新する。
-    /// 取得失敗時は既存値を保持する（ベストエフォート）。
+    /// 取得失敗時は既存値を保持しつつ `preferencesSyncFailed` を立てる（issue #164）。
     func refreshPreferences() async {
         guard let apiClient else { return }
         do {
@@ -144,8 +158,10 @@ final class AppState: ObservableObject {
             if let speed = preferences.defaultPlaybackSpeed {
                 defaultPlaybackSpeed = speed
             }
+            preferencesSyncFailed = false
         } catch {
-            // サイレント失敗。ローカルの既存値を保持。
+            // ローカルの既存値は保持しつつ、失敗を可視化する。
+            preferencesSyncFailed = true
         }
     }
 
@@ -199,9 +215,12 @@ final class AppState: ObservableObject {
     ///
     /// API URL・キーはビルド注入値(Info.plist←Secrets.xcconfig)のみを読む（ADR-037、#25）。
     /// その他の値は「ユーザーが保存した値(UserDefaults) > 既定値」の優先順位で決定する。
-    /// - Parameter sessionStore: セッショントークンの保管先。既定は Keychain。テストで差し替える。
-    init(sessionStore: SessionStore = KeychainSessionStore()) {
+    /// - Parameters:
+    ///   - sessionStore: セッショントークンの保管先。既定は Keychain。テストで差し替える。
+    ///   - apiClientOverride: テスト時に注入する ``APIClient``。既定 `nil`（本番は computed 生成）。
+    init(sessionStore: SessionStore = KeychainSessionStore(), apiClientOverride: APIClient? = nil) {
         self.sessionStore = sessionStore
+        self.apiClientOverride = apiClientOverride
         // API URL・キーはビルド時注入のみ（ユーザー入力・UserDefaults フォールバックは廃止）。
         self.apiBaseURL = Self.injectedValue("APIBaseURL") ?? ""
         self.apiKey = Self.injectedValue("APIKey") ?? ""

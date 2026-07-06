@@ -126,9 +126,16 @@ struct AccountSettingsView: View {
                 }
 
                 if let error = credentialsViewModel.errorMessage {
-                    Text(error)
-                        .foregroundStyle(DSColor.danger)
-                        .font(DSFont.footnote)
+                    HStack {
+                        Text(error)
+                            .foregroundStyle(DSColor.danger)
+                            .font(DSFont.footnote)
+                        Spacer()
+                        // 一覧取得失敗（削除失敗と共有の errorMessage だが、再試行できるのは
+                        // 一覧の再取得のみ）に行き止まりを作らないための再試行導線（issue #164）。
+                        Button("再試行") { Task { await credentialsViewModel.loadCredentials() } }
+                            .buttonStyle(.borderless)
+                    }
                 }
             }
             .sheet(isPresented: $showPasskeyRegistration) {
@@ -198,7 +205,14 @@ struct AccountSettingsView: View {
             }
 
             if let error = sessionsViewModel.errorMessage {
-                Text(error).foregroundStyle(DSColor.danger).font(DSFont.footnote)
+                HStack {
+                    Text(error).foregroundStyle(DSColor.danger).font(DSFont.footnote)
+                    Spacer()
+                    // 一覧取得・個別/一括失効いずれの失敗も共有の errorMessage だが、
+                    // 再試行できるのは一覧の再取得のみのため、それを導線にする（issue #164）。
+                    Button("再試行") { Task { await sessionsViewModel.loadSessions() } }
+                        .buttonStyle(.borderless)
+                }
             }
             if let count = sessionsViewModel.revokedOthersCount {
                 Text("他の \(count) 台のデバイスからログアウトしました")
