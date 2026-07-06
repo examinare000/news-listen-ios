@@ -367,4 +367,45 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(a, b)
         XCTAssertNotEqual(a, c)
     }
+
+    // MARK: - Podcast.hasTranscript（AudioPlayerView の折りたたみ表示可否・issue #162）
+
+    /// segments が非空配列を持つ場合、hasTranscript は true を返す。
+    func testHasTranscriptTrueWhenSegmentsNonEmpty() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: [TranscriptSegment(speaker: "A", text: "こんにちは")]
+        )
+        XCTAssertTrue(podcast.hasTranscript)
+    }
+
+    /// segments が nil の場合、hasTranscript は false を返す（旧エピソード・グレースフルデグレード）。
+    func testHasTranscriptFalseWhenSegmentsNil() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil
+        )
+        XCTAssertFalse(podcast.hasTranscript)
+    }
+
+    /// segments が空配列の場合も、表示すべき内容が無いため hasTranscript は false を返す。
+    func testHasTranscriptFalseWhenSegmentsEmpty() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: []
+        )
+        XCTAssertFalse(podcast.hasTranscript)
+    }
 }

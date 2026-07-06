@@ -110,6 +110,13 @@ extension Podcast {
         let trimmedIntro = japaneseIntroText.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedIntro.isEmpty ? "ニュースポッドキャスト" : trimmedIntro
     }
+
+    /// トランスクリプト折りたたみ UI（`AudioPlayerView`）を表示すべきかどうか。
+    /// `segments` が nil または空配列の場合は表示しない（旧エピソードのグレースフルデグレード・issue #162）。
+    var hasTranscript: Bool {
+        guard let segments else { return false }
+        return !segments.isEmpty
+    }
 }
 
 /// `/podcasts` エンドポイントのレスポンス。Podcast 一覧を保持する。
