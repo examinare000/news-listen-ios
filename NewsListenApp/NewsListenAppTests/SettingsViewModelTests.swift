@@ -285,4 +285,58 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertNil(vm.generationQuota)
         XCTAssertFalse(vm.generationQuotaLoadFailed, "404時はgraceful degradation。セクション非表示")
     }
+
+    // MARK: - 難易度・再生速度同期のレース対策 (issue #164)
+
+    func testSyncDifficultyMultipleRequestsLastWins() async throws {
+        // 複数リクエストを連続実行し、最後（最新）のリクエストの結果が errorMessage に反映される。
+        // 途中の失敗は最新の成功で上書きされ、stale な失敗はロールバック・エラー表示なし。
+        let session = SequentialSession(results: [
+            (Data(), 500),  // 1番目：失敗レスポンス
+            (#"{"default_difficulty":"toeic_900","default_playback_speed":null}"#.data(using: .utf8)!, 200) // 2番目：成功レスポンス
+        ])
+        let vm = SettingsViewModel(apiClient: makeClient(session: session))
+
+        // 1番目のリクエスト（失敗）
+        let ok1 = await vm.syncDefaultDifficulty("toeic_600")
+        XCTAssertFalse(ok1, "1番目は失敗応答")
+
+        // 2番目のリクエスト（成功）
+        let ok2 = await vm.syncDefaultDifficulty("toeic_900")
+        XCTAssertTrue(ok2, "2番目は成功応答")
+
+        // 最新（2番目）の結果が反映されている
+        XCTAssertNil(vm.errorMessage, "最新の成功でエラーメッセージはクリア")
+    }
+
+    func testSyncPlaybackSpeedMultipleRequestsLastWins() async throws {
+        // 再生速度同期でも複数リクエストで最新のみ反映されることを確認。
+        let session = SequentialSession(results: [
+            (Data(), 500),  // 1番目：失敗
+            (#"{"default_difficulty":null,"default_playback_speed":1.5}"#.data(using: .utf8)!, 200) // 2番目：成功
+        ])
+        let vm = SettingsViewModel(apiClient: makeClient(session: session))
+
+        // 1番目（失敗）
+        _ = await vm.syncDefaultPlaybackSpeed(1.0)
+
+        // 2番目（成功）
+        let ok = await vm.syncDefaultPlaybackSpeed(1.5)
+        XCTAssertTrue(ok)
+        XCTAssertNil(vm.errorMessage, "最新の成功が反映")
+    }
+
+    func testSyncDifficultySuccessMultipleTimes() async throws {
+        // 単一の成功ケースを複数回実行してレース対策ロジックが正常に動作することを確認。
+        let successJSON = #"{"default_difficulty":"toeic_900","default_playback_speed":null}"#
+        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON))
+
+        let ok1 = await vm.syncDefaultDifficulty("toeic_600")
+        XCTAssertTrue(ok1)
+        XCTAssertNil(vm.errorMessage)
+
+        let ok2 = await vm.syncDefaultDifficulty("toeic_900")
+        XCTAssertTrue(ok2)
+        XCTAssertNil(vm.errorMessage)
+    }
 }
