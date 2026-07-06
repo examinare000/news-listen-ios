@@ -24,6 +24,8 @@ struct SwipeableArticleCard: View {
     let onDoubleTap: () -> Void
     /// 右スワイプ確定（Star）。
     let onStar: () -> Void
+    /// 記事単位で難易度を指定して Star する（contextMenu からの選択・issue #163）。
+    let onStarWithDifficulty: (String) -> Void
     /// 左スワイプ確定（Dismiss）。
     let onDismiss: () -> Void
 
@@ -122,6 +124,17 @@ struct SwipeableArticleCard: View {
         // VoiceOver からはスワイプできないため、Star/Dismiss をカスタムアクションとして公開する。
         .accessibilityAction(named: "スター", onStar)
         .accessibilityAction(named: "削除", onDismiss)
+        // 長押しで難易度を指定して Star する（issue #163）。通常のスワイプ/ボタン Star は
+        // 従来どおり difficulty 指定なし（prefs のデフォルト難易度）のまま変えない。
+        .contextMenu {
+            ForEach(DifficultyLabel.allCodes, id: \.self) { code in
+                Button {
+                    onStarWithDifficulty(code)
+                } label: {
+                    Label(DifficultyLabel.text(for: code), systemImage: "star.fill")
+                }
+            }
+        }
     }
 
     /// 横方向のスワイプジェスチャ。縦スクロールと競合しないよう横優位のときのみ追従する。

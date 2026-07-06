@@ -149,6 +149,9 @@ struct FeedView: View {
                 onTap: { viewModel.toggleExpand(article.id) },
                 onDoubleTap: { open(article) },
                 onStar: { Task { await viewModel.star(article: article) } },
+                onStarWithDifficulty: { difficulty in
+                    Task { await viewModel.star(article: article, difficulty: difficulty) }
+                },
                 onDismiss: { Task { await viewModel.dismiss(article: article) } }
             )
         }
