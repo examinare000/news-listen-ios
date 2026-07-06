@@ -25,7 +25,7 @@ final class PodcastViewModelTests: XCTestCase {
             audioUrl: "https://storage.example.com/\(id).mp3", title: "",
             japaneseIntroText: "i",
             durationSeconds: 60, createdAt: "2026-05-31T06:00:00Z", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0
+            errorMessage: nil, playbackPositionSeconds: 0, segments: nil
         )
     }
 
@@ -136,7 +136,7 @@ final class PodcastViewModelTests: XCTestCase {
             audioUrl: "https://storage.example.com/p1.mp3", title: "",
             japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
-            playbackPositionSeconds: 0.0
+            playbackPositionSeconds: 0.0, segments: nil
         )
         let mockFile = MockFileManager()
         mockFile.directories.insert("/mock-caches/NewsListenApp/audio-cache")
@@ -157,7 +157,7 @@ final class PodcastViewModelTests: XCTestCase {
             audioUrl: "https://storage.example.com/p1.mp3", title: "",
             japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
-            playbackPositionSeconds: 0.0
+            playbackPositionSeconds: 0.0, segments: nil
         )
         let mockFile = MockFileManager()
         let cache = AudioCacheManager(fileManager: mockFile)
@@ -174,7 +174,7 @@ final class PodcastViewModelTests: XCTestCase {
             audioUrl: "https://storage.example.com/p1.mp3", title: "",
             japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
-            playbackPositionSeconds: 0.0
+            playbackPositionSeconds: 0.0, segments: nil
         )
         let mockFile = MockFileManager()
         let cache = AudioCacheManager(fileManager: mockFile)
@@ -192,7 +192,7 @@ final class PodcastViewModelTests: XCTestCase {
             audioUrl: "https://storage.example.com/p1.mp3", title: "",
             japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
-            playbackPositionSeconds: 0.0
+            playbackPositionSeconds: 0.0, segments: nil
         )
 
         // fetchPodcast のレスポンス（署名付き新鮮な audioUrl）
@@ -285,7 +285,7 @@ final class PodcastViewModelTests: XCTestCase {
             audioUrl: "https://storage.example.com/p1.mp3", title: "",
             japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
-            playbackPositionSeconds: 0.0
+            playbackPositionSeconds: 0.0, segments: nil
         )
 
         let client = APIClient(
@@ -312,7 +312,7 @@ final class PodcastViewModelTests: XCTestCase {
             audioUrl: "https://storage.example.com/p1.mp3", title: "",
             japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
-            playbackPositionSeconds: 0.0
+            playbackPositionSeconds: 0.0, segments: nil
         )
 
         let client = APIClient(
@@ -341,7 +341,7 @@ final class PodcastViewModelTests: XCTestCase {
             audioUrl: "https://storage.example.com/p1.mp3", title: "",
             japaneseIntroText: "test",
             durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
-            playbackPositionSeconds: 0.0
+            playbackPositionSeconds: 0.0, segments: nil
         )
         let client = APIClient(
             baseURL: URL(string: "https://api.example.com")!,

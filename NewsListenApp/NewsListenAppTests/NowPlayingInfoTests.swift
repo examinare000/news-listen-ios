@@ -28,7 +28,8 @@ final class NowPlayingInfoTests: XCTestCase {
             createdAt: "2026-06-29T06:00:00Z",
             status: "completed",
             errorMessage: nil,
-            playbackPositionSeconds: 0
+            playbackPositionSeconds: 0,
+            segments: nil
         )
     }
 

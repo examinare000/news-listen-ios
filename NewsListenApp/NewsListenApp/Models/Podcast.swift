@@ -7,6 +7,14 @@
 
 import Foundation
 
+/// トランスクリプトの1発話。バックエンドの `segments[]` 要素に対応する（issue #162）。
+struct TranscriptSegment: Codable, Equatable {
+    /// 話者ラベル（例: `"A"` / `"B"`）。
+    let speaker: String
+    /// その発話のテキスト。
+    let text: String
+}
+
 /// 生成済みの Podcast 1件。バックエンドの `PodcastResponse` に対応する。
 struct Podcast: Codable, Identifiable {
     /// Podcast の一意な識別子。
@@ -35,6 +43,9 @@ struct Podcast: Codable, Identifiable {
     let errorMessage: String?
     /// 最後の再生位置（秒）。サーバで同期・復元される。ない場合は 0。
     let playbackPositionSeconds: Double
+    /// 文字起こしの発話一覧。旧エピソードや未デプロイ環境ではキー自体が欠落、または `null` になるため
+    /// Optional にして後方互換を保つ（issue #162）。
+    let segments: [TranscriptSegment]?
 
     /// バックエンドの snake_case フィールドに対応する。
     enum CodingKeys: String, CodingKey {
@@ -47,6 +58,7 @@ struct Podcast: Codable, Identifiable {
         case createdAt = "created_at"
         case errorMessage = "error_message"
         case playbackPositionSeconds = "playback_position_seconds"
+        case segments
     }
 
     /// `durationSeconds` を `分:秒`（例: `3:05`）の表示用文字列に整形する。
@@ -79,6 +91,7 @@ extension Podcast {
         self.status = try container.decode(String.self, forKey: .status)
         self.errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         self.playbackPositionSeconds = try container.decodeIfPresent(Double.self, forKey: .playbackPositionSeconds) ?? 0.0
+        self.segments = try container.decodeIfPresent([TranscriptSegment].self, forKey: .segments)
     }
 }
 
