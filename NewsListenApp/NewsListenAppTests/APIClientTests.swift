@@ -329,6 +329,28 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(quota.resetAt, "2026-07-07T00:00:00Z")
     }
 
+    // MARK: - Listening streak (issue #165)
+
+    func testFetchListeningStreakCallsCorrectEndpoint() async throws {
+        let mockJSON = #"""
+        {"current_streak_days":5,"today_listened":true,"last_listened_day":"2026-07-07"}
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let streak = try await client.fetchListeningStreak()
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/users/me/listening-streak")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "GET")
+        XCTAssertEqual(streak.currentStreakDays, 5)
+        XCTAssertTrue(streak.todayListened)
+        XCTAssertEqual(streak.lastListenedDay, "2026-07-07")
+    }
+
     // MARK: - Podcast position sync
 
     func testUpdatePlaybackPositionCallsCorrectEndpoint() async throws {
