@@ -286,6 +286,58 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertFalse(vm.generationQuotaLoadFailed, "404時はgraceful degradation。セクション非表示")
     }
 
+    // MARK: - 聴取ストリークの取得 (issue #165)
+
+    func testLoadListeningStreakFetchesFromAPI() async throws {
+        let json = #"""
+        {"current_streak_days":5,"today_listened":true,"last_listened_day":"2026-07-07"}
+        """#
+        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+
+        await vm.loadListeningStreak()
+
+        XCTAssertEqual(vm.listeningStreak?.currentStreakDays, 5)
+        XCTAssertEqual(vm.listeningStreak?.todayListened, true)
+        XCTAssertEqual(vm.listeningStreak?.lastListenedDay, "2026-07-07")
+        XCTAssertFalse(vm.listeningStreakLoadFailed)
+    }
+
+    func testLoadListeningStreakSurfacesZeroStreakWithPastListenedDay() async throws {
+        // backend の compute_streak は一昨日以前で途切れた場合 current_streak_days=0 でも
+        // last_listened_day は非null になりうる（「0日=聴取歴なし」ではない）。
+        // ViewModel はそのままモデルを保持し、表示側（SettingsView）が誤って
+        // 「まだ聴取記録がありません」と矛盾表示しないための契約をここで固定する。
+        let json = #"""
+        {"current_streak_days":0,"today_listened":false,"last_listened_day":"2026-07-03"}
+        """#
+        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+
+        await vm.loadListeningStreak()
+
+        XCTAssertEqual(vm.listeningStreak?.currentStreakDays, 0)
+        XCTAssertEqual(vm.listeningStreak?.lastListenedDay, "2026-07-03")
+        XCTAssertFalse(vm.listeningStreakLoadFailed)
+    }
+
+    func testLoadListeningStreakSetsFailedFlagOnFailure() async throws {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.loadListeningStreak()
+
+        XCTAssertNil(vm.listeningStreak)
+        XCTAssertTrue(vm.listeningStreakLoadFailed)
+    }
+
+    func testLoadListeningStreak404GracefulDegradation() async throws {
+        // 404 時は graceful degradation: 聴取ストリークセクションを非表示（failed=false）
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 404))
+
+        await vm.loadListeningStreak()
+
+        XCTAssertNil(vm.listeningStreak)
+        XCTAssertFalse(vm.listeningStreakLoadFailed, "404時はgraceful degradation。セクション非表示")
+    }
+
     // MARK: - 難易度・再生速度同期のレース対策 (issue #164)
 
     func testSyncDifficultyMultipleRequestsLastWins() async throws {
