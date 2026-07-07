@@ -28,6 +28,10 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var generationQuota: GenerationQuota?
     /// 直近の `loadGenerationQuota()` が失敗したか。
     @Published private(set) var generationQuotaLoadFailed = false
+    /// 聴取ストリーク（issue #165）。未取得・取得失敗時は `nil`。
+    @Published private(set) var listeningStreak: ListeningStreak?
+    /// 直近の `loadListeningStreak()` が失敗したか。
+    @Published private(set) var listeningStreakLoadFailed = false
 
     /// API 通信に使うクライアント。
     ///
@@ -137,6 +141,24 @@ final class SettingsViewModel: ObservableObject {
         } catch {
             generationQuota = nil
             generationQuotaLoadFailed = true
+        }
+    }
+
+    /// 聴取ストリーク（連続聴取日数）を取得する（issue #165）。
+    /// 失敗時は `listeningStreak` を `nil` のまま `listeningStreakLoadFailed` を立てる。
+    /// 404 時は graceful degradation: セクション非表示（`listeningStreakLoadFailed = false`）。
+    func loadListeningStreak() async {
+        guard let apiClient else { return }
+        do {
+            listeningStreak = try await apiClient.fetchListeningStreak()
+            listeningStreakLoadFailed = false
+        } catch APIError.httpError(let statusCode) where statusCode == 404 {
+            // 404 = 旧 backend への graceful degradation。セクション非表示（警告なし）
+            listeningStreak = nil
+            listeningStreakLoadFailed = false
+        } catch {
+            listeningStreak = nil
+            listeningStreakLoadFailed = true
         }
     }
 
