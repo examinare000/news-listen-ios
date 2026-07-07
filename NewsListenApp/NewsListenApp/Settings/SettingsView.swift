@@ -57,6 +57,7 @@ struct SettingsView: View {
                 rssSourcesSection
                 featuredSitesSection
                 generationQuotaSection
+                listeningStreakSection
                 difficultySection
                 playbackSection
             }
@@ -77,6 +78,7 @@ struct SettingsView: View {
             await viewModel.loadSources()
             await viewModel.loadFeaturedSites()
             await viewModel.loadGenerationQuota()
+            await viewModel.loadListeningStreak()
         }
     }
 
@@ -255,6 +257,52 @@ struct SettingsView: View {
                             .foregroundStyle(DSColor.danger)
                         Spacer()
                         Button("再試行") { Task { await viewModel.loadGenerationQuota() } }
+                            .buttonStyle(.borderless)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 聴取ストリーク（連続聴取日数）を表示するセクション（issue #165）。
+    ///
+    /// API クライアント未設定時は表示しない。「記録なし」の graceful 表示は
+    /// `lastListenedDay == nil`（聴取記録が一度もない）で判定する。
+    /// `currentStreakDays == 0` は連続記録が途切れているだけの場合もあり、
+    /// その場合は最終聴取日を伴う ``ListeningStreak`` としてそのまま表示する
+    /// （0日連続 + 過去の最終聴取日、が矛盾なく両立しうるため。issue #165 レビュー指摘）。
+    /// 取得失敗時はインライン警告 + 再試行を出す。
+    @ViewBuilder
+    private var listeningStreakSection: some View {
+        if appState.apiClient != nil {
+            Section("聴取ストリーク") {
+                if let streak = viewModel.listeningStreak {
+                    if let lastListenedDay = streak.lastListenedDay {
+                        HStack {
+                            DSBadge("\(streak.currentStreakDays)日連続", systemImage: "flame.fill")
+                            Spacer()
+                            if streak.todayListened {
+                                Label("本日聴取済み", systemImage: "checkmark.circle.fill")
+                                    .font(DSFont.footnote)
+                                    .foregroundStyle(DSColor.success)
+                            }
+                        }
+                        Text("最終聴取日: \(lastListenedDay)")
+                            .font(DSFont.footnote)
+                            .foregroundStyle(DSColor.inkSecondary)
+                    } else {
+                        Text("まだ聴取記録がありません")
+                            .font(DSFont.body)
+                            .foregroundStyle(DSColor.inkSecondary)
+                    }
+                }
+                if viewModel.listeningStreakLoadFailed {
+                    HStack {
+                        Text("聴取ストリークの取得に失敗しました")
+                            .font(DSFont.footnote)
+                            .foregroundStyle(DSColor.danger)
+                        Spacer()
+                        Button("再試行") { Task { await viewModel.loadListeningStreak() } }
                             .buttonStyle(.borderless)
                     }
                 }
