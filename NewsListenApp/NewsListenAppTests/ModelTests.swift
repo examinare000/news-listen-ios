@@ -193,6 +193,61 @@ final class ModelTests: XCTestCase {
         XCTAssertNil(quota.remaining)
     }
 
+    // MARK: - ListeningStreak (issue #165)
+
+    func testListeningStreakDecodesFromJSON() throws {
+        let json = """
+        {
+            "current_streak_days": 5,
+            "today_listened": true,
+            "last_listened_day": "2026-07-07"
+        }
+        """.data(using: .utf8)!
+
+        let streak = try JSONDecoder().decode(ListeningStreak.self, from: json)
+
+        XCTAssertEqual(streak.currentStreakDays, 5)
+        XCTAssertTrue(streak.todayListened)
+        XCTAssertEqual(streak.lastListenedDay, "2026-07-07")
+    }
+
+    func testListeningStreakDecodesNullLastListenedDay() throws {
+        // 聴取歴が一度もない場合のみ last_listened_day は null になる。
+        let json = """
+        {
+            "current_streak_days": 0,
+            "today_listened": false,
+            "last_listened_day": null
+        }
+        """.data(using: .utf8)!
+
+        let streak = try JSONDecoder().decode(ListeningStreak.self, from: json)
+
+        XCTAssertEqual(streak.currentStreakDays, 0)
+        XCTAssertFalse(streak.todayListened)
+        XCTAssertNil(streak.lastListenedDay)
+    }
+
+    func testListeningStreakDecodesZeroStreakWithPastListenedDay() throws {
+        // backend の compute_streak（shared/streak.py）は、一昨日以前で連続が途切れた
+        // 場合に current_streak_days=0 かつ last_listened_day=非null を返しうる
+        // （test_gap_before_yesterday_resets_streak_to_zero で確認済み）。
+        // 「0日 = 聴取歴なし」ではないことをここで固定する。
+        let json = """
+        {
+            "current_streak_days": 0,
+            "today_listened": false,
+            "last_listened_day": "2026-07-03"
+        }
+        """.data(using: .utf8)!
+
+        let streak = try JSONDecoder().decode(ListeningStreak.self, from: json)
+
+        XCTAssertEqual(streak.currentStreakDays, 0)
+        XCTAssertFalse(streak.todayListened)
+        XCTAssertEqual(streak.lastListenedDay, "2026-07-03")
+    }
+
     func testPodcastDecodesPlaybackPositionSeconds() throws {
         let json = """
         {
