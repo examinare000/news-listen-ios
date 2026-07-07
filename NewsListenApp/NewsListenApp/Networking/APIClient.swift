@@ -160,6 +160,11 @@ final class APIClient {
         try await request(.generationQuota, responseType: GenerationQuota.self)
     }
 
+    /// 聴取ストリーク（連続聴取日数）を取得する（issue #165）。
+    func fetchListeningStreak() async throws -> ListeningStreak {
+        try await request(.listeningStreak, responseType: ListeningStreak.self)
+    }
+
     /// 登録済みの RSS 配信元一覧を取得する。
     func fetchSources() async throws -> RssSourcesResponse {
         try await request(.sources, responseType: RssSourcesResponse.self)
