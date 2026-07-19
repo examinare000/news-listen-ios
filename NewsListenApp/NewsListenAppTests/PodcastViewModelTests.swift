@@ -421,6 +421,15 @@ extension PodcastViewModelTests {
         func cachesDirectory() -> URL {
             URL(fileURLWithPath: "/mock-caches")
         }
+
+        func contentsOfDirectory(atPath path: String) throws -> [String] {
+            let prefix = path.hasSuffix("/") ? path : path + "/"
+            return files.keys.compactMap { key in
+                guard key.hasPrefix(prefix) else { return nil }
+                let name = String(key.dropFirst(prefix.count))
+                return name.contains("/") ? nil : name
+            }
+        }
     }
 
     enum MockDownloadRequestType {

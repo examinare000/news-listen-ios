@@ -21,6 +21,8 @@ protocol FileManagerProtocol {
     func fileSize(atPath: String) -> Int64?
     /// キャッシュディレクトリの URL を返す。
     func cachesDirectory() -> URL
+    /// 指定ディレクトリ直下のエントリ名一覧を返す（issue #52: キャッシュ容量集計・全削除に使用）。
+    func contentsOfDirectory(atPath: String) throws -> [String]
 }
 
 extension FileManager: FileManagerProtocol {
