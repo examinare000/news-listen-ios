@@ -19,6 +19,11 @@ import Network
 protocol NetworkMonitoring {
     /// ネットワークがオンラインかどうか。
     var isOnline: Bool { get }
+    /// `isOnline` の変化を購読するためのパブリッシャ（issue #54）。
+    ///
+    /// ViewModel がオフラインバナー等の表示に反応的に追従できるよう、値型実装（``StubNetworkMonitor``）も
+    /// 含めてプロトコル要件とする。`StubNetworkMonitor` は変化しない値の単発発行で足りる（テスト用途のため）。
+    var isOnlinePublisher: AnyPublisher<Bool, Never> { get }
 }
 
 /// `Network.framework` を使用してネットワーク接続状態を監視する。
@@ -28,6 +33,9 @@ protocol NetworkMonitoring {
 final class NetworkMonitor: ObservableObject, NetworkMonitoring {
     /// ネットワークがオンラインかどうか（初期値: `true`）。
     @Published private(set) var isOnline = true
+
+    /// `isOnline` の変化を購読するためのパブリッシャ（issue #54）。
+    var isOnlinePublisher: AnyPublisher<Bool, Never> { $isOnline.eraseToAnyPublisher() }
 
     /// 内部的にパスを監視する NWPathMonitor。
     private let pathMonitor: NWPathMonitor
@@ -68,4 +76,7 @@ struct StubNetworkMonitor: NetworkMonitoring {
     init(isOnline: Bool = true) {
         self.isOnline = isOnline
     }
+
+    /// テスト用スタブのため、生成時点の `isOnline` を単発発行するのみで変化は追従しない。
+    var isOnlinePublisher: AnyPublisher<Bool, Never> { Just(isOnline).eraseToAnyPublisher() }
 }
