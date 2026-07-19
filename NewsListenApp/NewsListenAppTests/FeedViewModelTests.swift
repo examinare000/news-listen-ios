@@ -330,4 +330,50 @@ final class FeedViewModelTests: XCTestCase {
         vm.toggleExpand("a1")
         XCTAssertNil(vm.expandedId)
     }
+
+    // MARK: - issue #54: オフライン時の事前無効化
+
+    func testIsOnlineReflectsInjectedNetworkMonitor() {
+        let vm = FeedViewModel(apiClient: makeClient(json: "{}"), networkMonitor: StubNetworkMonitor(isOnline: false))
+
+        XCTAssertFalse(vm.isOnline)
+    }
+
+    func testLoadFeedWhileOfflineDoesNotCallAPIAndSetsOfflineMessage() async throws {
+        let mock = MockURLSession(data: Data(), statusCode: 200)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
+        let vm = FeedViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: false))
+
+        await vm.loadFeed()
+
+        XCTAssertNil(mock.lastRequest)   // ネットワークを一切呼ばない
+        XCTAssertEqual(vm.errorMessage, "オフラインです。接続を確認してから、もう一度お試しください")
+        XCTAssertTrue(vm.articles.isEmpty)
+        XCTAssertFalse(vm.isLoading)
+    }
+
+    func testLoadFeedWhileOfflineKeepsExistingArticles() async throws {
+        // ロード済み記事がある状態でオフラインの loadFeed を呼んでも、既存の一覧は消えない
+        // （オフラインガードが articles 更新より前に return する順序の回帰防止）。
+        let mock = MockURLSession(data: Data(), statusCode: 200)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
+        let vm = FeedViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: false))
+        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+
+        await vm.loadFeed()
+
+        XCTAssertNil(mock.lastRequest)
+        XCTAssertEqual(vm.articles.map { $0.id }, ["a1", "a2"])   // 既存一覧が保持される
+    }
+
+    func testLoadFeedWhileOnlineStillWorksWithInjectedNetworkMonitor() async throws {
+        // 回帰防止: networkMonitor 注入後もオンライン時の既存挙動が壊れていないこと。
+        let json = #"{"articles": [{"id":"a1","title":"Rust","url":"https://example.com","source":"hackernews","score":0.9,"published_at":"2026-05-31T06:00:00Z"}], "date": "2026-05-31"}"#
+        let vm = FeedViewModel(apiClient: makeClient(json: json), networkMonitor: StubNetworkMonitor(isOnline: true))
+
+        await vm.loadFeed()
+
+        XCTAssertEqual(vm.articles.count, 1)
+        XCTAssertNil(vm.errorMessage)
+    }
 }

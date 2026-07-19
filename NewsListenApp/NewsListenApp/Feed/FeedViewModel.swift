@@ -31,18 +31,38 @@ final class FeedViewModel: ObservableObject {
     /// 確定前なら `undoLast()` で元に戻せる（サーバ側に un-star/un-dismiss API が無いため、
     /// 取り消しは「まだ送っていない」遅延コミット方式で実現する）。
     @Published private(set) var pendingAction: PendingArticleAction?
+    /// 現在ネットワークがオンラインかどうか（オフラインバナー表示用に View から購読する・issue #54）。
+    @Published private(set) var isOnline: Bool
 
     /// API 通信に使うクライアント。
     private let apiClient: APIClient
+    /// ネットワーク接続状態を監視する（issue #54: オフライン時の事前無効化）。
+    private let networkMonitor: NetworkMonitoring
+
+    /// オフライン時にフィード更新をブロックした際の案内文言。
+    static let offlineMessage = "オフラインです。接続を確認してから、もう一度お試しください"
 
     /// ViewModel を生成する。
-    /// - Parameter apiClient: API 通信に使うクライアント。
-    init(apiClient: APIClient) {
+    /// - Parameters:
+    ///   - apiClient: API 通信に使うクライアント。
+    ///   - networkMonitor: ネットワーク監視（既定: 実機監視の `NetworkMonitor()`。`PodcastViewModel` と同一パターン）。
+    init(apiClient: APIClient, networkMonitor: NetworkMonitoring = NetworkMonitor()) {
         self.apiClient = apiClient
+        self.networkMonitor = networkMonitor
+        self.isOnline = networkMonitor.isOnline
+        networkMonitor.isOnlinePublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isOnline)
     }
 
     /// フィードを取得して `articles` を更新する。失敗時は `errorMessage` に反映する。
+    ///
+    /// オフライン時はネットワークを一切呼ばず（保留中操作の確定も含め）、案内メッセージのみ設定する。
     func loadFeed() async {
+        guard networkMonitor.isOnline else {
+            errorMessage = Self.offlineMessage
+            return
+        }
         // 保留中の Star/Dismiss は一覧を置き換える前に確定させる（issue #111）。
         // これをしないとサーバ未反映の記事がリフレッシュで再出現し、楽観削除と id 重複する。
         await commitPending()
