@@ -115,6 +115,61 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertFalse(vm.isLoading)
     }
 
+    // MARK: - issue #53: ロード失敗と「本当に空」の空状態を区別する
+
+    func testDisplayStateIsErrorWhenLoadPodcastsFailsWithEmptyList() async throws {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 500)
+        )
+        let vm = makeViewModel(apiClient: client)
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.displayState, .error(message: vm.errorMessage ?? ""))
+    }
+
+    func testDisplayStateIsContentWhenLoadPodcastsFailsButListRemains() async throws {
+        // リフレッシュ失敗時は既存の一覧を残す。その場合は空状態ではなく一覧を優先して表示する。
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 500)
+        )
+        let vm = makeViewModel(apiClient: client)
+        vm.podcasts = [queuePodcast("p1")]
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.displayState, .content)
+    }
+
+    func testDisplayStateIsEmptyWhenLoadPodcastsSucceedsWithNoPodcasts() async throws {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(#"{"podcasts": []}"#.utf8), statusCode: 200)
+        )
+        let vm = makeViewModel(apiClient: client)
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.displayState, .empty)
+    }
+
+    func testDisplayStateIsLoadingWhileInitialLoadInProgress() {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 200)
+        )
+        let vm = makeViewModel(apiClient: client)
+        vm.isLoading = true
+
+        XCTAssertEqual(vm.displayState, .loading)
+    }
+
     func testSetSpeedUpdatesPlaybackSpeed() {
         let client = APIClient(
             baseURL: URL(string: "https://api.example.com")!,

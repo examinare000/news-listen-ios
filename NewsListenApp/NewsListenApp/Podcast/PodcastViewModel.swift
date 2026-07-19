@@ -54,6 +54,12 @@ final class PodcastViewModel: NSObject, ObservableObject {
     /// 再生キュー（連続再生・プレイリスト / issue #81）。
     @Published private(set) var queue = PlaybackQueue()
 
+    /// 一覧画面の表示状態（ロード中/エラー/空/一覧）。
+    /// ロード失敗と「本当に空」を同一の空状態に畳んで表示しないよう、View はこの値のみで分岐する（issue #53）。
+    var displayState: ListDisplayState {
+        ListDisplayState.resolve(isLoading: isLoading, isEmpty: podcasts.isEmpty, errorMessage: errorMessage)
+    }
+
     /// API 通信に使うクライアント。
     private let apiClient: APIClient
     /// 音声キャッシュを管理するマネージャ。
