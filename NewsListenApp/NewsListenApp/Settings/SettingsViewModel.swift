@@ -32,6 +32,8 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var listeningStreak: ListeningStreak?
     /// 直近の `loadListeningStreak()` が失敗したか。
     @Published private(set) var listeningStreakLoadFailed = false
+    /// ダウンロード音声キャッシュの合計サイズ（バイト・issue #52）。未取得時は `0`。
+    @Published private(set) var cacheSizeBytes: Int64 = 0
 
     /// API 通信に使うクライアント。
     ///
@@ -39,6 +41,8 @@ final class SettingsViewModel: ObservableObject {
     /// `nil` の場合は RSS ソース操作を行わず、難易度・API 設定の編集のみ可能にする
     /// （設定タブからの設定修正の導線を残すため）。
     private let apiClient: APIClient?
+    /// ダウンロード音声キャッシュの容量取得・全削除に使うマネージャ（issue #52）。
+    private let cacheManager: AudioCacheManager
 
     // MARK: - レース対策: 難易度・再生速度同期 (issue #164)
 
@@ -48,9 +52,12 @@ final class SettingsViewModel: ObservableObject {
     private var latestPlaybackSpeedRequestId: Int = 0
 
     /// ViewModel を生成する。
-    /// - Parameter apiClient: API 通信に使うクライアント。未設定時は `nil`。
-    init(apiClient: APIClient?) {
+    /// - Parameters:
+    ///   - apiClient: API 通信に使うクライアント。未設定時は `nil`。
+    ///   - cacheManager: 音声キャッシュの容量取得・全削除に使うマネージャ（既定: `AudioCacheManager()`）。
+    init(apiClient: APIClient?, cacheManager: AudioCacheManager = AudioCacheManager()) {
         self.apiClient = apiClient
+        self.cacheManager = cacheManager
     }
 
     /// RSS ソース一覧を取得して `sources` を更新する。失敗時は `errorMessage` に反映する。
@@ -160,6 +167,27 @@ final class SettingsViewModel: ObservableObject {
             listeningStreak = nil
             listeningStreakLoadFailed = true
         }
+    }
+
+    // MARK: - ダウンロード音声キャッシュの容量表示・全削除 (issue #52)
+    //
+    // LRU 等の自動退避は行わない（スコープ外）。容量把握と手動全削除の導線のみ提供する。
+
+    /// ダウンロード音声キャッシュの合計サイズを取得して `cacheSizeBytes` を更新する。
+    func loadCacheSize() async {
+        cacheSizeBytes = cacheManager.cacheSize()
+    }
+
+    /// ダウンロード音声キャッシュを全削除する。失敗時は `errorMessage` に反映し、`cacheSizeBytes` は
+    /// 実際の残容量を再取得して反映する（削除が一部失敗した場合の不整合表示を避ける）。
+    func clearCache() async {
+        do {
+            try cacheManager.clearCache()
+            errorMessage = nil
+        } catch {
+            errorMessage = "キャッシュの削除に失敗しました"
+        }
+        cacheSizeBytes = cacheManager.cacheSize()
     }
 
     // MARK: - デフォルト難易度・再生速度のサーバー同期 (issue #164)

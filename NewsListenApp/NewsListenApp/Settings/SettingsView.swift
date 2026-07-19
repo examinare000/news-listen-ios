@@ -25,6 +25,8 @@ struct SettingsView: View {
     @State private var showAddSource = false
     /// 編集シートで開いている編集対象の RSS ソース（`nil` なら非表示・issue #112）。
     @State private var editingSource: RssSource?
+    /// キャッシュ全削除の確認ダイアログの表示状態（issue #52）。
+    @State private var showClearCacheConfirm = false
     /// 追加シートで入力中のソース名。
     @State private var newSourceName = ""
     /// 追加シートで入力中の RSS URL。
@@ -60,6 +62,7 @@ struct SettingsView: View {
                 listeningStreakSection
                 difficultySection
                 playbackSection
+                cacheSection
             }
             .scrollContentBackground(.hidden)
             .background(DSColor.paper.ignoresSafeArea())
@@ -79,6 +82,7 @@ struct SettingsView: View {
             await viewModel.loadFeaturedSites()
             await viewModel.loadGenerationQuota()
             await viewModel.loadListeningStreak()
+            await viewModel.loadCacheSize()
         }
     }
 
@@ -348,6 +352,37 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    /// ダウンロード音声キャッシュの使用容量表示・全削除セクション（issue #52）。
+    ///
+    /// LRU 等の自動退避は行わず、手動でのキャッシュ全削除のみ提供する（スコープ外）。
+    /// 容量が 0 の間は削除操作を無効化し、無意味な確認ダイアログを出さない。
+    private var cacheSection: some View {
+        Section("ダウンロード容量") {
+            LabeledContent("使用容量", value: formattedCacheSize)
+            Button("キャッシュを全削除", role: .destructive) {
+                showClearCacheConfirm = true
+            }
+            .disabled(viewModel.cacheSizeBytes == 0)
+        }
+        .confirmationDialog(
+            "キャッシュを全削除しますか？",
+            isPresented: $showClearCacheConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("全削除", role: .destructive) {
+                Task { await viewModel.clearCache() }
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("ダウンロード済みの音声はすべて削除されます。")
+        }
+    }
+
+    /// バイト数を人間可読な文字列（例: "12.3 MB"）にフォーマットする。
+    private var formattedCacheSize: String {
+        ByteCountFormatter.string(fromByteCount: viewModel.cacheSizeBytes, countStyle: .file)
     }
 
     /// RSS ソースを追加する入力シート。
