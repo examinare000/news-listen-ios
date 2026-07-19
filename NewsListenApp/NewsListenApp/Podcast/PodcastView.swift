@@ -42,6 +42,10 @@ struct PodcastView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // オフライン時の事前案内バナー（issue #54）。
+                if !viewModel.isOnline {
+                    OfflineBanner()
+                }
                 content
                 if viewModel.currentPodcast != nil {
                     AudioPlayerView(vm: viewModel)
@@ -99,6 +103,7 @@ struct PodcastView: View {
                 podcast: podcast,
                 isPlaying: viewModel.currentPodcast?.id == podcast.id && viewModel.isPlaying,
                 downloadState: viewModel.downloadState(for: podcast.id),
+                isOffline: !viewModel.isOnline,
                 onDownloadTap: {
                     Task {
                         await viewModel.download(podcast: podcast)

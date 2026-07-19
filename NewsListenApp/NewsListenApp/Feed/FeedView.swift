@@ -39,18 +39,12 @@ struct FeedView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if viewModel.isLoading && viewModel.articles.isEmpty {
-                    ProgressView("読み込み中...")
-                } else if viewModel.articles.isEmpty {
-                    ContentUnavailableView(
-                        "記事がありません",
-                        systemImage: "newspaper",
-                        description: Text("しばらく後に再度確認してください")
-                    )
-                } else {
-                    articleList
+            VStack(spacing: 0) {
+                // オフライン時の事前案内バナー（issue #54）。
+                if !viewModel.isOnline {
+                    OfflineBanner()
                 }
+                content
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .dsScreenBackground()
@@ -93,6 +87,25 @@ struct FeedView: View {
             if newPhase != .active {
                 Task { await viewModel.commitPending() }
             }
+        }
+    }
+
+    /// 読み込み状態・空状態・一覧を出し分ける主コンテンツ。
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.isLoading && viewModel.articles.isEmpty {
+            ProgressView("読み込み中...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewModel.articles.isEmpty {
+            ContentUnavailableView(
+                "記事がありません",
+                systemImage: "newspaper",
+                description: Text("しばらく後に再度確認してください")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            articleList
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
