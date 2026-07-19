@@ -53,6 +53,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
     @Published private(set) var downloadingIds: Set<String> = []
     /// 再生キュー（連続再生・プレイリスト / issue #81）。
     @Published private(set) var queue = PlaybackQueue()
+    /// 現在ネットワークがオンラインかどうか（オフラインバナー表示用に View から購読する・issue #54）。
+    @Published private(set) var isOnline: Bool
 
     /// API 通信に使うクライアント。
     private let apiClient: APIClient
@@ -90,6 +92,13 @@ final class PodcastViewModel: NSObject, ObservableObject {
         self.apiClient = apiClient
         self.cacheManager = cacheManager
         self.networkMonitor = networkMonitor
+        self.isOnline = networkMonitor.isOnline
+        // NSObject 継承のため、`$isOnline` 等 self を用いるプロパティラッパアクセスは
+        // super.init() 完了後でなければならない。
+        super.init()
+        networkMonitor.isOnlinePublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isOnline)
     }
 
     // MARK: - Data
@@ -133,6 +142,12 @@ final class PodcastViewModel: NSObject, ObservableObject {
         } else {
             return .notDownloaded
         }
+    }
+
+    /// オフライン時、指定のダウンロード状態が再生可能かどうかを返す（一覧の視覚的区別に使用・issue #54）。
+    /// ダウンロード済みのみ再生可能。純粋関数（副作用なし・テスト容易）。
+    static func isPlayableWhileOffline(downloadState: DownloadState) -> Bool {
+        downloadState == .downloaded
     }
 
     /// 指定 Podcast の音声をダウンロード・キャッシュし、downloadedIds に追加する。
