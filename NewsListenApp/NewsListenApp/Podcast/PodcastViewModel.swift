@@ -47,6 +47,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
     @Published var duration: Double = 0
     /// 現在の再生速度（倍率）。
     @Published var playbackSpeed: Float = 1.0
+    /// 再生バッファが不足し一時的に待機中かどうか（issue #51）。
+    /// `AVPlayer.timeControlStatus == .waitingToPlayAtSpecifiedRate` を反映する。
+    @Published var isBuffering = false
     /// ダウンロード済み Podcast ID の集合（ViewModel のみが更新する）。
     @Published private(set) var downloadedIds: Set<String> = []
     /// ダウンロード中 Podcast ID の集合（ViewModel のみが更新する）。
@@ -76,6 +79,10 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private var audioNotificationObservers: [NSObjectProtocol] = []
     /// 再生終了（`didPlayToEndTime`）の購読トークン。次の再生開始/停止時に解除する（issue #81）。
     private var endOfPlaybackObserver: NSObjectProtocol?
+    /// `AVPlayerItem.status` の KVO 購読トークン（issue #51）。次の再生開始/停止時に解除する。
+    private var itemStatusObservation: NSKeyValueObservation?
+    /// `AVPlayer.timeControlStatus` の KVO 購読トークン（issue #51）。次の再生開始/停止時に解除する。
+    private var timeControlStatusObservation: NSKeyValueObservation?
 
     /// ViewModel を生成する。
     /// - Parameters:
@@ -247,6 +254,26 @@ final class PodcastViewModel: NSObject, ObservableObject {
             }
         }
 
+        // ストリーミング失敗・バッファリングを検出する（issue #51）。KVO のコールバックは
+        // メインスレッドで発火する保証が無いため、明示的に main へホップしてから
+        // MainActor.assumeIsolated で隔離を明示し @Published を安全に更新する。
+        itemStatusObservation = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.handlePlayerItemStatusChange(item.status, errorDescription: item.error?.localizedDescription)
+                }
+            }
+        }
+        timeControlStatusObservation = player?.observe(\.timeControlStatus, options: [.new]) { [weak self] avPlayer, _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.handleTimeControlStatusChange(avPlayer.timeControlStatus)
+                }
+            }
+        }
+
         // 再生終了で次のキューへ自動遷移する（issue #81）。object に playerItem を指定し当該再生のみ購読。
         endOfPlaybackObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification,
@@ -265,6 +292,25 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
         // 再生位置をサーバーへ定期同期（15秒ごと）。
         startPlaybackPositionSync()
+    }
+
+    // MARK: - AVPlayer 状態監視（issue #51）
+
+    /// `AVPlayerItem.status` の変化を反映する。`.failed` の場合のみ errorMessage を設定し再生を止める。
+    /// KVO からの実配線と切り離してユニットテスト可能にするため、状態の enum 値のみを引数に取る。
+    /// - Parameters:
+    ///   - status: 変化後の `AVPlayerItem.status`。
+    ///   - errorDescription: 失敗時の詳細説明（`AVPlayerItem.error?.localizedDescription`）。無ければ既定文言を使う。
+    func handlePlayerItemStatusChange(_ status: AVPlayerItem.Status, errorDescription: String?) {
+        guard status == .failed else { return }
+        errorMessage = errorDescription ?? "Playback failed"
+        isPlaying = false
+    }
+
+    /// `AVPlayer.timeControlStatus` の変化を反映する。バッファ待ち中のみ `isBuffering` を true にする。
+    /// - Parameter status: 変化後の `AVPlayer.timeControlStatus`。
+    func handleTimeControlStatusChange(_ status: AVPlayer.TimeControlStatus) {
+        isBuffering = (status == .waitingToPlayAtSpecifiedRate)
     }
 
     // MARK: - 再生キュー（issue #81）
@@ -365,11 +411,17 @@ final class PodcastViewModel: NSObject, ObservableObject {
             NotificationCenter.default.removeObserver(endObs)
             endOfPlaybackObserver = nil
         }
+        // status/timeControlStatus の KVO 購読を解除する（issue #51）。
+        itemStatusObservation?.invalidate()
+        itemStatusObservation = nil
+        timeControlStatusObservation?.invalidate()
+        timeControlStatusObservation = nil
         player?.pause()
         player = nil
         isPlaying = false
         currentTime = 0
         duration = 0
+        isBuffering = false
 
         // ロック画面/コントロールセンターの再生情報を消す。
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
