@@ -32,6 +32,12 @@ final class FeedViewModel: ObservableObject {
     /// 取り消しは「まだ送っていない」遅延コミット方式で実現する）。
     @Published private(set) var pendingAction: PendingArticleAction?
 
+    /// 一覧画面の表示状態（ロード中/エラー/空/一覧）。
+    /// ロード失敗と「本当に空」を同一の空状態に畳んで表示しないよう、View はこの値のみで分岐する（issue #53）。
+    var displayState: ListDisplayState {
+        ListDisplayState.resolve(isLoading: isLoading, isEmpty: articles.isEmpty, errorMessage: errorMessage)
+    }
+
     /// API 通信に使うクライアント。
     private let apiClient: APIClient
 
