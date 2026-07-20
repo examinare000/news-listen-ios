@@ -34,6 +34,12 @@ final class FeedViewModel: ObservableObject {
     /// 現在ネットワークがオンラインかどうか（オフラインバナー表示用に View から購読する・issue #54）。
     @Published private(set) var isOnline: Bool
 
+    /// 一覧画面の表示状態（ロード中/エラー/空/一覧）。
+    /// ロード失敗と「本当に空」を同一の空状態に畳んで表示しないよう、View はこの値のみで分岐する（issue #53）。
+    var displayState: ListDisplayState {
+        ListDisplayState.resolve(isLoading: isLoading, isEmpty: articles.isEmpty, errorMessage: errorMessage)
+    }
+
     /// API 通信に使うクライアント。
     private let apiClient: APIClient
     /// ネットワーク接続状態を監視する（issue #54: オフライン時の事前無効化）。

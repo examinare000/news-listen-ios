@@ -79,19 +79,31 @@ struct PodcastView: View {
         }
     }
 
-    /// 読み込み状態・空状態・一覧を出し分ける主コンテンツ。
+    /// 読み込み状態・エラー・空状態・一覧を出し分ける主コンテンツ。
     @ViewBuilder
     private var content: some View {
-        if viewModel.isLoading && viewModel.podcasts.isEmpty {
+        switch viewModel.displayState {
+        case .loading:
             ProgressView("読み込み中...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if viewModel.podcasts.isEmpty {
+        case .error(let message):
+            // ロード失敗時は「本当に空」と区別し、再試行導線を伴うエラー表示にする（issue #53）。
+            ContentUnavailableView {
+                Label("読み込みに失敗しました", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("再試行") { Task { await viewModel.loadPodcasts() } }
+                    .buttonStyle(.borderedProminent)
+                    .tint(DSColor.accent)
+            }
+        case .empty:
             ContentUnavailableView(
                 "Podcast がありません",
                 systemImage: "headphones",
                 description: Text("しばらく後に再度確認してください")
             )
-        } else {
+        case .content:
             podcastList
         }
     }

@@ -376,4 +376,40 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertEqual(vm.articles.count, 1)
         XCTAssertNil(vm.errorMessage)
     }
+
+    // MARK: - issue #53: ロード失敗と「本当に空」の空状態を区別する
+
+    func testDisplayStateIsErrorWhenLoadFeedFailsWithEmptyArticles() async throws {
+        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.loadFeed()
+
+        XCTAssertEqual(vm.displayState, .error(message: vm.errorMessage ?? ""))
+    }
+
+    func testDisplayStateIsContentWhenLoadFeedFailsButArticlesRemain() async throws {
+        // リフレッシュ失敗時は既存の一覧を残す（articles はクリアしない）。
+        // その場合は空状態ではなく一覧を優先して表示する。
+        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        vm.articles = [sampleArticle(id: "a1")]
+
+        await vm.loadFeed()
+
+        XCTAssertEqual(vm.displayState, .content)
+    }
+
+    func testDisplayStateIsEmptyWhenLoadFeedSucceedsWithNoArticles() async throws {
+        let vm = FeedViewModel(apiClient: makeClient(json: #"{"articles": [], "date": "2026-05-31"}"#))
+
+        await vm.loadFeed()
+
+        XCTAssertEqual(vm.displayState, .empty)
+    }
+
+    func testDisplayStateIsLoadingWhileInitialLoadInProgress() {
+        let vm = FeedViewModel(apiClient: makeClient(json: "{}"))
+        vm.isLoading = true
+
+        XCTAssertEqual(vm.displayState, .loading)
+    }
 }
