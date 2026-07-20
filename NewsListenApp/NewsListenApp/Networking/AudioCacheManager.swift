@@ -78,13 +78,20 @@ final class AudioCacheManager {
     /// キャッシュディレクトリ内の全ファイルサイズ合計（バイト）。
     /// - Returns: Total size in bytes.
     func cacheSize() -> Int64 {
-        let total: Int64 = 0
-        guard fileManager.fileExists(atPath: cacheDirectory.path) else { return 0 }
-        // リスト取得は FileManagerProtocol にないため、ディレクトリ属性の合計値で判定
-        // テストでは MockFileManager が個別管理するため十分。
-        // 本実装では do-catch で属性読み込みして合計する（省略可能・T1 要件の "cacheSize" は
-        // テストでのみ検証され、実装では合計ロジック不要な場合がある）。
-        return total
+        guard let names = try? fileManager.contentsOfDirectory(atPath: cacheDirectory.path) else { return 0 }
+        return names.reduce(Int64(0)) { total, name in
+            let path = cacheDirectory.appendingPathComponent(name).path
+            return total + (fileManager.fileSize(atPath: path) ?? 0)
+        }
+    }
+
+    /// キャッシュディレクトリ内の全ファイルを削除する（存在しない場合は no-op・冪等）。
+    /// - Throws: I/O errors on removal failure.
+    func clearCache() throws {
+        guard let names = try? fileManager.contentsOfDirectory(atPath: cacheDirectory.path) else { return }
+        for name in names {
+            try fileManager.removeItem(at: cacheDirectory.appendingPathComponent(name))
+        }
     }
 
     // MARK: - Private

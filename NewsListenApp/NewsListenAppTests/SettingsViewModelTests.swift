@@ -378,6 +378,42 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertNil(vm.errorMessage, "最新の成功が反映")
     }
 
+    // MARK: - ダウンロード音声キャッシュの容量表示・全削除 (issue #52)
+
+    /// `AudioCacheManagerTests.MockFileManager` を再利用し、キャッシュディレクトリを準備した
+    /// `AudioCacheManager` を返す。
+    private func makeCacheManager() -> AudioCacheManager {
+        let mock = AudioCacheManagerTests.MockFileManager()
+        mock.directories.insert("/mock-caches")
+        mock.directories.insert("/mock-caches/NewsListenApp")
+        mock.directories.insert("/mock-caches/NewsListenApp/audio-cache")
+        return AudioCacheManager(fileManager: mock)
+    }
+
+    func testLoadCacheSizeReflectsCacheManagerTotal() async throws {
+        let cacheManager = makeCacheManager()
+        try cacheManager.cache("audio1".data(using: .utf8)!, for: "podcast-1")
+        try cacheManager.cache("audio2".data(using: .utf8)!, for: "podcast-2")
+        let vm = SettingsViewModel(apiClient: nil, cacheManager: cacheManager)
+
+        await vm.loadCacheSize()
+
+        XCTAssertEqual(vm.cacheSizeBytes, 12)
+    }
+
+    func testClearCacheResetsCacheSizeToZeroAndRemovesFiles() async throws {
+        let cacheManager = makeCacheManager()
+        try cacheManager.cache("audio1".data(using: .utf8)!, for: "podcast-1")
+        let vm = SettingsViewModel(apiClient: nil, cacheManager: cacheManager)
+        await vm.loadCacheSize()
+        XCTAssertEqual(vm.cacheSizeBytes, 6)
+
+        await vm.clearCache()
+
+        XCTAssertEqual(vm.cacheSizeBytes, 0)
+        XCTAssertFalse(cacheManager.isCached("podcast-1"))
+    }
+
     func testSyncDifficultySuccessMultipleTimes() async throws {
         // 単一の成功ケースを複数回実行してレース対策ロジックが正常に動作することを確認。
         let successJSON = #"{"default_difficulty":"toeic_900","default_playback_speed":null}"#

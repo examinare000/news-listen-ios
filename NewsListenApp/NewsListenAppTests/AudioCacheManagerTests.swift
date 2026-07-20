@@ -35,6 +35,16 @@ final class AudioCacheManagerTests: XCTestCase {
         func cachesDirectory() -> URL {
             URL(fileURLWithPath: "/mock-caches")
         }
+
+        func contentsOfDirectory(atPath path: String) throws -> [String] {
+            let prefix = path.hasSuffix("/") ? path : path + "/"
+            return files.keys.compactMap { key in
+                guard key.hasPrefix(prefix) else { return nil }
+                let name = String(key.dropFirst(prefix.count))
+                // 直下のみ対象（サブディレクトリの中身は除外）。
+                return name.contains("/") ? nil : name
+            }
+        }
     }
 
     // MARK: - Tests
@@ -115,11 +125,34 @@ final class AudioCacheManagerTests: XCTestCase {
         try manager.cache(data1, for: "podcast-1")
         try manager.cache(data2, for: "podcast-2")
 
-        // MockFileManager では fileSize が実装されているため、
-        // 実装の cacheSize() が合計を正しく計算することを期待。
-        // ここでは cacheSize() == 0 が現在の実装（ロジック未実装）の状態。
-        // テストは future を指す（実装時に修正）。
-        _ = manager.cacheSize()
+        XCTAssertEqual(manager.cacheSize(), 12)
+    }
+
+    // MARK: - キャッシュ全削除 (issue #52)
+
+    func testClearCacheRemovesAllFilesAndIsCachedReturnsFalse() async throws {
+        let mock = MockFileManager()
+        mock.directories.insert("/mock-caches")
+        mock.directories.insert("/mock-caches/NewsListenApp")
+        mock.directories.insert("/mock-caches/NewsListenApp/audio-cache")
+
+        let manager = AudioCacheManager(fileManager: mock)
+        try manager.cache("audio1".data(using: .utf8)!, for: "podcast-1")
+        try manager.cache("audio2".data(using: .utf8)!, for: "podcast-2")
+
+        try manager.clearCache()
+
+        XCTAssertFalse(manager.isCached("podcast-1"))
+        XCTAssertFalse(manager.isCached("podcast-2"))
+        XCTAssertEqual(manager.cacheSize(), 0)
+    }
+
+    func testClearCacheIsIdempotentWhenCacheDirectoryMissing() async throws {
+        let mock = MockFileManager()
+        let manager = AudioCacheManager(fileManager: mock)
+
+        // キャッシュディレクトリ未作成でも例外を投げない（no-op・冪等）。
+        try manager.clearCache()
     }
 
     func testInvalidIdThrowsError() async throws {
