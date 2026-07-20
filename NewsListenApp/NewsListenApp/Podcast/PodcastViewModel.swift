@@ -72,7 +72,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
     /// ネットワーク接続状態を監視する。
     private let networkMonitor: NetworkMonitoring
     /// 音声再生に使う `AVPlayer`（未再生時は `nil`）。
-    private var player: AVPlayer?
+    /// 書き込みはクラス内に限定しつつ、KVO ガード判定のテスト（issue #59）から
+    /// 現在の player/currentItem を参照できるよう読み取りはモジュール内に公開する。
+    private(set) var player: AVPlayer?
     /// 再生位置を定期更新するためのタイムオブザーバ。解放時に取り外す。
     private var timeObserver: Any?
     /// 再生位置をサーバーへ定期同期するタイマー。
@@ -281,7 +283,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
         itemStatusObservation = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self else { return }
+                    // stopPlayback() → 次の play() の競合で item が既に差し替わっている場合、
+                    // 古い item のコールバックが新しい状態を上書きしないようガードする（issue #59）。
+                    guard let self, self.shouldProcessPlayerItemCallback(item) else { return }
                     self.handlePlayerItemStatusChange(item.status, errorDescription: item.error?.localizedDescription)
                 }
             }
@@ -289,7 +293,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
         timeControlStatusObservation = player?.observe(\.timeControlStatus, options: [.new]) { [weak self] avPlayer, _ in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self else { return }
+                    // 同上（issue #59）: player 自体が差し替わっていれば無視する。
+                    guard let self, self.shouldProcessPlayerCallback(avPlayer) else { return }
                     self.handleTimeControlStatusChange(avPlayer.timeControlStatus)
                 }
             }
@@ -316,6 +321,25 @@ final class PodcastViewModel: NSObject, ObservableObject {
     }
 
     // MARK: - AVPlayer 状態監視（issue #51）
+
+    /// KVO で通知された `AVPlayerItem` が現在再生中の item と同一かどうかを判定する（issue #59）。
+    ///
+    /// KVO クロージャは `DispatchQueue.main.async` で main へディスパッチされた後に発火するため、
+    /// 発火時点では `stopPlayback()` → 次の `play()` が既に実行され item が差し替わっている
+    /// 可能性がある。ガードを純粋関数として切り出すことで、KVO 配線と切り離してテスト可能にする。
+    /// - Parameter item: KVO で通知された `AVPlayerItem`。
+    /// - Returns: 現在の `player?.currentItem` と同一インスタンスなら `true`。
+    func shouldProcessPlayerItemCallback(_ item: AVPlayerItem) -> Bool {
+        item === player?.currentItem
+    }
+
+    /// KVO で通知された `AVPlayer` が現在の player と同一かどうかを判定する（issue #59）。
+    /// 理由は ``shouldProcessPlayerItemCallback(_:)`` と同様。
+    /// - Parameter observedPlayer: KVO で通知された `AVPlayer`。
+    /// - Returns: 現在の `player` と同一インスタンスなら `true`。
+    func shouldProcessPlayerCallback(_ observedPlayer: AVPlayer) -> Bool {
+        observedPlayer === player
+    }
 
     /// `AVPlayerItem.status` の変化を反映する。`.failed` の場合のみ errorMessage を設定し再生を止める。
     /// KVO からの実配線と切り離してユニットテスト可能にするため、状態の enum 値のみを引数に取る。
