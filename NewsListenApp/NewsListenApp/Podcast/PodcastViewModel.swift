@@ -643,11 +643,17 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
     /// 現在の再生位置をサーバーへ同期する。
     /// currentPodcast が nil の場合や通信失敗時はサイレント失敗。
+    ///
+    /// WHY(#50): `currentTime` は Task 生成前にここで捕捉する。`stopPlayback()` は本メソッドの
+    /// 直後に `currentTime = 0` へリセットするため、Task 内で `self.currentTime` を読むと
+    /// MainActor 上で後発実行される Task は常に 0 を送ってしまい、停止直前の再生位置が
+    /// 0 で上書きされ resume が壊れていた。
     private func syncPlaybackPositionIfNeeded() {
         guard let podcast = currentPodcast else { return }
+        let position = currentTime
         Task {
             do {
-                _ = try await apiClient.updatePlaybackPosition(podcastId: podcast.id, positionSeconds: currentTime)
+                _ = try await apiClient.updatePlaybackPosition(podcastId: podcast.id, positionSeconds: position)
             } catch {
                 // 同期失敗時はログしない（ネットワーク一時的な失敗等を避けるため）。
             }

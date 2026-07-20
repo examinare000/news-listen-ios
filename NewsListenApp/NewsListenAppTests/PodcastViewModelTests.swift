@@ -448,6 +448,37 @@ final class PodcastViewModelTests: XCTestCase {
 
         XCTAssertFalse(vm.isBuffering)
     }
+
+    // MARK: - issue #50: stopPlayback 時の再生位置同期が 0 で上書きされる不具合
+
+    func testStopPlaybackSyncsPositionAtStopTimeNotZero() async throws {
+        let podcast = Podcast(
+            id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0, segments: nil
+        )
+        let mockSession = MockURLSession(data: Data(), statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        await vm.play(podcast: podcast)
+        vm.seek(to: 42)
+
+        vm.stopPlayback()
+
+        // syncPlaybackPositionIfNeeded は非同期 Task で送信するため、完了を少し待つ。
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/podcasts/p1/position")
+        let body = try XCTUnwrap(mockSession.lastRequest?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Double])
+        XCTAssertEqual(json["position_seconds"], 42)
+    }
 }
 
 // MARK: - Mock FileManager & URLSession
