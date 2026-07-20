@@ -39,29 +39,35 @@ struct FeedView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                switch viewModel.displayState {
-                case .loading:
-                    ProgressView("読み込み中...")
-                case .error(let message):
-                    // ロード失敗時は「本当に空」と区別し、再試行導線を伴うエラー表示にする（issue #53）。
-                    ContentUnavailableView {
-                        Label("読み込みに失敗しました", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(message)
-                    } actions: {
-                        Button("再試行") { Task { await viewModel.loadFeed() } }
-                            .buttonStyle(.borderedProminent)
-                            .tint(DSColor.accent)
+            VStack(spacing: 0) {
+                // オフライン時の事前案内バナー（issue #54）。
+                if !viewModel.isOnline {
+                    OfflineBanner()
+                }
+                Group {
+                    switch viewModel.displayState {
+                    case .loading:
+                        ProgressView("読み込み中...")
+                    case .error(let message):
+                        // ロード失敗時は「本当に空」と区別し、再試行導線を伴うエラー表示にする（issue #53）。
+                        ContentUnavailableView {
+                            Label("読み込みに失敗しました", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text(message)
+                        } actions: {
+                            Button("再試行") { Task { await viewModel.loadFeed() } }
+                                .buttonStyle(.borderedProminent)
+                                .tint(DSColor.accent)
+                        }
+                    case .empty:
+                        ContentUnavailableView(
+                            "記事がありません",
+                            systemImage: "newspaper",
+                            description: Text("しばらく後に再度確認してください")
+                        )
+                    case .content:
+                        articleList
                     }
-                case .empty:
-                    ContentUnavailableView(
-                        "記事がありません",
-                        systemImage: "newspaper",
-                        description: Text("しばらく後に再度確認してください")
-                    )
-                case .content:
-                    articleList
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -446,6 +446,24 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(vm.currentTime, 0)
     }
 
+    // MARK: - issue #54: オフライン時の事前無効化
+
+    func testIsOnlineReflectsInjectedNetworkMonitor() {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key",
+            session: MockURLSession(data: Data("{}".utf8), statusCode: 200)
+        )
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: false))
+
+        XCTAssertFalse(vm.isOnline)
+    }
+
+    func testIsPlayableWhileOfflineTrueOnlyWhenDownloaded() {
+        XCTAssertTrue(PodcastViewModel.isPlayableWhileOffline(downloadState: .downloaded))
+        XCTAssertFalse(PodcastViewModel.isPlayableWhileOffline(downloadState: .downloading))
+        XCTAssertFalse(PodcastViewModel.isPlayableWhileOffline(downloadState: .notDownloaded))
+    }
+
     // MARK: - T7: AVPlayer 状態監視（issue #51: ストリーミング失敗検出とバッファリング表示）
 
     func testHandlePlayerItemStatusChangeFailedSetsErrorMessageAndStopsPlaying() async throws {
