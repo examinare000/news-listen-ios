@@ -47,4 +47,26 @@ final class ListDisplayStateTests: XCTestCase {
             .content
         )
     }
+
+    // MARK: - issue #58: インラインエラー表示（.error）とアラートの二重表示を防ぐ判定
+
+    func testShouldPresentAlertFalseWhenNoErrorMessage() {
+        XCTAssertFalse(
+            ListDisplayState.shouldPresentAlert(errorMessage: nil, displayState: .empty)
+        )
+    }
+
+    func testShouldPresentAlertFalseWhenDisplayStateIsError() {
+        // 一覧が空でインラインエラー表示中は、同じエラーをアラートで重ねて出さない。
+        XCTAssertFalse(
+            ListDisplayState.shouldPresentAlert(errorMessage: "通信エラー", displayState: .error(message: "通信エラー"))
+        )
+    }
+
+    func testShouldPresentAlertTrueWhenErrorMessagePresentAndDisplayStateIsContent() {
+        // 一覧が非空のまま発生したエラー（再生失敗等）はインライン表示が無いためアラートで出す。
+        XCTAssertTrue(
+            ListDisplayState.shouldPresentAlert(errorMessage: "再生に失敗しました", displayState: .content)
+        )
+    }
 }

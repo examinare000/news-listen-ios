@@ -412,4 +412,32 @@ final class FeedViewModelTests: XCTestCase {
 
         XCTAssertEqual(vm.displayState, .loading)
     }
+
+    // MARK: - issue #58: インラインエラー表示（displayState .error）とアラートの二重表示防止
+
+    func testShouldPresentErrorAlertFalseWhenListEmptyAndDisplayStateIsError() async throws {
+        // 一覧が空でロード失敗＝インラインエラー表示中は、同じエラーのアラートを重ねて出さない。
+        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.loadFeed()
+
+        XCTAssertEqual(vm.displayState, .error(message: vm.errorMessage ?? ""))
+        XCTAssertFalse(vm.shouldPresentErrorAlert)
+    }
+
+    func testShouldPresentErrorAlertTrueWhenListNonEmptyAndErrorMessageSet() {
+        // 一覧が非空のまま発生したエラー（一括Star失敗等）はインライン表示が無いのでアラートを出す。
+        let vm = FeedViewModel(apiClient: makeClient(json: "{}"))
+        vm.articles = [sampleArticle(id: "a1")]
+        vm.errorMessage = "本日の生成上限に達しました"
+
+        XCTAssertEqual(vm.displayState, .content)
+        XCTAssertTrue(vm.shouldPresentErrorAlert)
+    }
+
+    func testShouldPresentErrorAlertFalseWhenNoErrorMessage() {
+        let vm = FeedViewModel(apiClient: makeClient(json: "{}"))
+
+        XCTAssertFalse(vm.shouldPresentErrorAlert)
+    }
 }
