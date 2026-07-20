@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 @testable import NewsListenApp
 
 // PodcastViewModel は @MainActor 分離（AVPlayer 操作を含む）のため、
@@ -113,6 +114,61 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertTrue(vm.podcasts.isEmpty)
         XCTAssertNotNil(vm.errorMessage)
         XCTAssertFalse(vm.isLoading)
+    }
+
+    // MARK: - issue #53: ロード失敗と「本当に空」の空状態を区別する
+
+    func testDisplayStateIsErrorWhenLoadPodcastsFailsWithEmptyList() async throws {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 500)
+        )
+        let vm = makeViewModel(apiClient: client)
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.displayState, .error(message: vm.errorMessage ?? ""))
+    }
+
+    func testDisplayStateIsContentWhenLoadPodcastsFailsButListRemains() async throws {
+        // リフレッシュ失敗時は既存の一覧を残す。その場合は空状態ではなく一覧を優先して表示する。
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 500)
+        )
+        let vm = makeViewModel(apiClient: client)
+        vm.podcasts = [queuePodcast("p1")]
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.displayState, .content)
+    }
+
+    func testDisplayStateIsEmptyWhenLoadPodcastsSucceedsWithNoPodcasts() async throws {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(#"{"podcasts": []}"#.utf8), statusCode: 200)
+        )
+        let vm = makeViewModel(apiClient: client)
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.displayState, .empty)
+    }
+
+    func testDisplayStateIsLoadingWhileInitialLoadInProgress() {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 200)
+        )
+        let vm = makeViewModel(apiClient: client)
+        vm.isLoading = true
+
+        XCTAssertEqual(vm.displayState, .loading)
     }
 
     func testSetSpeedUpdatesPlaybackSpeed() {
@@ -388,6 +444,113 @@ final class PodcastViewModelTests: XCTestCase {
         vm.stopPlayback()
         XCTAssertFalse(vm.isPlaying)
         XCTAssertEqual(vm.currentTime, 0)
+    }
+
+    // MARK: - issue #54: オフライン時の事前無効化
+
+    func testIsOnlineReflectsInjectedNetworkMonitor() {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key",
+            session: MockURLSession(data: Data("{}".utf8), statusCode: 200)
+        )
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: false))
+
+        XCTAssertFalse(vm.isOnline)
+    }
+
+    func testIsPlayableWhileOfflineTrueOnlyWhenDownloaded() {
+        XCTAssertTrue(PodcastViewModel.isPlayableWhileOffline(downloadState: .downloaded))
+        XCTAssertFalse(PodcastViewModel.isPlayableWhileOffline(downloadState: .downloading))
+        XCTAssertFalse(PodcastViewModel.isPlayableWhileOffline(downloadState: .notDownloaded))
+    }
+
+    // MARK: - T7: AVPlayer 状態監視（issue #51: ストリーミング失敗検出とバッファリング表示）
+
+    func testHandlePlayerItemStatusChangeFailedSetsErrorMessageAndStopsPlaying() async throws {
+        let vm = await playingViewModel()
+
+        vm.handlePlayerItemStatusChange(.failed, errorDescription: "The network connection was lost")
+
+        XCTAssertEqual(vm.errorMessage, "The network connection was lost")
+        XCTAssertFalse(vm.isPlaying)
+    }
+
+    func testHandlePlayerItemStatusChangeFailedUsesDefaultMessageWhenDescriptionMissing() async throws {
+        let vm = await playingViewModel()
+
+        vm.handlePlayerItemStatusChange(.failed, errorDescription: nil)
+
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertFalse(vm.isPlaying)
+    }
+
+    func testHandlePlayerItemStatusChangeIgnoresNonFailedStatus() async throws {
+        let vm = await playingViewModel()
+
+        vm.handlePlayerItemStatusChange(.readyToPlay, errorDescription: nil)
+
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertTrue(vm.isPlaying)
+    }
+
+    func testHandleTimeControlStatusChangeWaitingSetsIsBuffering() async throws {
+        let vm = await playingViewModel()
+        XCTAssertFalse(vm.isBuffering)
+
+        vm.handleTimeControlStatusChange(.waitingToPlayAtSpecifiedRate)
+
+        XCTAssertTrue(vm.isBuffering)
+    }
+
+    func testHandleTimeControlStatusChangePlayingClearsIsBuffering() async throws {
+        let vm = await playingViewModel()
+        vm.handleTimeControlStatusChange(.waitingToPlayAtSpecifiedRate)
+        XCTAssertTrue(vm.isBuffering)
+
+        vm.handleTimeControlStatusChange(.playing)
+
+        XCTAssertFalse(vm.isBuffering)
+    }
+
+    func testStopPlaybackResetsIsBuffering() async throws {
+        let vm = await playingViewModel()
+        vm.handleTimeControlStatusChange(.waitingToPlayAtSpecifiedRate)
+        XCTAssertTrue(vm.isBuffering)
+
+        vm.stopPlayback()
+
+        XCTAssertFalse(vm.isBuffering)
+    }
+
+    // MARK: - issue #50: stopPlayback 時の再生位置同期が 0 で上書きされる不具合
+
+    func testStopPlaybackSyncsPositionAtStopTimeNotZero() async throws {
+        let podcast = Podcast(
+            id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0, segments: nil
+        )
+        let mockSession = MockURLSession(data: Data(), statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        await vm.play(podcast: podcast)
+        vm.seek(to: 42)
+
+        vm.stopPlayback()
+
+        // syncPlaybackPositionIfNeeded は非同期 Task で送信するため、完了を少し待つ。
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/podcasts/p1/position")
+        let body = try XCTUnwrap(mockSession.lastRequest?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Double])
+        XCTAssertEqual(json["position_seconds"], 42)
     }
 }
 

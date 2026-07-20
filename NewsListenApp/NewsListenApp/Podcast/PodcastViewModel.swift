@@ -47,12 +47,23 @@ final class PodcastViewModel: NSObject, ObservableObject {
     @Published var duration: Double = 0
     /// 現在の再生速度（倍率）。
     @Published var playbackSpeed: Float = 1.0
+    /// 再生バッファが不足し一時的に待機中かどうか（issue #51）。
+    /// `AVPlayer.timeControlStatus == .waitingToPlayAtSpecifiedRate` を反映する。
+    @Published var isBuffering = false
     /// ダウンロード済み Podcast ID の集合（ViewModel のみが更新する）。
     @Published private(set) var downloadedIds: Set<String> = []
     /// ダウンロード中 Podcast ID の集合（ViewModel のみが更新する）。
     @Published private(set) var downloadingIds: Set<String> = []
     /// 再生キュー（連続再生・プレイリスト / issue #81）。
     @Published private(set) var queue = PlaybackQueue()
+    /// 現在ネットワークがオンラインかどうか（オフラインバナー表示用に View から購読する・issue #54）。
+    @Published private(set) var isOnline: Bool
+
+    /// 一覧画面の表示状態（ロード中/エラー/空/一覧）。
+    /// ロード失敗と「本当に空」を同一の空状態に畳んで表示しないよう、View はこの値のみで分岐する（issue #53）。
+    var displayState: ListDisplayState {
+        ListDisplayState.resolve(isLoading: isLoading, isEmpty: podcasts.isEmpty, errorMessage: errorMessage)
+    }
 
     /// API 通信に使うクライアント。
     private let apiClient: APIClient
@@ -76,6 +87,10 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private var audioNotificationObservers: [NSObjectProtocol] = []
     /// 再生終了（`didPlayToEndTime`）の購読トークン。次の再生開始/停止時に解除する（issue #81）。
     private var endOfPlaybackObserver: NSObjectProtocol?
+    /// `AVPlayerItem.status` の KVO 購読トークン（issue #51）。次の再生開始/停止時に解除する。
+    private var itemStatusObservation: NSKeyValueObservation?
+    /// `AVPlayer.timeControlStatus` の KVO 購読トークン（issue #51）。次の再生開始/停止時に解除する。
+    private var timeControlStatusObservation: NSKeyValueObservation?
 
     /// ViewModel を生成する。
     /// - Parameters:
@@ -90,6 +105,13 @@ final class PodcastViewModel: NSObject, ObservableObject {
         self.apiClient = apiClient
         self.cacheManager = cacheManager
         self.networkMonitor = networkMonitor
+        self.isOnline = networkMonitor.isOnline
+        // NSObject 継承のため、`$isOnline` 等 self を用いるプロパティラッパアクセスは
+        // super.init() 完了後でなければならない。
+        super.init()
+        networkMonitor.isOnlinePublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isOnline)
     }
 
     // MARK: - Data
@@ -133,6 +155,12 @@ final class PodcastViewModel: NSObject, ObservableObject {
         } else {
             return .notDownloaded
         }
+    }
+
+    /// オフライン時、指定のダウンロード状態が再生可能かどうかを返す（一覧の視覚的区別に使用・issue #54）。
+    /// ダウンロード済みのみ再生可能。純粋関数（副作用なし・テスト容易）。
+    static func isPlayableWhileOffline(downloadState: DownloadState) -> Bool {
+        downloadState == .downloaded
     }
 
     /// 指定 Podcast の音声をダウンロード・キャッシュし、downloadedIds に追加する。
@@ -247,6 +275,26 @@ final class PodcastViewModel: NSObject, ObservableObject {
             }
         }
 
+        // ストリーミング失敗・バッファリングを検出する（issue #51）。KVO のコールバックは
+        // メインスレッドで発火する保証が無いため、明示的に main へホップしてから
+        // MainActor.assumeIsolated で隔離を明示し @Published を安全に更新する。
+        itemStatusObservation = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.handlePlayerItemStatusChange(item.status, errorDescription: item.error?.localizedDescription)
+                }
+            }
+        }
+        timeControlStatusObservation = player?.observe(\.timeControlStatus, options: [.new]) { [weak self] avPlayer, _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.handleTimeControlStatusChange(avPlayer.timeControlStatus)
+                }
+            }
+        }
+
         // 再生終了で次のキューへ自動遷移する（issue #81）。object に playerItem を指定し当該再生のみ購読。
         endOfPlaybackObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification,
@@ -265,6 +313,25 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
         // 再生位置をサーバーへ定期同期（15秒ごと）。
         startPlaybackPositionSync()
+    }
+
+    // MARK: - AVPlayer 状態監視（issue #51）
+
+    /// `AVPlayerItem.status` の変化を反映する。`.failed` の場合のみ errorMessage を設定し再生を止める。
+    /// KVO からの実配線と切り離してユニットテスト可能にするため、状態の enum 値のみを引数に取る。
+    /// - Parameters:
+    ///   - status: 変化後の `AVPlayerItem.status`。
+    ///   - errorDescription: 失敗時の詳細説明（`AVPlayerItem.error?.localizedDescription`）。無ければ既定文言を使う。
+    func handlePlayerItemStatusChange(_ status: AVPlayerItem.Status, errorDescription: String?) {
+        guard status == .failed else { return }
+        errorMessage = errorDescription ?? "Playback failed"
+        isPlaying = false
+    }
+
+    /// `AVPlayer.timeControlStatus` の変化を反映する。バッファ待ち中のみ `isBuffering` を true にする。
+    /// - Parameter status: 変化後の `AVPlayer.timeControlStatus`。
+    func handleTimeControlStatusChange(_ status: AVPlayer.TimeControlStatus) {
+        isBuffering = (status == .waitingToPlayAtSpecifiedRate)
     }
 
     // MARK: - 再生キュー（issue #81）
@@ -365,11 +432,17 @@ final class PodcastViewModel: NSObject, ObservableObject {
             NotificationCenter.default.removeObserver(endObs)
             endOfPlaybackObserver = nil
         }
+        // status/timeControlStatus の KVO 購読を解除する（issue #51）。
+        itemStatusObservation?.invalidate()
+        itemStatusObservation = nil
+        timeControlStatusObservation?.invalidate()
+        timeControlStatusObservation = nil
         player?.pause()
         player = nil
         isPlaying = false
         currentTime = 0
         duration = 0
+        isBuffering = false
 
         // ロック画面/コントロールセンターの再生情報を消す。
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -591,11 +664,17 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
     /// 現在の再生位置をサーバーへ同期する。
     /// currentPodcast が nil の場合や通信失敗時はサイレント失敗。
+    ///
+    /// WHY(#50): `currentTime` は Task 生成前にここで捕捉する。`stopPlayback()` は本メソッドの
+    /// 直後に `currentTime = 0` へリセットするため、Task 内で `self.currentTime` を読むと
+    /// MainActor 上で後発実行される Task は常に 0 を送ってしまい、停止直前の再生位置が
+    /// 0 で上書きされ resume が壊れていた。
     private func syncPlaybackPositionIfNeeded() {
         guard let podcast = currentPodcast else { return }
+        let position = currentTime
         Task {
             do {
-                _ = try await apiClient.updatePlaybackPosition(podcastId: podcast.id, positionSeconds: currentTime)
+                _ = try await apiClient.updatePlaybackPosition(podcastId: podcast.id, positionSeconds: position)
             } catch {
                 // 同期失敗時はログしない（ネットワーク一時的な失敗等を避けるため）。
             }

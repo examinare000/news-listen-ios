@@ -15,6 +15,8 @@ struct PodcastRowView: View {
     let isPlaying: Bool
     /// ダウンロード状態（既定: notDownloaded）。
     let downloadState: DownloadState
+    /// 現在オフラインかどうか（既定: false）。オフライン時、再生不可な行を視覚的に区別する（issue #54）。
+    let isOffline: Bool
     /// ダウンロードボタンタップハンドラ（オプション）。
     let onDownloadTap: (() -> Void)?
     /// アプリ全体で共有する設定状態。
@@ -24,12 +26,20 @@ struct PodcastRowView: View {
         podcast: Podcast,
         isPlaying: Bool,
         downloadState: DownloadState = .notDownloaded,
+        isOffline: Bool = false,
         onDownloadTap: (() -> Void)? = nil
     ) {
         self.podcast = podcast
         self.isPlaying = isPlaying
         self.downloadState = downloadState
+        self.isOffline = isOffline
         self.onDownloadTap = onDownloadTap
+    }
+
+    /// オフライン時に再生不可な行を、既存の downloadState 表示のまま淡く沈めて区別する（issue #54）。
+    /// 大掛かりな UI 刷新を避けるため opacity のみの最小実装。
+    private var rowOpacity: Double {
+        (isOffline && !PodcastViewModel.isPlayableWhileOffline(downloadState: downloadState)) ? 0.4 : 1.0
     }
 
     var body: some View {
@@ -62,9 +72,12 @@ struct PodcastRowView: View {
             downloadButton
         }
         .padding(.vertical, DSSpacing.s)
+        .opacity(rowOpacity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Podcast: \(String(podcast.displayTitle.prefix(60)))")
-        .accessibilityValue("難易度: \(difficultyLabel(podcast.difficulty))、長さ: \(podcast.formattedDuration)、作成日: \(formattedDate)" + (isPlaying ? "、再生中" : ""))
+        .accessibilityValue("難易度: \(difficultyLabel(podcast.difficulty))、長さ: \(podcast.formattedDuration)、作成日: \(formattedDate)"
+            + (isPlaying ? "、再生中" : "")
+            + (rowOpacity < 1.0 ? "、オフラインのため再生不可" : ""))
         .accessibilityHint("タップで再生を開始します")
     }
 
