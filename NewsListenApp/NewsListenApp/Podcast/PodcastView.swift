@@ -152,10 +152,12 @@ struct PodcastView: View {
         .refreshable { await viewModel.loadPodcasts() }
     }
 
-    /// エラーアラートの表示有無を `errorMessage` の有無に橋渡しする `Binding`。
+    /// エラーアラートの表示有無を橋渡しする `Binding`。
+    /// 一覧が空でインラインエラー表示中は二重表示を避けるため、判定は
+    /// `viewModel.shouldPresentErrorAlert` に委ねる（issue #58）。
     private var errorBinding: Binding<Bool> {
         Binding(
-            get: { viewModel.errorMessage != nil },
+            get: { viewModel.shouldPresentErrorAlert },
             set: { if !$0 { viewModel.errorMessage = nil } }
         )
     }

@@ -35,4 +35,17 @@ enum ListDisplayState: Equatable {
         if let errorMessage { return .error(message: errorMessage) }
         return .empty
     }
+
+    /// エラーアラートを表示すべきかどうかを判定する（issue #58）。
+    ///
+    /// `errorMessage` の有無のみで `.alert` を出すと、一覧が空の場合に `.error` のインライン表示と
+    /// 二重表示になる。この状態（`displayState` が `.error`）ではアラートを出さない。
+    /// - Parameters:
+    ///   - errorMessage: 直近のエラーメッセージ（なければ `nil`）。
+    ///   - displayState: `resolve(isLoading:isEmpty:errorMessage:)` が返した表示状態。
+    static func shouldPresentAlert(errorMessage: String?, displayState: ListDisplayState) -> Bool {
+        guard errorMessage != nil else { return false }
+        if case .error = displayState { return false }
+        return true
+    }
 }
