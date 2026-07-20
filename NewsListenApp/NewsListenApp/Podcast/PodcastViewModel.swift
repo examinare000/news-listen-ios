@@ -238,6 +238,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
             errorMessage = "Offline and not cached"
             return
         }
+        // ガード通過＝再生開始が確定した経路なので、前回の失敗アラートが残留しないようここで消す（issue #58）。
+        errorMessage = nil
 
         // マナーモード（消音スイッチ ON）でも再生されるよう .playback を指定する。
         // 既定の .soloAmbient だと無音になり「再生されない」不具合になるため。

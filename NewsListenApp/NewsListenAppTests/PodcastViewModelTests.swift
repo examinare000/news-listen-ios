@@ -389,6 +389,59 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(vm.currentPodcast?.id, "p1")
     }
 
+    // MARK: - issue #58: play() 成功時に前回のエラーメッセージを持ち越さない
+
+    func testPlaySuccessClearsStaleErrorMessage() async throws {
+        let podcast = Podcast(
+            id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0, segments: nil
+        )
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 200)
+        )
+        let mockFile = MockFileManager()
+        let cache = AudioCacheManager(fileManager: mockFile)
+        let online = StubNetworkMonitor(isOnline: true)
+        let vm = makeViewModel(apiClient: client, cacheManager: cache, networkMonitor: online)
+        // 前回の再生失敗が残っている状態を再現する。
+        vm.errorMessage = "前回の再生に失敗しました"
+
+        await vm.play(podcast: podcast)
+
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    func testPlayOfflineNoCachedOverwritesStaleErrorMessage() async throws {
+        // ガードに引っかかる経路では、クリアより前に新しいメッセージが設定されること
+        // （クリアを挿入した際に既存のガード動作を壊していないこと）を確認する。
+        let podcast = Podcast(
+            id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
+            audioUrl: "https://storage.example.com/p1.mp3", title: "",
+            japaneseIntroText: "test",
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
+            playbackPositionSeconds: 0.0, segments: nil
+        )
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 200)
+        )
+        let mockFile = MockFileManager()
+        let cache = AudioCacheManager(fileManager: mockFile)
+        let offline = StubNetworkMonitor(isOnline: false)
+        let vm = makeViewModel(apiClient: client, cacheManager: cache, networkMonitor: offline)
+        vm.errorMessage = "前回の別のエラー"
+
+        await vm.play(podcast: podcast)
+
+        XCTAssertEqual(vm.errorMessage, "Offline and not cached")
+    }
+
     // MARK: - リモートコマンド経路と同じ再生制御メソッドの状態遷移（issue #79）
 
     private func playingViewModel() async -> PodcastViewModel {
