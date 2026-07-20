@@ -442,6 +442,49 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(vm.errorMessage, "Offline and not cached")
     }
 
+    // MARK: - issue #58: インラインエラー表示（displayState .error）とアラートの二重表示防止
+
+    func testShouldPresentErrorAlertFalseWhenListEmptyAndDisplayStateIsError() async throws {
+        // 一覧が空でロード失敗＝インラインエラー表示中は、同じエラーのアラートを重ねて出さない。
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 500)
+        )
+        let vm = makeViewModel(apiClient: client)
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.displayState, .error(message: vm.errorMessage ?? ""))
+        XCTAssertFalse(vm.shouldPresentErrorAlert)
+    }
+
+    func testShouldPresentErrorAlertTrueWhenListNonEmptyAndErrorMessageSet() async throws {
+        // 一覧が非空のまま発生したエラー（再生失敗等）はインライン表示が無いのでアラートを出す。
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 200)
+        )
+        let vm = makeViewModel(apiClient: client)
+        vm.podcasts = [queuePodcast("p1")]
+        vm.errorMessage = "再生に失敗しました"
+
+        XCTAssertEqual(vm.displayState, .content)
+        XCTAssertTrue(vm.shouldPresentErrorAlert)
+    }
+
+    func testShouldPresentErrorAlertFalseWhenNoErrorMessage() {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 200)
+        )
+        let vm = makeViewModel(apiClient: client)
+
+        XCTAssertFalse(vm.shouldPresentErrorAlert)
+    }
+
     // MARK: - リモートコマンド経路と同じ再生制御メソッドの状態遷移（issue #79）
 
     private func playingViewModel() async -> PodcastViewModel {

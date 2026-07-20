@@ -65,6 +65,13 @@ final class PodcastViewModel: NSObject, ObservableObject {
         ListDisplayState.resolve(isLoading: isLoading, isEmpty: podcasts.isEmpty, errorMessage: errorMessage)
     }
 
+    /// エラーアラート（`.alert`）を表示すべきかどうか。
+    /// 一覧が空でインラインエラー表示（`displayState == .error`）が出ている場合は、
+    /// 同じエラーの二重表示を避けるためアラートを出さない（issue #58）。
+    var shouldPresentErrorAlert: Bool {
+        ListDisplayState.shouldPresentAlert(errorMessage: errorMessage, displayState: displayState)
+    }
+
     /// API 通信に使うクライアント。
     private let apiClient: APIClient
     /// 音声キャッシュを管理するマネージャ。
