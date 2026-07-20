@@ -618,6 +618,50 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertFalse(vm.isBuffering)
     }
 
+    // MARK: - issue #59: KVO コールバックの stale 実行対策
+
+    func testShouldProcessPlayerItemCallbackTrueWhenMatchesCurrentItem() async throws {
+        let vm = await playingViewModel()
+        let currentItem = try XCTUnwrap(vm.player?.currentItem)
+
+        XCTAssertTrue(vm.shouldProcessPlayerItemCallback(currentItem))
+    }
+
+    func testShouldProcessPlayerItemCallbackFalseForDifferentItem() async throws {
+        let vm = await playingViewModel()
+        let staleItem = AVPlayerItem(url: URL(string: "https://storage.example.com/stale.mp3")!)
+
+        XCTAssertFalse(vm.shouldProcessPlayerItemCallback(staleItem))
+    }
+
+    func testShouldProcessPlayerItemCallbackFalseWhenPlayerNil() {
+        let vm = makeOnlineViewModel()
+        let item = AVPlayerItem(url: URL(string: "https://storage.example.com/none.mp3")!)
+
+        XCTAssertFalse(vm.shouldProcessPlayerItemCallback(item))
+    }
+
+    func testShouldProcessPlayerCallbackTrueWhenMatchesCurrentPlayer() async throws {
+        let vm = await playingViewModel()
+        let currentPlayer = try XCTUnwrap(vm.player)
+
+        XCTAssertTrue(vm.shouldProcessPlayerCallback(currentPlayer))
+    }
+
+    func testShouldProcessPlayerCallbackFalseForDifferentPlayer() async throws {
+        let vm = await playingViewModel()
+        let stalePlayer = AVPlayer()
+
+        XCTAssertFalse(vm.shouldProcessPlayerCallback(stalePlayer))
+    }
+
+    func testShouldProcessPlayerCallbackFalseWhenPlayerNil() {
+        let vm = makeOnlineViewModel()
+        let player = AVPlayer()
+
+        XCTAssertFalse(vm.shouldProcessPlayerCallback(player))
+    }
+
     // MARK: - issue #50: stopPlayback 時の再生位置同期が 0 で上書きされる不具合
 
     func testStopPlaybackSyncsPositionAtStopTimeNotZero() async throws {
