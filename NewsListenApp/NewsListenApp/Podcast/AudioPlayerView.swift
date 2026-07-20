@@ -67,6 +67,21 @@ struct AudioPlayerView: View {
             }
             .padding(.horizontal)
 
+            // バッファリング中インジケータ（issue #51）。
+            // WHY: 再生ボタンの見た目は isPlaying のまま変わらないため、無反応に見える stall 状態を
+            //      利用者に伝える最小限の表示として、コントロール直上にラベル付きスピナーを出す。
+            if vm.isBuffering {
+                HStack(spacing: DSSpacing.xs) {
+                    ProgressView()
+                        .scaleEffect(0.8, anchor: .center)
+                    Text("バッファリング中…")
+                        .font(DSFont.caption)
+                        .foregroundStyle(DSColor.inkSecondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("バッファリング中")
+            }
+
             // 再生コントロール
             HStack(spacing: DSSpacing.xxl + DSSpacing.s) {
                 Button {
