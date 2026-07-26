@@ -20,5 +20,9 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- 標準TLS以外の独自暗号を実装していないため、輸出コンプライアンス回答を固定する
+	     （App Store Connect アップロード時の対話プロンプトを回避）。 -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
