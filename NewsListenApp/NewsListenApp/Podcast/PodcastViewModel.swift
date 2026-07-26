@@ -329,6 +329,19 @@ final class PodcastViewModel: NSObject, ObservableObject {
         startPlaybackPositionSync()
     }
 
+    /// 指定 ID の Podcast を取得して再生する（通知ディープリンク用・issue #80）。
+    ///
+    /// 一覧に無いエピソードでも開けるよう、サーバから取得してから再生する。
+    /// - Parameter id: 再生対象の Podcast ID。
+    func playById(_ id: String) async {
+        do {
+            let podcast = try await apiClient.fetchPodcast(id: id)
+            await play(podcast: podcast)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     // MARK: - AVPlayer 状態監視（issue #51）
 
     /// KVO で通知された `AVPlayerItem` が現在再生中の item と同一かどうかを判定する（issue #59）。

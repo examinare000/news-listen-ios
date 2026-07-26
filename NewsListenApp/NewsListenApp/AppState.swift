@@ -92,8 +92,20 @@ final class AppState: ObservableObject {
     /// 変えず、失敗の有無だけを可視化して設定画面のインライン警告・再試行導線に使う。
     @Published var preferencesSyncFailed = false
 
+    /// プッシュ通知タップで開く対象 Podcast ID（ディープリンク・issue #80）。
+    /// 設定されると Podcast タブへ遷移して再生する。遷移後は受け手が nil に戻す。
+    @Published var selectedPodcastId: String?
+
+    /// 取得済みの APNs デバイストークン（16 進）。未取得なら `nil`。
+    /// 資格情報ではないがログには出さない。認証確立後に backend へ登録する。
+    private(set) var apnsDeviceToken: String?
+
     /// セッショントークンの保管先（既定は Keychain、テストはインメモリ）。
     private let sessionStore: SessionStore
+
+    /// デバイストークン登録の投げっぱなし Task。`logout()` との競合を避けるため、
+    /// 起動時に既存タスクを cancel してから差し替える。
+    private var deviceTokenRegistrationTask: Task<Void, Never>?
 
     /// テスト時に ``APIClient`` を直接注入するための上書き（既定 `nil`）。
     ///
@@ -123,6 +135,46 @@ final class AppState: ObservableObject {
         sessionStore.token = response.token
         currentUser = response.user
         authStatus = .authenticated
+        // ログイン直後、取得済みトークンがあれば backend に登録する。
+        scheduleDeviceTokenRegistration()
+    }
+
+    // MARK: - Push（APNs デバイストークン）
+
+    /// AppDelegate から APNs デバイストークンを受け取り、可能なら backend へ登録する。
+    /// - Parameter token: 16 進のデバイストークン。
+    func didRegisterDeviceToken(_ token: String) {
+        apnsDeviceToken = token
+        scheduleDeviceTokenRegistration()
+    }
+
+    /// デバイストークン登録を投げっぱなし Task としてスケジュールする。
+    ///
+    /// 既存の登録タスクがあれば先に cancel してから差し替えることで、`logout()` の
+    /// cancel 呼び出しが常に「最新の登録試行」を確実に止められるようにする
+    /// （issue #80 レビュー指摘：`refreshAuth()` 経由の登録も追跡対象に含める）。
+    private func scheduleDeviceTokenRegistration() {
+        deviceTokenRegistrationTask?.cancel()
+        deviceTokenRegistrationTask = Task { await registerDeviceTokenIfPossible() }
+    }
+
+    /// 認証済みかつトークン取得済みのとき、デバイストークンを backend へ登録する（ベストエフォート）。
+    ///
+    /// `logout()` は先に `deviceTokenRegistrationTask.cancel()` を呼ぶため、この
+    /// `!Task.isCancelled` チェックが register 発火とログアウトの競合を締める
+    /// （issue #80 レビュー指摘：suspension point を挟まない authStatus の二重チェックは
+    /// dead code のため削除し、キャンセル確認のみに一本化した）。
+    func registerDeviceTokenIfPossible() async {
+        guard case .authenticated = authStatus,
+              let apiClient, let token = apnsDeviceToken,
+              !Task.isCancelled else { return }
+        _ = try? await apiClient.registerDeviceToken(token)
+    }
+
+    /// プッシュ通知タップで対象 Podcast へ遷移する（ディープリンク）。
+    /// - Parameter podcastId: 遷移先の Podcast ID。
+    func handleNotificationPodcastId(_ podcastId: String) {
+        selectedPodcastId = podcastId
     }
 
     /// 保存済みトークンで `/auth/me` を解決し、認証状態を確定する。
@@ -139,6 +191,11 @@ final class AppState: ObservableObject {
             authStatus = .authenticated
             // 認証確立後、サーバーの preferences を同期する（失敗時は既存のローカル値を保持）
             await refreshPreferences()
+            // 起動時に取得済みのデバイストークンがあれば backend へ登録する。
+            // `logout()` との競合を避けるため、他の登録経路と同じく Task 追跡下に置く
+            // （issue #80 レビュー指摘：直接 await すると deviceTokenRegistrationTask の
+            // 追跡・cancel が効かない）。
+            scheduleDeviceTokenRegistration()
         } catch {
             sessionStore.token = nil
             currentUser = nil
@@ -169,7 +226,17 @@ final class AppState: ObservableObject {
     ///
     /// サーバ失効に失敗してもローカルのトークン・状態は必ず落とす（ベストエフォート）。
     func logout() async {
+        // 進行中のデバイストークン登録タスクをキャンセルし、logout 後にサーバへ登録リクエストが
+        // 到達してトークン紐付けが復活する競合を防ぐ（issue #80 レビュー指摘）。
+        deviceTokenRegistrationTask?.cancel()
         if let apiClient {
+            // 他ユーザーへの誤配信を避けるため、ログアウト前にデバイストークンの解除を試みる
+            // （ベストエフォート。失敗するとサーバ側の紐付けは残存し、同一端末で次のユーザーが
+            // 登録し直す（同一トークンの upsert 上書き）まで旧ユーザー宛通知が届き得る。
+            // 少数ユーザー運用の現段階ではこのリスクを許容し、失敗時リトライは導入しない）。
+            if let token = apnsDeviceToken {
+                _ = try? await apiClient.unregisterDeviceToken(token)
+            }
             _ = try? await apiClient.logout()
         }
         sessionStore.token = nil

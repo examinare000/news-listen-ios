@@ -43,6 +43,10 @@ enum APIEndpoint {
     case generationQuota
     /// 聴取ストリーク（連続聴取日数）を取得（issue #165）。
     case listeningStreak
+    /// iOS APNs デバイストークンを登録（Bearer 要）。
+    case registerDeviceToken
+    /// iOS APNs デバイストークンを解除（Bearer 要・クエリ param token）。
+    case unregisterDeviceToken
 
     // 認証・ユーザー管理
     /// ログイン（セッション発行）。
@@ -106,6 +110,7 @@ enum APIEndpoint {
         case .preferences, .updatePreferences: return "/settings/preferences"
         case .generationQuota: return "/users/me/generation-quota"
         case .listeningStreak: return "/users/me/listening-streak"
+        case .registerDeviceToken, .unregisterDeviceToken: return "/notifications/device-tokens"
         case .login: return "/auth/login"
         case .logout: return "/auth/logout"
         case .me, .updateProfile: return "/auth/me"
@@ -136,13 +141,14 @@ enum APIEndpoint {
         case .starArticle, .dismissArticle, .addSource, .completeOnboarding,
              .login, .logout, .changePassword, .createUser,
              .passkeyRegisterOptions, .passkeyRegisterVerify,
-             .passkeyLoginOptions, .passkeyLoginVerify, .revokeOtherSessions, .clientErrors:
+             .passkeyLoginOptions, .passkeyLoginVerify, .revokeOtherSessions, .clientErrors,
+             .registerDeviceToken:
             return "POST"
         case .updateProfile, .updateUser, .updatePlaybackPosition:
             return "PATCH"
         case .updatePreferences, .updateSource:
             return "PUT"
-        case .removeSource, .deleteUser, .passkeyDeleteCredential, .revokeSession:
+        case .removeSource, .deleteUser, .passkeyDeleteCredential, .revokeSession, .unregisterDeviceToken:
             return "DELETE"
         }
     }
