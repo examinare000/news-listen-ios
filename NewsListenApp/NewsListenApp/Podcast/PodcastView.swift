@@ -20,6 +20,8 @@ struct PodcastView: View {
     private let networkMonitor: NetworkMonitoring
     /// 再生待ちキューのシート表示状態（issue #81）。
     @State private var showQueue = false
+    /// アプリ全体で共有する設定状態（通知ディープリンクの監視に使う）。
+    @EnvironmentObject private var appState: AppState
 
     /// ビューを生成する。
     /// - Parameters:
@@ -76,6 +78,19 @@ struct PodcastView: View {
         .onDisappear { viewModel.stopPlayback() }
         .sheet(isPresented: $showQueue) {
             QueueSheet(viewModel: viewModel)
+        }
+        // 通知タップで指定された Podcast を再生する（ディープリンク・issue #80）。
+        // コールドスタート（既に値が入っている）と起動後の両方に対応する。
+        .task(id: appState.selectedPodcastId) { await consumeDeepLink() }
+    }
+
+    /// 通知ディープリンクで指定された Podcast を再生し、消費後に状態をクリアする。
+    private func consumeDeepLink() async {
+        guard let id = appState.selectedPodcastId else { return }
+        await viewModel.playById(id)
+        // await 中に新しい通知タップで id が変わり得るため、自分が消費した id のときだけクリアする。
+        if appState.selectedPodcastId == id {
+            appState.selectedPodcastId = nil
         }
     }
 

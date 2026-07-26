@@ -6,5 +6,10 @@
 	<array>
 		<string>webcredentials:$(PASSKEY_RP_ID)</string>
 	</array>
+	<!-- APNs プッシュ通知（issue #80）。aps-environment の実効値は署名時のプロビジョニング
+	     プロファイルが決める。App Store/TestFlight 配布時は Xcode が production へ自動で
+	     差し替えるため、この値は開発ビルド（sandbox）にのみ効く。 -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>
