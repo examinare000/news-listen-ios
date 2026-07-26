@@ -136,8 +136,7 @@ final class AppState: ObservableObject {
         currentUser = response.user
         authStatus = .authenticated
         // ログイン直後、取得済みトークンがあれば backend に登録する。
-        deviceTokenRegistrationTask?.cancel()
-        deviceTokenRegistrationTask = Task { await registerDeviceTokenIfPossible() }
+        scheduleDeviceTokenRegistration()
     }
 
     // MARK: - Push（APNs デバイストークン）
@@ -146,19 +145,29 @@ final class AppState: ObservableObject {
     /// - Parameter token: 16 進のデバイストークン。
     func didRegisterDeviceToken(_ token: String) {
         apnsDeviceToken = token
+        scheduleDeviceTokenRegistration()
+    }
+
+    /// デバイストークン登録を投げっぱなし Task としてスケジュールする。
+    ///
+    /// 既存の登録タスクがあれば先に cancel してから差し替えることで、`logout()` の
+    /// cancel 呼び出しが常に「最新の登録試行」を確実に止められるようにする
+    /// （issue #80 レビュー指摘：`refreshAuth()` 経由の登録も追跡対象に含める）。
+    private func scheduleDeviceTokenRegistration() {
         deviceTokenRegistrationTask?.cancel()
         deviceTokenRegistrationTask = Task { await registerDeviceTokenIfPossible() }
     }
 
     /// 認証済みかつトークン取得済みのとき、デバイストークンを backend へ登録する（ベストエフォート）。
     ///
-    /// `logout()` とタスクが競合し得るため、API 呼び出し直前にキャンセル済みでないこと・
-    /// 認証状態が依然 authenticated であることを再確認する（issue #80 レビュー指摘）。
+    /// `logout()` は先に `deviceTokenRegistrationTask.cancel()` を呼ぶため、この
+    /// `!Task.isCancelled` チェックが register 発火とログアウトの競合を締める
+    /// （issue #80 レビュー指摘：suspension point を挟まない authStatus の二重チェックは
+    /// dead code のため削除し、キャンセル確認のみに一本化した）。
     func registerDeviceTokenIfPossible() async {
         guard case .authenticated = authStatus,
-              let apiClient, let token = apnsDeviceToken else { return }
-        guard !Task.isCancelled else { return }
-        guard case .authenticated = authStatus else { return }
+              let apiClient, let token = apnsDeviceToken,
+              !Task.isCancelled else { return }
         _ = try? await apiClient.registerDeviceToken(token)
     }
 
@@ -183,7 +192,10 @@ final class AppState: ObservableObject {
             // 認証確立後、サーバーの preferences を同期する（失敗時は既存のローカル値を保持）
             await refreshPreferences()
             // 起動時に取得済みのデバイストークンがあれば backend へ登録する。
-            await registerDeviceTokenIfPossible()
+            // `logout()` との競合を避けるため、他の登録経路と同じく Task 追跡下に置く
+            // （issue #80 レビュー指摘：直接 await すると deviceTokenRegistrationTask の
+            // 追跡・cancel が効かない）。
+            scheduleDeviceTokenRegistration()
         } catch {
             sessionStore.token = nil
             currentUser = nil
