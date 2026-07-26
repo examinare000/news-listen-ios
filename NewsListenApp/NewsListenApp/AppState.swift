@@ -219,7 +219,9 @@ final class AppState: ObservableObject {
         deviceTokenRegistrationTask?.cancel()
         if let apiClient {
             // 他ユーザーへの誤配信を避けるため、ログアウト前にデバイストークンの解除を試みる
-            // （ベストエフォート。失敗してもサーバ側セッション破棄でトークンは事実上孤立する）。
+            // （ベストエフォート。失敗するとサーバ側の紐付けは残存し、同一端末で次のユーザーが
+            // 登録し直す（同一トークンの upsert 上書き）まで旧ユーザー宛通知が届き得る。
+            // 少数ユーザー運用の現段階ではこのリスクを許容し、失敗時リトライは導入しない）。
             if let token = apnsDeviceToken {
                 _ = try? await apiClient.unregisterDeviceToken(token)
             }
