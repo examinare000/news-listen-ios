@@ -88,7 +88,10 @@ struct PodcastView: View {
     private func consumeDeepLink() async {
         guard let id = appState.selectedPodcastId else { return }
         await viewModel.playById(id)
-        appState.selectedPodcastId = nil
+        // await 中に新しい通知タップで id が変わり得るため、自分が消費した id のときだけクリアする。
+        if appState.selectedPodcastId == id {
+            appState.selectedPodcastId = nil
+        }
     }
 
     /// 読み込み状態・エラー・空状態・一覧を出し分ける主コンテンツ。

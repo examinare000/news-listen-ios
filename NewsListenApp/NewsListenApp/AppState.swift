@@ -103,6 +103,10 @@ final class AppState: ObservableObject {
     /// セッショントークンの保管先（既定は Keychain、テストはインメモリ）。
     private let sessionStore: SessionStore
 
+    /// デバイストークン登録の投げっぱなし Task。`logout()` との競合を避けるため、
+    /// 起動時に既存タスクを cancel してから差し替える。
+    private var deviceTokenRegistrationTask: Task<Void, Never>?
+
     /// テスト時に ``APIClient`` を直接注入するための上書き（既定 `nil`）。
     ///
     /// 本番は `apiBaseURL`/`apiKey` から毎回 computed で生成するため使わない。
@@ -132,7 +136,8 @@ final class AppState: ObservableObject {
         currentUser = response.user
         authStatus = .authenticated
         // ログイン直後、取得済みトークンがあれば backend に登録する。
-        Task { await registerDeviceTokenIfPossible() }
+        deviceTokenRegistrationTask?.cancel()
+        deviceTokenRegistrationTask = Task { await registerDeviceTokenIfPossible() }
     }
 
     // MARK: - Push（APNs デバイストークン）
@@ -141,13 +146,19 @@ final class AppState: ObservableObject {
     /// - Parameter token: 16 進のデバイストークン。
     func didRegisterDeviceToken(_ token: String) {
         apnsDeviceToken = token
-        Task { await registerDeviceTokenIfPossible() }
+        deviceTokenRegistrationTask?.cancel()
+        deviceTokenRegistrationTask = Task { await registerDeviceTokenIfPossible() }
     }
 
     /// 認証済みかつトークン取得済みのとき、デバイストークンを backend へ登録する（ベストエフォート）。
+    ///
+    /// `logout()` とタスクが競合し得るため、API 呼び出し直前にキャンセル済みでないこと・
+    /// 認証状態が依然 authenticated であることを再確認する（issue #80 レビュー指摘）。
     func registerDeviceTokenIfPossible() async {
         guard case .authenticated = authStatus,
               let apiClient, let token = apnsDeviceToken else { return }
+        guard !Task.isCancelled else { return }
+        guard case .authenticated = authStatus else { return }
         _ = try? await apiClient.registerDeviceToken(token)
     }
 
@@ -203,6 +214,9 @@ final class AppState: ObservableObject {
     ///
     /// サーバ失効に失敗してもローカルのトークン・状態は必ず落とす（ベストエフォート）。
     func logout() async {
+        // 進行中のデバイストークン登録タスクをキャンセルし、logout 後にサーバへ登録リクエストが
+        // 到達してトークン紐付けが復活する競合を防ぐ（issue #80 レビュー指摘）。
+        deviceTokenRegistrationTask?.cancel()
         if let apiClient {
             // 他ユーザーへの誤配信を避けるため、ログアウト前にデバイストークンの解除を試みる
             // （ベストエフォート。失敗してもサーバ側セッション破棄でトークンは事実上孤立する）。
