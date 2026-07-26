@@ -61,11 +61,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        // 登録失敗は致命的ではない（プッシュが届かないだけ）が、原因究明のため開発ビルドでのみ
-        // 診断ログを出す（このエラーに機微情報・トークンは含まれない）。
-        #if DEBUG
-        print("[DEBUG] APNs registration failed: \(error.localizedDescription)")
-        #endif
+        // 登録失敗は致命的ではない（プッシュが届かないだけ）ため、握りつぶす。
     }
 
     // MARK: - UNUserNotificationCenterDelegate
