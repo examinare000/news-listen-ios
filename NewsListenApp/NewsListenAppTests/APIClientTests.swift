@@ -72,6 +72,39 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(mockSession.lastRequest?.httpMethod, "POST")
     }
 
+    // un-star（スタータブのスワイプ導線）: DELETE /articles/{id}/star。
+    func testUnstarArticleSendsDeleteToStarPath() async throws {
+        let mockSession = MockURLSession(data: Data(), statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "test-key",
+            session: mockSession
+        )
+
+        try await client.unstarArticle(id: "a1")
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/articles/a1/star")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "DELETE")
+    }
+
+    func testUnstarArticleMaps404ToHttpError() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 404)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "test-key",
+            session: mockSession
+        )
+
+        do {
+            try await client.unstarArticle(id: "a1")
+            XCTFail("404 should throw")
+        } catch APIError.httpError(let code) {
+            XCTAssertEqual(code, 404)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
     // issue #163: 記事単位の難易度指定 star。
     func testStarArticleWithoutDifficultySendsNoBody() async throws {
         let mockJSON = #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!

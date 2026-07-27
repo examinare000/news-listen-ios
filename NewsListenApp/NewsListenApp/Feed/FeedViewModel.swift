@@ -28,8 +28,10 @@ final class FeedViewModel: ObservableObject {
     /// 直近の Star/Dismiss（取り消し可能な保留中操作）。issue #111。
     ///
     /// Star/Dismiss は楽観的に一覧から消し、サーバ送信は `commitPending()` まで遅延する。
-    /// 確定前なら `undoLast()` で元に戻せる（サーバ側に un-star/un-dismiss API が無いため、
-    /// 取り消しは「まだ送っていない」遅延コミット方式で実現する）。
+    /// 確定前なら `undoLast()` で元に戻せる。un-star API 自体はスタータブ側に追加されたが
+    /// （`StarredViewModel.unstar(_:)`）、un-dismiss API は依然として存在しないため、Feed の
+    /// この取り消しは「まだ送っていない」遅延コミット方式のまま維持する（クォータを消費しない
+    /// 取り消し導線として、un-star 追加後も引き続き有効）。
     @Published private(set) var pendingAction: PendingArticleAction?
     /// 現在ネットワークがオンラインかどうか（オフラインバナー表示用に View から購読する・issue #54）。
     @Published private(set) var isOnline: Bool
