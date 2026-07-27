@@ -36,3 +36,9 @@ struct FeedResponse: Codable {
     /// 対象日（YYYY-MM-DD 形式の文字列）。
     let date: String
 }
+
+/// `/articles/starred` エンドポイントのレスポンス。Star 済み記事一覧（新しい star 順。backend 仕様。並びはサーバ側で保証）を保持する。
+struct StarredArticlesResponse: Codable {
+    /// Star 済みの記事一覧。
+    let articles: [Article]
+}
