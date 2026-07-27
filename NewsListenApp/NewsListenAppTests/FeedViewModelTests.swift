@@ -440,4 +440,202 @@ final class FeedViewModelTests: XCTestCase {
 
         XCTAssertFalse(vm.shouldPresentErrorAlert)
     }
+
+    // MARK: - star cancelled alert バグ修正: キャンセルはエラー表示・再挿入をしない
+
+    func testCommitPendingCancellationDoesNotShowErrorOrReinsert() async throws {
+        // トーストの .task がキャンセルされると、サスペンド中の commit() の POST が
+        // URLError(.cancelled) を投げる。これをエラー表示・記事再挿入の対象にしないことを保証する。
+        let requestStarted = XCTestExpectation(description: "request started")
+        let mock = CancellationAwareMockURLSession(requestStarted: requestStarted)
+        let vm = FeedViewModel(apiClient: APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
+        ))
+        vm.articles = [sampleArticle(id: "a1")]
+        await vm.star(article: sampleArticle(id: "a1"))   // 保留のみ（API 未送信）
+
+        let task = Task { await vm.commitPending() }
+        await fulfillment(of: [requestStarted], timeout: 1.0)
+        task.cancel()
+        await task.value
+
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertTrue(vm.articles.isEmpty)   // 再挿入されていない（幻の二重 Star を防ぐ）
+    }
+
+    func testCommitPendingRawCancellationErrorDoesNotShowErrorOrReinsert() async throws {
+        // 上のテストは URLError(.cancelled) 経路のみを検証しており、`catch is CancellationError`
+        // 分岐（素の CancellationError を投げる経路）は未検証だった（レビュー指摘）。
+        let requestStarted = XCTestExpectation(description: "request started")
+        let mock = CancellationAwareMockURLSession(requestStarted: requestStarted, cancellationBehavior: .rawCancellationError)
+        let vm = FeedViewModel(apiClient: APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
+        ))
+        vm.articles = [sampleArticle(id: "a1")]
+        await vm.star(article: sampleArticle(id: "a1"))   // 保留のみ（API 未送信）
+
+        let task = Task { await vm.commitPending() }
+        await fulfillment(of: [requestStarted], timeout: 1.0)
+        task.cancel()
+        await task.value
+
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertTrue(vm.articles.isEmpty)
+    }
+
+    // MARK: - 自動確定タイマーの FeedViewModel 所有化（トースト .task の自己破壊構造を解消）
+
+    func testStageAutoCommitsAfterGracePeriodElapses() async throws {
+        let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
+        let vm = FeedViewModel(
+            apiClient: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock),
+            undoGracePeriod: .milliseconds(50)
+        )
+        vm.articles = [sampleArticle(id: "a1")]
+
+        await vm.star(article: sampleArticle(id: "a1"))
+        XCTAssertNil(mock.lastRequest)   // 猶予中はまだ送信されない
+
+        // 固定 sleep ではなく「いつか条件を満たす」形のポーリングにして CI 負荷でのフレークを避ける。
+        await waitUntil { mock.lastRequest != nil }
+
+        XCTAssertEqual(mock.lastRequest?.url?.path, "/articles/a1/star")
+        XCTAssertNil(vm.pendingAction)
+    }
+
+    func testUndoLastCancelsAutoCommitTimer() async throws {
+        let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
+        let vm = FeedViewModel(
+            apiClient: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock),
+            undoGracePeriod: .milliseconds(50)
+        )
+        vm.articles = [sampleArticle(id: "a1")]
+
+        await vm.star(article: sampleArticle(id: "a1"))
+        vm.undoLast()
+
+        // 「何も起きない」ことの確認なのでポーリングにはできない。猶予(50ms)に対し
+        // 20倍の余白を確保し、CI 負荷下でも誤って早期リターンしないようにする。
+        try await Task.sleep(for: .seconds(1))
+
+        XCTAssertNil(mock.lastRequest)
+        XCTAssertEqual(vm.articles.map { $0.id }, ["a1"])   // 元の位置に復元済み
+    }
+
+    func testStagingNewActionRestartsFullGracePeriodForNewPendingAction() async throws {
+        // A stage → 猶予内に B stage → A は即時確定送信、B は新たなフル猶予後に確定される
+        // （旧 A タイマーがキャンセルされ、B の猶予が短縮されないこと）。
+        //
+        // タイマー再スタートの有無は「いつ B が確定するか」でしか区別できない（確定される記事自体は
+        // どちらの実装でも最終的に a2/dismiss になる）ため、中間チェックの時刻選びが本質的に重要。
+        // grace=800ms・A→B のステージ間隔=300ms のとき:
+        //   - 再スタートしていない場合（バグ）の確定時刻 = B staging から 800-300=500ms 後
+        //   - 再スタートした場合（正しい）の確定時刻     = B staging から 800ms 後
+        // 中間チェックをその窓の中央（650ms）に置くことで両側に 150ms の余白を確保する
+        // （旧実装は 200ms 猶予に対し 50/70ms 余白で CI 負荷によりフレークしていた・レビュー指摘）。
+        // 確定側の最終待機はポーリングにし、正確な時刻に依存しないようにする。
+        let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
+        let vm = FeedViewModel(
+            apiClient: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock),
+            undoGracePeriod: .milliseconds(800)
+        )
+        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+
+        await vm.star(article: sampleArticle(id: "a1"))       // A staged, 800ms タイマー開始
+        try await Task.sleep(for: .milliseconds(300))
+        await vm.dismiss(article: sampleArticle(id: "a2"))    // B staged。A は stage() 内で即時確定。
+
+        XCTAssertEqual(mock.lastRequest?.url?.path, "/articles/a1/star")   // A は即時確定済み
+
+        // B staging から 650ms 経過（バグ側の締切 500ms・正しい側の締切 800ms のちょうど中間、
+        // 両側に 150ms の余白）。再スタートが効いていれば、この時点ではまだ B は未確定のはず。
+        try await Task.sleep(for: .milliseconds(650))
+        XCTAssertEqual(mock.lastRequest?.url?.path, "/articles/a1/star")   // まだ B は未確定
+        XCTAssertNotNil(vm.pendingAction)
+
+        // 確定側はポーリングで待つ（固定時刻に依存しない。正しい締切 800ms に対し 2 秒の余裕）。
+        await waitUntil(timeout: .seconds(2)) {
+            mock.lastRequest?.url?.path == "/articles/a2/dismiss"
+        }
+        XCTAssertEqual(mock.lastRequest?.url?.path, "/articles/a2/dismiss")   // B が確定
+        XCTAssertNil(vm.pendingAction)
+    }
+
+    // MARK: - loadFeed 経路のキャンセルフィルタ
+
+    func testLoadFeedCancellationDoesNotSetErrorMessage() async throws {
+        let requestStarted = XCTestExpectation(description: "request started")
+        let mock = CancellationAwareMockURLSession(requestStarted: requestStarted)
+        let vm = FeedViewModel(apiClient: APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
+        ))
+
+        let task = Task { await vm.loadFeed() }
+        await fulfillment(of: [requestStarted], timeout: 1.0)
+        task.cancel()
+        await task.value
+
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertFalse(vm.isLoading)   // 後始末（isLoading = false）はキャンセル経路でも必ず走る
+    }
+}
+
+/// キャンセル時にどの例外型を投げるかを選べる file-private モック。共有 `MockURLSession`
+/// （即時 return）ではキャンセルレースを再現できないため別途定義する。
+private final class CancellationAwareMockURLSession: URLSessionProtocol {
+    /// キャンセル時に投げる例外の型。
+    enum CancellationBehavior {
+        /// 実 `URLSession` の挙動を模す（既定）: Task キャンセルは `URLError(.cancelled)` になる。
+        case urlErrorCancelled
+        /// `commit()`/`loadFeed()` の `catch is CancellationError` 分岐を直接検証するための、
+        /// 素の `CancellationError` を投げるモード。
+        case rawCancellationError
+    }
+
+    /// リクエスト開始（`data(for:)` 呼び出し）を通知する。
+    private let requestStarted: XCTestExpectation
+    private let cancellationBehavior: CancellationBehavior
+
+    init(requestStarted: XCTestExpectation, cancellationBehavior: CancellationBehavior = .urlErrorCancelled) {
+        self.requestStarted = requestStarted
+        self.cancellationBehavior = cancellationBehavior
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        requestStarted.fulfill()
+        do {
+            // キャンセルされるまでサスペンドし続ける（実通信のレイテンシを模す）。
+            try await Task.sleep(for: .seconds(10))
+        } catch {
+            switch cancellationBehavior {
+            case .urlErrorCancelled:
+                throw URLError(.cancelled)
+            case .rawCancellationError:
+                throw CancellationError()
+            }
+        }
+        // このテストでは常にキャンセルされる想定。fatalError はテストプロセス全体を
+        // 落としてしまうため、通常の throw にする（呼び出し元は errorMessage 検証で自然に fail する）。
+        throw UnexpectedCompletionError()
+    }
+}
+
+/// `CancellationAwareMockURLSession` が想定外にキャンセルされず完了した場合に投げるエラー。
+/// テストは通常の catch 経路で `errorMessage` が非 nil になり自然に fail する。
+private struct UnexpectedCompletionError: Error {}
+
+/// `condition` が真になるまで、または `timeout` に達するまで短い間隔でポーリングする。
+///
+/// タイマー系テストで固定 sleep 時間に依存すると CI 負荷でフレークしうるため、
+/// 「いつかは条件を満たす」ことを広い timeout の中で確認する形に置き換える。
+private func waitUntil(
+    timeout: Duration = .seconds(2),
+    pollInterval: Duration = .milliseconds(20),
+    condition: () -> Bool
+) async {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition(), clock.now < deadline {
+        try? await Task.sleep(for: pollInterval)
+    }
 }

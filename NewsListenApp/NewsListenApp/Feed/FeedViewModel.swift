@@ -51,6 +51,19 @@ final class FeedViewModel: ObservableObject {
     private let apiClient: APIClient
     /// ネットワーク接続状態を監視する（issue #54: オフライン時の事前無効化）。
     private let networkMonitor: NetworkMonitoring
+    /// 保留中の Star/Dismiss を取り消せる猶予期間（既定 4 秒）。
+    ///
+    /// 猶予経過で `commitPending()` を自動的に呼ぶタイマーは ViewModel 自身が所有する。
+    /// 旧実装ではトーストビューの `.task` が所有しており、トースト自身が `pendingAction`
+    /// 変化で破棄されると `.task` がキャンセルされ、実行中の確定送信（POST）まで
+    /// 巻き込んでキャンセルされてしまう自己破壊構造になっていた（star cancelled alert バグ）。
+    let undoGracePeriod: Duration
+    /// 自動確定タイマーの投げっぱなし Task。新規 stage/undo のたびに前回分を cancel してから
+    /// 差し替える（cancel-then-replace の投げっぱなし Task 追跡は `AppState.deviceTokenRegistrationTask`
+    /// と同じ形だが、ライフサイクルは異なる点に注意: `AppState` はプロセス生存期間のシングルトンで
+    /// deinit を意識しなくてよいのに対し、`FeedViewModel` は `FeedView` の `@StateObject` として
+    /// 画面遷移・ログアウト等で破棄されうるため、`deinit` でも明示的に cancel する）。
+    private var autoCommitTask: Task<Void, Never>?
 
     /// オフライン時にフィード更新をブロックした際の案内文言。
     static let offlineMessage = "オフラインです。接続を確認してから、もう一度お試しください"
@@ -59,13 +72,25 @@ final class FeedViewModel: ObservableObject {
     /// - Parameters:
     ///   - apiClient: API 通信に使うクライアント。
     ///   - networkMonitor: ネットワーク監視（既定: 実機監視の `NetworkMonitor()`。`PodcastViewModel` と同一パターン）。
-    init(apiClient: APIClient, networkMonitor: NetworkMonitoring = NetworkMonitor()) {
+    ///   - undoGracePeriod: 保留中の Star/Dismiss を取り消せる猶予期間（既定 4 秒。テストでは短縮値を注入する）。
+    init(apiClient: APIClient, networkMonitor: NetworkMonitoring = NetworkMonitor(), undoGracePeriod: Duration = .seconds(4)) {
         self.apiClient = apiClient
         self.networkMonitor = networkMonitor
+        self.undoGracePeriod = undoGracePeriod
         self.isOnline = networkMonitor.isOnline
         networkMonitor.isOnlinePublisher
             .receive(on: DispatchQueue.main)
             .assign(to: &$isOnline)
+    }
+
+    /// 画面破棄時に自動確定タイマーを止める最終防衛線。
+    ///
+    /// `deinit` は `nonisolated` のためプロパティ変更はできず `cancel()` の呼び出しのみ行う。
+    /// 通常経路（`scheduleAutoCommit()` のタイマー自身が `commitPending()` 直前に
+    /// `autoCommitTask = nil` する・`stage()`/`undoLast()` が次操作で cancel する）では
+    /// `deinit` 到達時点で既に `nil` になっている想定だが、想定外の解放順序に備える。
+    deinit {
+        autoCommitTask?.cancel()
     }
 
     /// フィードを取得して `articles` を更新する。失敗時は `errorMessage` に反映する。
@@ -84,6 +109,11 @@ final class FeedViewModel: ObservableObject {
         do {
             let response = try await apiClient.fetchFeed()
             articles = response.articles
+        } catch is CancellationError {
+            // 画面遷移等で loadFeed 呼び出し元 Task がキャンセルされただけ。ユーザーに見せる
+            // エラーではない（commit() 側と同じ理由・star cancelled alert バグ）。
+        } catch let error as URLError where error.code == .cancelled {
+            // 同上。
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -112,10 +142,18 @@ final class FeedViewModel: ObservableObject {
     /// こうすることで、連続スワイプ時に新しい操作の反映が前操作の通信完了を待たない（ラグ防止）。
     private func stage(article: Article, kind: PendingArticleAction.Kind, difficulty: String? = nil) async {
         let previous = pendingAction
+        // 旧タイマーはこれから積む新しい保留（または「保留なし」）とは無関係になるため、
+        // 先に cancel する。旧実装（id 指定なしトーストの `.task`）は View の構造的同一性が
+        // 保たれる限り同じ `.task` インスタンスが使い回されるため、A→B と連続 stage しても
+        // 最初にカウントを始めた 4 秒タイマーがそのまま生き続け、B の猶予が実質的に短縮されて
+        // いた。cancel を先に行わないと、この VM 所有のタイマーでも同じ問題が再発する。
+        autoCommitTask?.cancel()
+        autoCommitTask = nil
         if let index = articles.firstIndex(where: { $0.id == article.id }) {
             articles.remove(at: index)
             expandedId = nil
             pendingAction = PendingArticleAction(article: article, index: index, kind: kind, difficulty: difficulty)
+            scheduleAutoCommit()
         } else {
             // 対象がリフレッシュ等で一覧から消えている。新規 staging はせず、直前の保留のみ確定する。
             pendingAction = nil
@@ -125,9 +163,25 @@ final class FeedViewModel: ObservableObject {
         }
     }
 
+    /// 猶予期間経過後に保留中の操作を自動確定するタイマーを起動する。
+    ///
+    /// このタイマー Task 自身が `commitPending()` を呼ぶため、`commitPending()` 側は
+    /// `autoCommitTask` を cancel しない（自己 cancel は不要かつ危険 - 実行中の自分自身を
+    /// 止めてしまうと確定送信そのものが打ち切られる）。
+    private func scheduleAutoCommit() {
+        autoCommitTask = Task {
+            try? await Task.sleep(for: undoGracePeriod)
+            guard !Task.isCancelled else { return }
+            autoCommitTask = nil
+            await commitPending()
+        }
+    }
+
     /// 直近の Star/Dismiss を取り消し、記事を元の位置へ戻す（サーバ未送信のため副作用なし）。issue #111。
     func undoLast() {
         guard let pending = pendingAction else { return }
+        autoCommitTask?.cancel()
+        autoCommitTask = nil
         let index = min(pending.index, articles.count)
         articles.insert(pending.article, at: index)
         pendingAction = nil
@@ -156,6 +210,17 @@ final class FeedViewModel: ObservableObject {
             let index = min(pending.index, articles.count)
             articles.insert(pending.article, at: index)
             errorMessage = Self.generationLimitMessage(retryAfter: retryAfter)
+        } catch is CancellationError {
+            // 呼び出し元 Task がキャンセルされただけで、ユーザーに見せるエラーではない。
+            // 記事も再挿入しない: 表示は次回 loadFeed() でサーバの真実に収束する（star は成否に
+            // よらず再出現＝フィード API は star 済みを除外しない仕様。dismiss は到達していれば
+            // 消えたまま）。万一未達でも再送は冪等で安全なため、ここで表示を操作する意味がない
+            // （backend api/routers/feed.py・ADR-044 追記を参照）。
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            // 同上。実 URLSession はキャンセルを CancellationError ではなく URLError(.cancelled)
+            // として投げるため、両方のケースを黙殺する。
+            return
         } catch {
             let index = min(pending.index, articles.count)
             articles.insert(pending.article, at: index)
