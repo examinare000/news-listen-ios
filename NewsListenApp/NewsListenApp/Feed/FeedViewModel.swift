@@ -212,10 +212,10 @@ final class FeedViewModel: ObservableObject {
             errorMessage = Self.generationLimitMessage(retryAfter: retryAfter)
         } catch is CancellationError {
             // 呼び出し元 Task がキャンセルされただけで、ユーザーに見せるエラーではない。
-            // 記事も再挿入しない: 表示は次回 loadFeed() でサーバの真実に収束する（star は成否に
-            // よらず再出現＝フィード API は star 済みを除外しない仕様。dismiss は到達していれば
-            // 消えたまま）。万一未達でも再送は冪等で安全なため、ここで表示を操作する意味がない
-            // （backend api/routers/feed.py・ADR-044 追記を参照）。
+            // 記事も再挿入しない: backend が star 済み/dismiss 済みを `/feed` から除外するため、
+            // 表示は次回 loadFeed() でサーバの真実（除外済みの一覧）に収束する。キャンセル黙殺・
+            // 非再挿入の判断自体は本除外仕様の前後で変わらない（backend api/routers/feed.py・
+            // ADR-044 追記を参照）。
             return
         } catch let error as URLError where error.code == .cancelled {
             // 同上。実 URLSession はキャンセルを CancellationError ではなく URLError(.cancelled)
