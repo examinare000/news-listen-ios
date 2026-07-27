@@ -127,7 +127,7 @@ enum PreviewSamples {
     }
 }
 
-/// `feed` / `podcasts` のパスに応じてサンプル JSON を 200 で返すプレビュー用モックセッション。
+/// `feed` / `podcasts` / `starred` のパスに応じてサンプル JSON を 200 で返すプレビュー用モックセッション。
 private struct PreviewURLSession: URLSessionProtocol {
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let path = request.url?.path ?? ""
@@ -138,6 +138,11 @@ private struct PreviewURLSession: URLSessionProtocol {
         let encoder = JSONEncoder()
         if path.contains("podcast") {
             let body = (try? encoder.encode(PodcastListResponse(podcasts: PreviewSamples.podcasts))) ?? Data("{\"podcasts\":[]}".utf8)
+            return (body, response)
+        }
+        // feed 分岐より前に置く（"starred" は "feed" を含まないが誤マッチ余地を残さない）。
+        if path.contains("starred") {
+            let body = (try? encoder.encode(StarredArticlesResponse(articles: PreviewSamples.articles))) ?? Data("{\"articles\":[]}".utf8)
             return (body, response)
         }
         if path.contains("feed") {

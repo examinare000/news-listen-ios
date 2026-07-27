@@ -75,7 +75,7 @@ struct NewsListenAppApp: App {
     }
 }
 
-/// メインのタブビュー。フィード / Podcast / 設定の3タブを表示する。
+/// メインのタブビュー。フィード / Podcast / スター / 設定の4タブを表示する。
 struct ContentView: View {
     /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var appState: AppState
@@ -113,11 +113,24 @@ struct ContentView: View {
                 .tabItem { Label("Podcast", systemImage: "headphones") }
                 .tag(1)
             }
+            if let client = appState.apiClient {
+                StarredView(apiClient: client)
+                    .tabItem { Label("スター", systemImage: "star") }
+                    .tag(2)
+            } else {
+                ContentUnavailableView(
+                    "API 設定を確認してください",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text("設定タブで API URL とキーを確認してください")
+                )
+                .tabItem { Label("スター", systemImage: "star") }
+                .tag(2)
+            }
             // Settings は API 未設定の修正導線として常に表示する。
             // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
             SettingsView(apiClient: appState.apiClient)
                 .tabItem { Label("設定", systemImage: "gearshape") }
-                .tag(2)
+                .tag(3)
         }
         // 通知タップで遷移先 Podcast が指定されたら Podcast タブへ切り替える。
         // .task(id:) はマウント時にも発火するため、コールドスタート（ContentView 生成前に
