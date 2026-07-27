@@ -115,6 +115,15 @@ final class ModelTests: XCTestCase {
         XCTAssertTrue(feed.articles.isEmpty)
     }
 
+    // MARK: - IdentifiableURL（sheet(item:) 用ラッパー・FeedView/StarredView 共有）
+
+    func testIdentifiableURLIdIsAbsoluteString() {
+        let url = URL(string: "https://example.com/a")!
+        let identifiable = IdentifiableURL(url: url)
+
+        XCTAssertEqual(identifiable.id, url.absoluteString)
+    }
+
     // MARK: - StarredArticlesResponse（GET /articles/starred・スタータブ）
 
     func testStarredArticlesResponseDecodesArticles() throws {
