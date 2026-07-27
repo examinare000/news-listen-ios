@@ -15,6 +15,8 @@ enum APIEndpoint {
     case starredArticles
     /// 記事を Star する。
     case starArticle(id: String)
+    /// 記事の Star を解除する（スタータブのスワイプ導線）。
+    case unstarArticle(id: String)
     /// 記事を Dismiss する。
     case dismissArticle(id: String)
     /// Podcast 一覧の取得。
@@ -100,7 +102,7 @@ enum APIEndpoint {
         switch self {
         case .feed: return "/feed"
         case .starredArticles: return "/articles/starred"
-        case .starArticle(let id): return "/articles/\(id)/star"
+        case .starArticle(let id), .unstarArticle(let id): return "/articles/\(id)/star"
         case .dismissArticle(let id): return "/articles/\(id)/dismiss"
         case .podcasts: return "/podcasts"
         case .podcast(let id): return "/podcasts/\(id)"
@@ -151,7 +153,8 @@ enum APIEndpoint {
             return "PATCH"
         case .updatePreferences, .updateSource:
             return "PUT"
-        case .removeSource, .deleteUser, .passkeyDeleteCredential, .revokeSession, .unregisterDeviceToken:
+        case .removeSource, .deleteUser, .passkeyDeleteCredential, .revokeSession, .unregisterDeviceToken,
+             .unstarArticle:
             return "DELETE"
         }
     }

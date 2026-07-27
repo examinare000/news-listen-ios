@@ -99,6 +99,14 @@ final class APIClient {
         try await requestVoid(.starArticle(id: id), body: body)
     }
 
+    /// 指定 ID の記事の Star を解除する（スタータブのスワイプ導線）。
+    ///
+    /// backend は冪等（記事 doc が既に存在しない場合のみ 404）で、生成済み Podcast も削除される。
+    /// - Parameter id: 対象記事の ID。
+    func unstarArticle(id: String) async throws {
+        try await requestVoid(.unstarArticle(id: id))
+    }
+
     /// 指定 ID の記事を Dismiss する。
     /// - Parameter id: 対象記事の ID。
     func dismissArticle(id: String) async throws {
