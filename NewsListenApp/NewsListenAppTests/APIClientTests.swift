@@ -6,6 +6,40 @@ import XCTest
 @MainActor
 final class APIClientTests: XCTestCase {
 
+    // MARK: - Starred articles（GET /articles/starred・スタータブ）
+
+    func testFetchStarredArticlesUsesGETAndStarredPath() async throws {
+        let mockJSON = #"{"articles":[]}"#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "test-key",
+            session: mockSession
+        )
+
+        _ = try await client.fetchStarredArticles()
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/articles/starred")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "GET")
+        XCTAssertEqual(mockSession.lastRequest?.value(forHTTPHeaderField: "X-API-Key"), "test-key")
+    }
+
+    func testFetchStarredArticlesReturnsDecodedArticles() async throws {
+        let mockJSON = #"""
+        {"articles": [{"id":"a1","title":"Test","url":"https://example.com","source":"hackernews","score":0.8,"published_at":"2026-05-31T06:00:00Z"}]}
+        """#.data(using: .utf8)!
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "test-key",
+            session: MockURLSession(data: mockJSON, statusCode: 200)
+        )
+
+        let response = try await client.fetchStarredArticles()
+
+        XCTAssertEqual(response.articles.count, 1)
+        XCTAssertEqual(response.articles[0].id, "a1")
+    }
+
     func testFetchFeedDecodesResponse() async throws {
         let mockJSON = #"""
         {"articles": [{"id":"a1","title":"Test","url":"https://example.com","source":"hackernews","score":0.8,"published_at":"2026-05-31T06:00:00Z"}], "date": "2026-05-31"}

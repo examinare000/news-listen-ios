@@ -11,6 +11,8 @@ import Foundation
 enum APIEndpoint {
     /// フィード記事一覧の取得。
     case feed
+    /// Star 済み記事一覧の取得（スタータブ）。
+    case starredArticles
     /// 記事を Star する。
     case starArticle(id: String)
     /// 記事を Dismiss する。
@@ -97,6 +99,7 @@ enum APIEndpoint {
     var path: String {
         switch self {
         case .feed: return "/feed"
+        case .starredArticles: return "/articles/starred"
         case .starArticle(let id): return "/articles/\(id)/star"
         case .dismissArticle(let id): return "/articles/\(id)/dismiss"
         case .podcasts: return "/podcasts"
@@ -134,7 +137,7 @@ enum APIEndpoint {
     /// このエンドポイントで使用する HTTP メソッド（GET / POST / PATCH / DELETE）。
     var method: String {
         switch self {
-        case .feed, .podcasts, .podcast, .sources, .featuredSources, .onboardingStatus,
+        case .feed, .starredArticles, .podcasts, .podcast, .sources, .featuredSources, .onboardingStatus,
              .me, .listUsers, .passkeyCredentials, .preferences, .sessions, .generationQuota,
              .listeningStreak:
             return "GET"
