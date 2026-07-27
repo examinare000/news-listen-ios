@@ -195,11 +195,8 @@ struct FeedView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(pending.message)
         .accessibilityHint("取り消すには取り消すボタンを押します")
-        // 4 秒後に自動確定。取り消し（pendingAction 解除）でこのビューが消えると task は中断される。
-        .task {
-            try? await Task.sleep(for: .seconds(4))
-            await viewModel.commitPending()
-        }
+        // 自動確定タイマーは `FeedViewModel.autoCommitTask` が所有する（詳細はそちら参照）。
+        // トーストは表示専用。
     }
 
     /// 選択中の記事を一括 Star するボタン。
