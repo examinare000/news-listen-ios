@@ -7,14 +7,6 @@
 
 import SwiftUI
 
-/// URL を `sheet(item:)` で提示するための `Identifiable` ラッパー。
-private struct IdentifiableURL: Identifiable {
-    /// 提示対象の URL。
-    let url: URL
-    /// URL 文字列を一意な識別子とする。
-    var id: String { url.absoluteString }
-}
-
 /// Feed タブのルートビュー。記事一覧・スワイプ操作（Star/Dismiss）・記事タップでの遷移を担う。
 struct FeedView: View {
     /// アプリ全体で共有する設定状態。

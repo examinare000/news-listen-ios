@@ -84,6 +84,11 @@ final class APIClient {
         try await request(.feed, responseType: FeedResponse.self)
     }
 
+    /// Star 済み記事一覧を取得する（スタータブ）。
+    func fetchStarredArticles() async throws -> StarredArticlesResponse {
+        try await request(.starredArticles, responseType: StarredArticlesResponse.self)
+    }
+
     /// 指定 ID の記事を Star する。
     /// - Parameters:
     ///   - id: 対象記事の ID。

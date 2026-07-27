@@ -115,6 +115,38 @@ final class ModelTests: XCTestCase {
         XCTAssertTrue(feed.articles.isEmpty)
     }
 
+    // MARK: - IdentifiableURL（sheet(item:) 用ラッパー・FeedView/StarredView 共有）
+
+    func testIdentifiableURLIdIsAbsoluteString() {
+        let url = URL(string: "https://example.com/a")!
+        let identifiable = IdentifiableURL(url: url)
+
+        XCTAssertEqual(identifiable.id, url.absoluteString)
+    }
+
+    // MARK: - StarredArticlesResponse（GET /articles/starred・スタータブ）
+
+    func testStarredArticlesResponseDecodesArticles() throws {
+        let json = """
+        {
+            "articles": [
+                {
+                    "id": "abc123",
+                    "title": "Rust is amazing",
+                    "url": "https://example.com/rust",
+                    "source": "hackernews",
+                    "score": 0.9,
+                    "published_at": "2026-05-31T06:00:00Z"
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(StarredArticlesResponse.self, from: json)
+        XCTAssertEqual(response.articles.count, 1)
+        XCTAssertEqual(response.articles[0].id, "abc123")
+    }
+
     func testRssSourcesResponseDecodes() throws {
         let json = """
         {
