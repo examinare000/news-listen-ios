@@ -2,12 +2,12 @@
 //  StarredView.swift
 //  NewsListenApp
 //
-//  スタータブのルートビュー。Star 済み記事の一覧表示のみを担う（閲覧専用・un-star/dismiss 操作なし）。
+//  スタータブのルートビュー。Star 済み記事の一覧表示と、スワイプによる un-star 導線を担う。
 //
 
 import SwiftUI
 
-/// スタータブのルートビュー。Star 済み記事の一覧表示のみを担う（閲覧専用）。
+/// スタータブのルートビュー。Star 済み記事の一覧表示と、スワイプによる un-star 導線を担う。
 struct StarredView: View {
     /// アプリ全体で共有する設定状態（記事の開き方〈アプリ内/外部ブラウザ〉の判定に使う）。
     @EnvironmentObject private var appState: AppState
@@ -20,6 +20,8 @@ struct StarredView: View {
     @Environment(\.openURL) private var openURL
     /// アプリ内 Safari で提示中の URL（なければ `nil`）。
     @State private var safariURL: IdentifiableURL?
+    /// un-star 確認ダイアログの対象記事（なければダイアログ非表示）。
+    @State private var pendingUnstar: Article?
 
     /// ビューを生成する。
     /// - Parameter apiClient: ViewModel に注入する API クライアント。
@@ -49,6 +51,24 @@ struct StarredView: View {
         .sheet(item: $safariURL) { item in
             SafariView(url: item.url)
                 .ignoresSafeArea()
+        }
+        .confirmationDialog(
+            "スターを解除しますか？",
+            isPresented: Binding(
+                get: { pendingUnstar != nil },
+                set: { isPresented in if !isPresented { pendingUnstar = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingUnstar
+        ) { article in
+            // destructive ロールはここ（確定ボタン）にのみ付ける。理由は articleList のスワイプ
+            // ボタン側コメントを参照。
+            Button("スター解除", role: .destructive) {
+                Task { await viewModel.unstar(article) }
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: { _ in
+            Text("この記事から生成されたポッドキャストも削除されます。もう一度スターすると本日の生成回数を消費します。")
         }
     }
 
@@ -81,7 +101,10 @@ struct StarredView: View {
         }
     }
 
-    /// Star 済み記事一覧の `List`。行タップでその記事を開く（閲覧専用のため星付け解除操作は無い）。
+    /// Star 済み記事一覧の `List`。行タップでその記事を開き、trailing スワイプで un-star 確認ダイアログを出す。
+    ///
+    /// スワイプアクションは SwiftUI が VoiceOver へカスタムアクションとして自動公開するため、
+    /// 追加の a11y 配線は不要（`accessibilityAction` を別途足す必要はない）。
     private var articleList: some View {
         List(viewModel.articles) { article in
             Button {
@@ -94,6 +117,18 @@ struct StarredView: View {
             .listRowBackground(DSColor.paper)
             .listRowSeparatorTint(DSColor.hairline)
             .listRowInsets(EdgeInsets(top: DSSpacing.xs, leading: DSSpacing.l, bottom: DSSpacing.xs, trailing: DSSpacing.l))
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                // このボタンには destructive ロールを付けない（`.tint` のみで警告色を出す）。
+                // role: .destructive を付けると、確認ダイアログを出す前にタップ時点（full swipe
+                // 時は swipe 完了時点）で行が消えてしまう SwiftUI の既知挙動があるため。
+                // destructive ロールは確認ダイアログの確定ボタン側にのみ付ける。
+                Button {
+                    pendingUnstar = article
+                } label: {
+                    Label("スター解除", systemImage: "star.slash")
+                }
+                .tint(DSColor.danger)
+            }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
