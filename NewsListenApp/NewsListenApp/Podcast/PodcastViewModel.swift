@@ -412,6 +412,16 @@ final class PodcastViewModel: NSObject, ObservableObject {
         try await apiClient.submitQuizAnswers(podcastId: podcastId, answers: answers)
     }
 
+    /// 登録済み語彙を取得する。AudioPlayerView の初期「習得済み」反映に使う。
+    func fetchSavedVocabulary() async throws -> VocabularyListResponse {
+        try await apiClient.fetchVocabulary()
+    }
+
+    /// 現在の Podcast グロッサリ語を個人語彙帳へ冪等登録する。
+    func saveVocabulary(podcastId: String, term: String) async throws -> VocabularyItem {
+        try await apiClient.saveVocabulary(podcastId: podcastId, term: term)
+    }
+
     /// このエピソードを今すぐ再生する（一覧タップ起点）。
     /// キュー内にあればそこへジャンプ、無ければ現在の次に挿入してそこへジャンプする。
     /// WHY(#81 review): start で丸ごと置換すると利用者が組んだ待機列が消えるため、挿入方式で保持する。
