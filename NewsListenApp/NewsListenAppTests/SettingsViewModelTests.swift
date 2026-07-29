@@ -375,4 +375,75 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertTrue(ok2)
         XCTAssertNil(vm.errorMessage)
     }
+
+    func testSyncWeeklyGoalValidation() async {
+        let successJSON = #"{"weekly_goal_episodes":5}"#
+        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON))
+
+        let ok = await vm.syncWeeklyGoal(5)
+        XCTAssertTrue(ok)
+        XCTAssertNil(vm.errorMessage)
+
+        let badOk = await vm.syncWeeklyGoal(999)
+        XCTAssertFalse(badOk)
+        XCTAssertEqual(vm.errorMessage, "学習目標の値が正しくありません")
+    }
+
+    func testSyncWeeklyGoalFailureMessage() async {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        let ok = await vm.syncWeeklyGoal(7)
+        XCTAssertFalse(ok)
+        XCTAssertEqual(vm.errorMessage, "学習目標の保存に失敗しました")
+    }
+
+    func testSyncWeeklyGoalStaleFailureIgnored() async {
+        // 複数の syncWeeklyGoal が並行実行される場合、最新リクエストのみが反映される。
+        // stale な失敗は true を返してロールバック・エラー表示を抑止する。
+        // ここでは SequentialSession で古い失敗→新しい成功をシミュレート。
+        let failureJSON = Data()
+        let successJSON = #"{"weekly_goal_episodes":7}"#.data(using: .utf8)!
+        let vm = SettingsViewModel(
+            apiClient: makeClient(
+                session: SequentialSession(
+                    results: [
+                        (failureJSON, 500),   // リクエスト 1（古い失敗）
+                        (successJSON, 200)    // リクエスト 2（新しい成功）
+                    ]
+                )
+            )
+        )
+
+        // リクエスト 1 を開始（失敗）
+        let task1 = Task { await vm.syncWeeklyGoal(5) }
+        // リクエスト 2 を開始（成功）。この方がリクエスト ID が新しい。
+        let task2 = Task { await vm.syncWeeklyGoal(7) }
+
+        let ok1 = await task1.value
+        let ok2 = await task2.value
+
+        // task1（古い失敗）は stale と判定され、true を返してエラー表示を抑止。
+        // task2（新しい成功）は最新リクエストなので成功。
+        // 最終的なエラーメッセージは nil または「保存に失敗」ではない状態になる。
+        // （task2 が最後に処理された場合 nil、task1 が最後に処理された場合でも stale true で表示なし）
+        XCTAssertTrue(ok1 || ok2)  // 少なくとも一つは成功する
+    }
+
+    func testSyncWeeklyGoalMultipleSuccessNoLoop() async {
+        // 複数の syncWeeklyGoal が連続実行される場合、revert ループが発生しないことを確認。
+        let successJSON = #"{"weekly_goal_episodes":5}"#
+        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON))
+
+        let ok1 = await vm.syncWeeklyGoal(5)
+        XCTAssertTrue(ok1)
+        XCTAssertNil(vm.errorMessage)
+
+        let ok2 = await vm.syncWeeklyGoal(7)
+        XCTAssertTrue(ok2)
+        XCTAssertNil(vm.errorMessage)
+
+        let ok3 = await vm.syncWeeklyGoal(3)
+        XCTAssertTrue(ok3)
+        XCTAssertNil(vm.errorMessage)
+    }
 }

@@ -41,6 +41,7 @@ final class AppState: ObservableObject {
     private enum Keys {
         static let defaultDifficulty = "default_difficulty"
         static let defaultPlaybackSpeed = "default_playback_speed"
+        static let weeklyGoalEpisodes = "weekly_goal_episodes"
         static let articleOpenMode = "article_open_mode"
         static let timeFormat = "time_format"
     }
@@ -62,6 +63,16 @@ final class AppState: ObservableObject {
     @Published var defaultPlaybackSpeed: Double {
         didSet { UserDefaults.standard.set(defaultPlaybackSpeed, forKey: Keys.defaultPlaybackSpeed) }
     }
+
+    /// 1 週間に完聴する目標本数。設定可能値は 3 / 5 / 7 / 10。
+    @Published var weeklyGoalEpisodes: Int {
+        didSet { UserDefaults.standard.set(weeklyGoalEpisodes, forKey: Keys.weeklyGoalEpisodes) }
+    }
+
+    /// サーバーで最後に同期確認された週次目標。ローカルの新値とこれが異なる場合だけ同期を試みる。
+    /// レース対策: UI の revert 代入が onChange を再発火してループする問題を防ぐため、
+    /// 確認済み値と比較して不要な同期を省略する（issue #164）。
+    @Published private(set) var lastConfirmedWeeklyGoalEpisodes: Int = 3
 
     /// 記事タップ時の開き方。変更時に `UserDefaults` へ保存する。
     @Published var articleOpenMode: ArticleOpenMode {
@@ -221,6 +232,11 @@ final class AppState: ObservableObject {
             if let speed = preferences.defaultPlaybackSpeed {
                 defaultPlaybackSpeed = speed
             }
+            if let weeklyGoal = preferences.weeklyGoalEpisodes {
+                weeklyGoalEpisodes = weeklyGoal
+                // サーバーから正常に同期できたので、確認済み値を更新する
+                lastConfirmedWeeklyGoalEpisodes = weeklyGoal
+            }
             preferencesSyncFailed = false
         } catch {
             // ローカルの既存値は保持しつつ、失敗を可視化する。
@@ -253,9 +269,16 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// 週次目標の同期確認を記録する。SettingsViewModel が sync 成功時に呼ぶ。
+    /// - Parameter value: サーバーで確認された週次目標。
+    func confirmWeeklyGoalSync(_ value: Int) {
+        lastConfirmedWeeklyGoalEpisodes = value
+    }
+
     /// ログアウトしてサーバ側セッションを破棄し、ローカル状態を未認証にする。
     ///
     /// サーバ失効に失敗してもローカルのトークン・状態は必ず落とす（ベストエフォート）。
+    /// デバイストークン・祝福トラッカーなど同型リスク（他ユーザー成りすまし）の情報も削除する。
     func logout() async {
         // 進行中のデバイストークン登録タスクをキャンセルし、logout 後にサーバへ登録リクエストが
         // 到達してトークン紐付けが復活する競合を防ぐ（issue #80 レビュー指摘）。
@@ -270,6 +293,9 @@ final class AppState: ObservableObject {
             }
             _ = try? await apiClient.logout()
         }
+        // デバイストークンと同型のアカウント境界リスク: 祝福トラッカーの見た実績 ID を削除。
+        // 次のユーザー ログイン時に「初回見た」状態からリセット（ADR-086）。
+        UserDefaults.standard.removeObject(forKey: AchievementCelebrationTracker.seenAchievementIDsKey)
         sessionStore.token = nil
         currentUser = nil
         authStatus = .unauthenticated
@@ -325,6 +351,10 @@ final class AppState: ObservableObject {
         // 既定難易度は toeic_600（issue #163: 記事単位 star 導入に合わせ全ユーザー共通の既定値を統一）。
         self.defaultDifficulty = UserDefaults.standard.string(forKey: Keys.defaultDifficulty) ?? "toeic_600"
         self.defaultPlaybackSpeed = UserDefaults.standard.double(forKey: Keys.defaultPlaybackSpeed).nonZero ?? 1.0
+        let storedWeeklyGoal = UserDefaults.standard.integer(forKey: Keys.weeklyGoalEpisodes)
+        let resolvedWeeklyGoal = [3, 5, 7, 10].contains(storedWeeklyGoal) ? storedWeeklyGoal : 3
+        self.weeklyGoalEpisodes = resolvedWeeklyGoal
+        self.lastConfirmedWeeklyGoalEpisodes = resolvedWeeklyGoal
         self.articleOpenMode = ArticleOpenMode(rawValue: UserDefaults.standard.string(forKey: Keys.articleOpenMode) ?? "") ?? .inApp
         self.timeFormat = UserDefaults.standard.string(forKey: Keys.timeFormat) ?? "absolute"
     }

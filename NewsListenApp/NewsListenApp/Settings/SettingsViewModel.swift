@@ -49,6 +49,8 @@ final class SettingsViewModel: ObservableObject {
     private var latestDifficultyRequestId: Int = 0
     /// 再生速度同期の最新リクエスト ID。stale レスポンスを見分ける。
     private var latestPlaybackSpeedRequestId: Int = 0
+    /// 週次目標同期の最新リクエスト ID。stale レスポンスを見分ける。
+    private var latestWeeklyGoalRequestId: Int = 0
 
     /// ViewModel を生成する。
     /// - Parameters:
@@ -188,7 +190,8 @@ final class SettingsViewModel: ObservableObject {
     /// デフォルト難易度をサーバーへ同期する。
     /// - Parameter value: 新しい既定難易度。
     /// - Returns: 成功したら `true`、失敗したら `false`（`errorMessage` にも反映する）。
-    /// 複数リクエストが飛んだ場合、最新のもののみ反映・エラー設定。stale な失敗は無視（issue #164）。
+    /// 複数リクエストが飛んだ場合、最新のもののみ反映・エラー設定。stale な失敗は無視し
+    /// `true` を返してロールバック・エラー表示を抑止する（issue #164）。
     func syncDefaultDifficulty(_ value: String) async -> Bool {
         // リクエスト ID をインクリメント（この値で stale チェック）
         latestDifficultyRequestId += 1
@@ -198,11 +201,8 @@ final class SettingsViewModel: ObservableObject {
             _ = try await apiClient.updatePreferences(defaultDifficulty: value, defaultPlaybackSpeed: nil)
         }
 
-        // stale レスポンス判定: 現在の最新 ID より古い → ロールバック・エラー表示なし
-        if requestId != latestDifficultyRequestId {
-            // stale な結果は無視して、既存の errorMessage はそのまま
-            return result
-        }
+        // stale レスポンス判定: 現在の最新 ID より古い → 無視してロールバック・エラー表示なし
+        if requestId != latestDifficultyRequestId { return true }
 
         return result
     }
@@ -210,7 +210,8 @@ final class SettingsViewModel: ObservableObject {
     /// デフォルト再生速度をサーバーへ同期する。
     /// - Parameter value: 新しい既定再生速度。
     /// - Returns: 成功したら `true`、失敗したら `false`（`errorMessage` にも反映する）。
-    /// 複数リクエストが飛んだ場合、最新のもののみ反映・エラー設定。stale な失敗は無視（issue #164）。
+    /// 複数リクエストが飛んだ場合、最新のもののみ反映・エラー設定。stale な失敗は無視し
+    /// `true` を返してロールバック・エラー表示を抑止する（issue #164）。
     func syncDefaultPlaybackSpeed(_ value: Double) async -> Bool {
         // リクエスト ID をインクリメント（この値で stale チェック）
         latestPlaybackSpeedRequestId += 1
@@ -220,13 +221,43 @@ final class SettingsViewModel: ObservableObject {
             _ = try await apiClient.updatePreferences(defaultDifficulty: nil, defaultPlaybackSpeed: value)
         }
 
-        // stale レスポンス判定: 現在の最新 ID より古い → ロールバック・エラー表示なし
-        if requestId != latestPlaybackSpeedRequestId {
-            // stale な結果は無視して、既存の errorMessage はそのまま
-            return result
-        }
+        // stale レスポンス判定: 現在の最新 ID より古い → 無視してロールバック・エラー表示なし
+        if requestId != latestPlaybackSpeedRequestId { return true }
 
         return result
+    }
+
+    /// 週次目標をサーバーへ同期する。許容値は UI と backend 契約の 3 / 5 / 7 / 10 に限定する。
+    /// - Parameter value: 新しい週次目標。
+    /// - Returns: 成功したら `true`、失敗したら `false`（`errorMessage` にも反映する）。
+    /// 複数リクエストが飛んだ場合、最新のもののみ反映・エラー設定。stale な失敗は無視し
+    /// `true` を返してロールバック・エラー表示を抑止する（issue #164）。
+    func syncWeeklyGoal(_ value: Int) async -> Bool {
+        guard [3, 5, 7, 10].contains(value) else {
+            errorMessage = "学習目標の値が正しくありません"
+            return false
+        }
+        latestWeeklyGoalRequestId += 1
+        let requestId = latestWeeklyGoalRequestId
+
+        guard let apiClient else { return true }
+        do {
+            _ = try await apiClient.updatePreferences(
+                defaultDifficulty: nil,
+                defaultPlaybackSpeed: nil,
+                weeklyGoalEpisodes: value
+            )
+            errorMessage = nil
+        } catch {
+            errorMessage = "学習目標の保存に失敗しました"
+            // stale レスポンス判定: 現在の最新 ID より古い → エラー表示を抑止して true を返す
+            if requestId != latestWeeklyGoalRequestId { return true }
+            return false
+        }
+
+        // stale レスポンス判定: 現在の最新 ID より古い → 無視してロールバック・エラー表示なし
+        if requestId != latestWeeklyGoalRequestId { return true }
+        return true
     }
 
     /// 設定同期の成否を共通化する内部ヘルパー。apiClient 未設定時は同期対象が無いため成功扱いにする。

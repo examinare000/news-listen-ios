@@ -64,6 +64,7 @@ struct SettingsView: View {
                 feedSection
                 rssSourcesSection
                 featuredSitesSection
+                learningGoalSection
                 generationQuotaSection
                 listeningStreakSection
                 difficultySection
@@ -92,6 +93,41 @@ struct SettingsView: View {
             await viewModel.loadGenerationQuota()
             await appState.refreshListeningStreak()
             await viewModel.loadCacheSize()
+        }
+    }
+
+    /// 学習ペースの目標。生成上限とは別物であり、未達でも制限しないことを明記する。
+    private var learningGoalSection: some View {
+        Section("学習目標") {
+            Picker("1週間に聴くエピソード", selection: $appState.weeklyGoalEpisodes) {
+                ForEach([3, 5, 7, 10], id: \.self) { goal in
+                    Text("\(goal) 本").tag(goal)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: appState.weeklyGoalEpisodes) { oldValue, newValue in
+                // 新値がサーバーで既に確認済みなら同期をスキップ。
+                // revert 代入が .onChange を再発火してループする無限ループを防ぐ（issue #164）。
+                guard newValue != appState.lastConfirmedWeeklyGoalEpisodes else { return }
+                Task {
+                    let saved = await viewModel.syncWeeklyGoal(newValue)
+                    if saved {
+                        // 同期成功時は確認済み値を更新してループ防止。
+                        appState.confirmWeeklyGoalSync(newValue)
+                    } else {
+                        // 同期失敗時は旧値へロールバック。
+                        appState.weeklyGoalEpisodes = oldValue
+                    }
+                }
+            }
+
+            Text(String(format: "1 日あたり平均 %.1f 本", Double(appState.weeklyGoalEpisodes) / 7))
+                .font(DSFont.footnote)
+                .foregroundStyle(DSColor.inkSecondary)
+
+            Text("この目標は学習ペースの目安です。生成クォータ（新しいエピソードを生成できる月あたりの上限）とは別のもので、目標を超えても・達成できなくても機能は制限されません。達成できなかった週も履歴は残ります")
+                .font(DSFont.footnote)
+                .foregroundStyle(DSColor.inkSecondary)
         }
     }
 

@@ -14,10 +14,13 @@ struct Preferences: Codable {
     let defaultDifficulty: String?
     /// 既定の再生速度（例: 1.5）。
     let defaultPlaybackSpeed: Double?
+    /// 1 週間に完聴する目標本数。旧 server では欠落するため Optional。
+    let weeklyGoalEpisodes: Int?
 
     /// バックエンドの snake_case フィールドに対応する。
     enum CodingKeys: String, CodingKey {
         case defaultDifficulty = "default_difficulty"
         case defaultPlaybackSpeed = "default_playback_speed"
+        case weeklyGoalEpisodes = "weekly_goal_episodes"
     }
 }
