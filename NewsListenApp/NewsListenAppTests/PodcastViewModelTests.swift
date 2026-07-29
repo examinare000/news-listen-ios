@@ -7,15 +7,41 @@ import AVFoundation
 @MainActor
 final class PodcastViewModelTests: XCTestCase {
 
+    private final class RequestRecordingSession: URLSessionProtocol {
+        private(set) var requests: [URLRequest] = []
+        let statusCode: Int
+
+        init(statusCode: Int = 200) {
+            self.statusCode = statusCode
+        }
+
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            requests.append(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data("{}".utf8), response)
+        }
+    }
+
     // ファクトリヘルパー：新しい init シグネチャに対応
     private func makeViewModel(
         apiClient: APIClient,
         cacheManager: AudioCacheManager? = nil,
-        networkMonitor: NetworkMonitoring? = nil
+        networkMonitor: NetworkMonitoring? = nil,
+        refreshListeningStreak: @escaping @MainActor () async -> Void = {}
     ) -> PodcastViewModel {
         let cache = cacheManager ?? AudioCacheManager(fileManager: MockFileManager())
         let network = networkMonitor ?? StubNetworkMonitor()
-        return PodcastViewModel(apiClient: apiClient, cacheManager: cache, networkMonitor: network)
+        return PodcastViewModel(
+            apiClient: apiClient,
+            cacheManager: cache,
+            networkMonitor: network,
+            refreshListeningStreak: refreshListeningStreak
+        )
     }
 
     // MARK: - issue #81: 再生キュー（連続再生）
@@ -57,9 +83,74 @@ final class PodcastViewModelTests: XCTestCase {
     func testStopsWhenQueueExhaustedOnEnd() async {
         let vm = makeOnlineViewModel()
         await vm.addToQueue(queuePodcast("a"))   // a を再生（キューは [a] のみ）
-        await vm.handlePlaybackEnded()           // 次が無い → 停止
-        XCTAssertNil(vm.currentPodcast)
+        await vm.handlePlaybackEnded()           // 次が無い → 停止しつつ currentPodcast は保持
+        XCTAssertEqual(vm.currentPodcast?.id, "a")
         XCTAssertFalse(vm.isPlaying)
+    }
+
+    func testPlaybackEndedPreservesPodcastForQuizWhenQueueExhausted() async {
+        let vm = makeOnlineViewModel()
+        let podcast = queuePodcast("completed-podcast")
+        await vm.addToQueue(podcast)
+
+        await vm.handlePlaybackEnded()
+
+        // 自然終端後も currentPodcast が保持されているため、語彙/クイズ導線が残る
+        XCTAssertEqual(vm.currentPodcast?.id, "completed-podcast")
+        // 再生は停止
+        XCTAssertFalse(vm.isPlaying)
+        // キューは末尾要素を指したまま（再聴・ジャンプ可能な状態を保つ）
+        XCTAssertEqual(vm.queue.current?.id, "completed-podcast")
+    }
+
+    func testPlaybackEndedMarksCapturedPodcastBeforeAutoAdvanceAndRefreshesStreak() async {
+        let session = RequestRecordingSession()
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: session
+        )
+        var refreshCount = 0
+        var pathSeenByRefresh: String?
+        let vm = makeViewModel(
+            apiClient: client,
+            networkMonitor: StubNetworkMonitor(isOnline: true),
+            refreshListeningStreak: {
+                refreshCount += 1
+                pathSeenByRefresh = session.requests.last?.url?.path
+            }
+        )
+        await vm.addToQueue(queuePodcast("completed-id"))
+        await vm.addToQueue(queuePodcast("next-id"))
+
+        await vm.handlePlaybackEnded()
+
+        XCTAssertEqual(session.requests.first?.url?.path, "/podcasts/completed-id/completed")
+        XCTAssertEqual(session.requests.first?.httpMethod, "POST")
+        XCTAssertNil(session.requests.first?.httpBody)
+        XCTAssertEqual(vm.currentPodcast?.id, "next-id")
+        XCTAssertEqual(refreshCount, 1)
+        XCTAssertEqual(pathSeenByRefresh, "/podcasts/completed-id/completed")
+    }
+
+    func testCompletionFailureDoesNotBlockQueueAutoAdvance() async {
+        let session = RequestRecordingSession(statusCode: 500)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: session
+        )
+        let vm = makeViewModel(
+            apiClient: client,
+            networkMonitor: StubNetworkMonitor(isOnline: true)
+        )
+        await vm.addToQueue(queuePodcast("failed-completion"))
+        await vm.addToQueue(queuePodcast("still-plays"))
+
+        await vm.handlePlaybackEnded()
+
+        XCTAssertEqual(session.requests.first?.url?.path, "/podcasts/failed-completion/completed")
+        XCTAssertEqual(vm.currentPodcast?.id, "still-plays")
     }
 
     func testPlayNextInsertsAfterCurrent() async {

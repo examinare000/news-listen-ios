@@ -50,26 +50,52 @@ enum PreviewSamples {
     ]
 
     /// Podcast プレビュー用のサンプル。完了/生成中/失敗の3状態を含める。
-    static let podcasts: [Podcast] = [
-        Podcast(
-            id: "p1",
-            type: "daily",
-            articleIds: ["a1", "a2"],
-            difficulty: "toeic_900",
-            audioUrl: "https://example.com/p1.mp3",
-            title: "米連邦準備制度が利上げを見送り、英国経済が予想外の回復を見せた。",
-            japaneseIntroText: "今日は米連邦準備制度の利上げ見送りと、英国経済の予想外の回復について取り上げます。",
-            durationSeconds: 247,
-            createdAt: "2026-06-29T07:00:00Z",
-            status: "completed",
-            errorMessage: nil,
-            playbackPositionSeconds: 72,
-            // WHY: p1 はトランスクリプト折りたたみ UI をプレビューで確認するためのサンプル。
-            segments: [
-                TranscriptSegment(speaker: "A", text: "米連邦準備制度が今回の会合で利上げを見送りました。"),
-                TranscriptSegment(speaker: "B", text: "一方、英国経済は予想外の回復を見せています。"),
+    /// p1 はトランスクリプト・語彙・クイズを含む完全版（AudioPlayerView プレビュー用）。
+    static let podcasts: [Podcast] = {
+        let decoder = JSONDecoder()
+        // p1: vocabulary と quiz を含む完全なエピソード
+        let p1JSON = #"""
+        {
+            "id": "p1",
+            "type": "daily",
+            "article_ids": ["a1", "a2"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://example.com/p1.mp3",
+            "title": "米連邦準備制度が利上げを見送り、英国経済が予想外の回復を見せた。",
+            "japanese_intro_text": "今日は米連邦準備制度の利上げ見送りと、英国経済の予想外の回復について取り上げます。",
+            "duration_seconds": 247,
+            "created_at": "2026-06-29T07:00:00Z",
+            "status": "completed",
+            "playback_position_seconds": 72,
+            "segments": [
+                {"speaker": "A", "text": "米連邦準備制度が今回の会合で利上げを見送りました。"},
+                {"speaker": "B", "text": "一方、英国経済は予想外の回復を見せています。"}
+            ],
+            "vocabulary": [
+                {"term": "pause", "meaning_ja": "一時中断する、中断期間", "example": "The central bank will pause its rate hikes."},
+                {"term": "rebound", "meaning_ja": "反発、回復", "example": "The UK economy showed a strong rebound in the first quarter."},
+                {"term": "inflation", "meaning_ja": "インフレーション、物価上昇", "example": "Inflation has cooled toward the target."}
+            ],
+            "quiz": [
+                {
+                    "question": "According to the podcast, why did the central bank pause its rate hikes?",
+                    "options": ["Inflation cooled toward the target", "The economy was growing too fast", "Interest rates were too high", "Banks requested a halt"]
+                },
+                {
+                    "question": "How did the UK economy perform in the first quarter?",
+                    "options": ["It contracted sharply", "It showed an unexpected rebound", "It remained flat", "Growth slowed significantly"]
+                },
+                {
+                    "question": "What is the main topic of today's podcast?",
+                    "options": ["Global stock market trends", "Central bank decisions and economic recovery", "Brexit negotiations", "Technology sector performance"]
+                }
             ]
-        ),
+        }
+        """#.data(using: .utf8)!
+        let p1 = try! decoder.decode(Podcast.self, from: p1JSON)
+
+        return [
+            p1,
         Podcast(
             id: "p2",
             type: "daily",
@@ -85,22 +111,23 @@ enum PreviewSamples {
             playbackPositionSeconds: 0,
             segments: nil
         ),
-        Podcast(
-            id: "p3",
-            type: "daily",
-            articleIds: ["a4"],
-            difficulty: "eiken_2",
-            audioUrl: "https://example.com/p3.mp3",
-            title: "",
-            japaneseIntroText: "気候サミットがメタン削減の新たな誓約とともに閉幕しました。",
-            durationSeconds: 0,
-            createdAt: "2026-06-28T19:00:00Z",
-            status: "failed",
-            errorMessage: "音声生成に失敗しました",
-            playbackPositionSeconds: 0,
-            segments: nil
-        ),
-    ]
+            Podcast(
+                id: "p3",
+                type: "daily",
+                articleIds: ["a4"],
+                difficulty: "eiken_2",
+                audioUrl: "https://example.com/p3.mp3",
+                title: "",
+                japaneseIntroText: "気候サミットがメタン削減の新たな誓約とともに閉幕しました。",
+                durationSeconds: 0,
+                createdAt: "2026-06-28T19:00:00Z",
+                status: "failed",
+                errorMessage: "音声生成に失敗しました",
+                playbackPositionSeconds: 0,
+                segments: nil
+            ),
+        ]
+    }()
 
     /// プレビュー用の `AppState`（API 未注入のまま既定値で動く）。
     @MainActor static func appState() -> AppState { AppState() }

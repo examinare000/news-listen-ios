@@ -78,6 +78,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private let cacheManager: AudioCacheManager
     /// ネットワーク接続状態を監視する。
     private let networkMonitor: NetworkMonitoring
+    /// 完聴送信後に共有ストリークを再取得する注入コールバック。
+    private let refreshListeningStreak: @MainActor () async -> Void
     /// 音声再生に使う `AVPlayer`（未再生時は `nil`）。
     /// 書き込みはクラス内に限定しつつ、KVO ガード判定のテスト（issue #59）から
     /// 現在の player/currentItem を参照できるよう読み取りはモジュール内に公開する。
@@ -109,11 +111,13 @@ final class PodcastViewModel: NSObject, ObservableObject {
     init(
         apiClient: APIClient,
         cacheManager: AudioCacheManager = AudioCacheManager(),
-        networkMonitor: NetworkMonitoring = NetworkMonitor()
+        networkMonitor: NetworkMonitoring = NetworkMonitor(),
+        refreshListeningStreak: @escaping @MainActor () async -> Void = {}
     ) {
         self.apiClient = apiClient
         self.cacheManager = cacheManager
         self.networkMonitor = networkMonitor
+        self.refreshListeningStreak = refreshListeningStreak
         self.isOnline = networkMonitor.isOnline
         // NSObject 継承のため、`$isOnline` 等 self を用いるプロパティラッパアクセスは
         // super.init() 完了後でなければならない。
@@ -384,13 +388,38 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
     /// 再生終了時の自動次再生。キューに次があれば再生し、無ければ停止してプレイヤーを閉じる。
     func handlePlaybackEnded() async {
+        // キュー遷移で currentPodcast が差し替わる前に、完聴した ID を確定する。
+        let completedPodcastId = currentPodcast?.id
+        if let completedPodcastId {
+            // 完聴記録は best-effort。通信失敗で自動遷移や次の再生を止めない。
+            try? await apiClient.markCompleted(id: completedPodcastId)
+            await refreshListeningStreak()
+        }
+
         if let next = queue.advance() {
             await play(podcast: next)
         } else {
-            // キュー終端: 再生を止め、ミニプレイヤーも閉じる（自然終了）。
+            // キュー終端: 再生を停止しつつ currentPodcast を保持する。
+            // これにより、語彙/クイズ導線が「聴き終わった」瞬間に残り、
+            // 回答途中のシートが強制 dismiss されない。
             stopPlayback()
-            currentPodcast = nil
+            // currentPodcast は保持（再生位置は末尾のまま、プレイヤーは一時停止状態）
         }
+    }
+
+    /// 現在のクイズ回答をサーバーへ送り、採点結果を返す。
+    func submitQuizAnswers(podcastId: String, answers: [Int]) async throws -> QuizAnswerResponse {
+        try await apiClient.submitQuizAnswers(podcastId: podcastId, answers: answers)
+    }
+
+    /// 登録済み語彙を取得する。AudioPlayerView の初期「習得済み」反映に使う。
+    func fetchSavedVocabulary() async throws -> VocabularyListResponse {
+        try await apiClient.fetchVocabulary()
+    }
+
+    /// 現在の Podcast グロッサリ語を個人語彙帳へ冪等登録する。
+    func saveVocabulary(podcastId: String, term: String) async throws -> VocabularyItem {
+        try await apiClient.saveVocabulary(podcastId: podcastId, term: term)
     }
 
     /// このエピソードを今すぐ再生する（一覧タップ起点）。

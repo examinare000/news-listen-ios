@@ -532,4 +532,135 @@ final class ModelTests: XCTestCase {
         )
         XCTAssertFalse(podcast.hasTranscript)
     }
+
+    // MARK: - Podcast vocabulary / quiz（ADR-069 / ADR-070）
+
+    func testPodcastDecodesVocabularyAndPublicQuiz() throws {
+        let json = """
+        {
+            "id": "pod-learning",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-07-29T00:00:00Z",
+            "status": "completed",
+            "vocabulary": [
+                {
+                    "term": "containerization",
+                    "meaning_ja": "アプリケーションを独立した単位で実行する技術",
+                    "example": "Containerization changed application deployment."
+                }
+            ],
+            "quiz": [
+                {
+                    "question": "What changed application deployment?",
+                    "options": ["Containerization", "Paper", "Ink", "Audio"]
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+
+        XCTAssertEqual(
+            podcast.vocabulary,
+            [VocabularyEntry(
+                term: "containerization",
+                meaningJa: "アプリケーションを独立した単位で実行する技術",
+                example: "Containerization changed application deployment."
+            )]
+        )
+        XCTAssertEqual(
+            podcast.quiz,
+            [QuizQuestion(
+                question: "What changed application deployment?",
+                options: ["Containerization", "Paper", "Ink", "Audio"]
+            )]
+        )
+        XCTAssertTrue(podcast.hasVocabulary)
+        XCTAssertTrue(podcast.hasQuiz)
+    }
+
+    func testPodcastDecodesNullVocabularyAndQuizAsNil() throws {
+        let json = """
+        {
+            "id": "pod-null-learning",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-07-29T00:00:00Z",
+            "status": "completed",
+            "vocabulary": null,
+            "quiz": null
+        }
+        """.data(using: .utf8)!
+
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+
+        XCTAssertNil(podcast.vocabulary)
+        XCTAssertNil(podcast.quiz)
+        XCTAssertFalse(podcast.hasVocabulary)
+        XCTAssertFalse(podcast.hasQuiz)
+    }
+
+    func testPodcastMissingVocabularyAndQuizKeysDegradesGracefully() throws {
+        let json = """
+        {
+            "id": "pod-old",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "旧エピソード",
+            "duration_seconds": 300,
+            "created_at": "2026-07-29T00:00:00Z",
+            "status": "completed"
+        }
+        """.data(using: .utf8)!
+
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+
+        XCTAssertNil(podcast.vocabulary)
+        XCTAssertNil(podcast.quiz)
+    }
+
+    func testQuizAnswerResponseDecodesBackendContract() throws {
+        let json = """
+        {
+            "correct_count": 2,
+            "total": 3,
+            "correct_rate": 0.6666666667,
+            "results": [
+                {
+                    "question_index": 0,
+                    "selected_index": 1,
+                    "correct_index": 1,
+                    "is_correct": true
+                },
+                {
+                    "question_index": 1,
+                    "selected_index": 0,
+                    "correct_index": 2,
+                    "is_correct": false
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(QuizAnswerResponse.self, from: json)
+
+        XCTAssertEqual(response.correctCount, 2)
+        XCTAssertEqual(response.total, 3)
+        XCTAssertEqual(response.correctRate, 0.6666666667, accuracy: 0.0000001)
+        XCTAssertEqual(response.results[0].questionIndex, 0)
+        XCTAssertTrue(response.results[0].isCorrect)
+        XCTAssertEqual(response.results[1].correctIndex, 2)
+        XCTAssertFalse(response.results[1].isCorrect)
+    }
 }

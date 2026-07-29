@@ -22,6 +22,18 @@ struct AudioPlayerView: View {
     /// WHY: 新規詳細画面を作らずこのプレイヤー内で完結させる（issue #162 のユーザー決定）ため、
     ///      ナビゲーションではなく View ローカルの開閉状態として保持する。
     @State private var isTranscriptExpanded = false
+    /// 語彙グロッサリの開閉状態。
+    @State private var isVocabularyExpanded = false
+    /// クイズ導線タップ時の Podcast スナップショット。
+    @State private var quizPodcast: Podcast?
+    /// 現在の Podcast で個人語彙帳へ登録済みの正規化語。
+    @State private var registeredTerms: Set<String> = []
+    /// 保存リクエスト中の語。連打を抑止し冪等 API への不要な重複送信を避ける。
+    @State private var savingTerms: Set<String> = []
+    @State private var vocabularySaveError: String?
+
+    /// 語彙リストの最大高さ（Dynamic Type に応じてスケール）。
+    @ScaledMetric(relativeTo: .body) private var vocabularyListMaxHeight: CGFloat = 200
 
     var body: some View {
         VStack(spacing: DSSpacing.l) {
@@ -44,6 +56,11 @@ struct AudioPlayerView: View {
             //      グレースフルデグレードにより、レイアウトを不変に保つ（issue #162）。
             if let podcast = vm.currentPodcast, podcast.hasTranscript {
                 transcriptSection(segments: podcast.segments ?? [])
+                    .padding(.horizontal)
+            }
+
+            if let podcast = vm.currentPodcast, podcast.hasVocabulary || podcast.hasQuiz {
+                learningSections(podcast)
                     .padding(.horizontal)
             }
 
@@ -139,6 +156,21 @@ struct AudioPlayerView: View {
         )
         .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: -2)
         .padding(DSSpacing.l)
+        .sheet(item: $quizPodcast) { podcast in
+            QuizSheetView(podcast: podcast) { answers in
+                try await vm.submitQuizAnswers(podcastId: podcast.id, answers: answers)
+            }
+        }
+        .task(id: vm.currentPodcast?.id) {
+            guard let podcast = vm.currentPodcast else { return }
+            registeredTerms = []
+            await loadSavedVocabulary(for: podcast)
+        }
+        .alert("語彙の登録に失敗しました", isPresented: vocabularySaveErrorBinding) {
+            Button("OK") { vocabularySaveError = nil }
+        } message: {
+            Text(vocabularySaveError ?? "")
+        }
     }
 
     /// 秒数を `分:秒`（例: `1:05`）の表示用文字列へ整形する。非有限値は `0:00` を返す。
@@ -198,6 +230,118 @@ struct AudioPlayerView: View {
         }
         .tint(DSColor.accent)
         .accessibilityHint(isTranscriptExpanded ? "トランスクリプトを折りたたみます" : "トランスクリプトを展開して表示します")
+    }
+
+    /// 語彙グロッサリと理解度クイズへの導線を近接配置する。
+    @ViewBuilder
+    private func learningSections(_ podcast: Podcast) -> some View {
+        VStack(alignment: .leading, spacing: DSSpacing.m) {
+            if podcast.hasVocabulary {
+                vocabularySection(entries: podcast.vocabulary ?? [])
+            }
+            if podcast.hasQuiz {
+                Button {
+                    quizPodcast = podcast
+                } label: {
+                    Label("聴き終わったら試す", systemImage: "questionmark.bubble")
+                        .font(DSFont.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(DSColor.accent)
+                .accessibilityLabel("聴き終わったら試す")
+                .accessibilityHint("このエピソードの\(podcast.quiz?.count ?? 0)問クイズを開きます")
+            }
+        }
+    }
+
+    /// 語彙グロッサリの折りたたみ表示。長い場合もプレイヤー操作を押し下げない。
+    @ViewBuilder
+    private func vocabularySection(entries: [VocabularyEntry]) -> some View {
+        DisclosureGroup(isExpanded: $isVocabularyExpanded) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: DSSpacing.m) {
+                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                        let key = normalizedTerm(entry.term)
+                        let isRegistered = registeredTerms.contains(key)
+                        let isSaving = savingTerms.contains(key)
+                        let buttonText = isSaving ? "登録中" : (isRegistered ? "登録済み" : "習得")
+                        HStack(alignment: .top, spacing: DSSpacing.m) {
+                            VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                                Text(entry.term)
+                                    .font(DSFont.headline)
+                                    .foregroundStyle(DSColor.ink)
+                                Text(entry.meaningJa)
+                                    .font(DSFont.body)
+                                    .foregroundStyle(DSColor.ink)
+                                Text(entry.example)
+                                    .font(DSFont.meta.italic())
+                                    .foregroundStyle(DSColor.inkSecondary)
+                            }
+                            .accessibilityElement(children: .combine)
+                            Spacer(minLength: DSSpacing.s)
+                            Button(buttonText) {
+                                guard let podcast = vm.currentPodcast else { return }
+                                Task { await save(entry, for: podcast) }
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(isRegistered || isSaving ? DSColor.inkSecondary : DSColor.accent)
+                            .opacity((isRegistered || isSaving) ? 0.45 : 1)
+                            .disabled(isRegistered || isSaving)
+                            .accessibilityLabel(
+                                isSaving ? "\(entry.term)を登録中" : (isRegistered ? "\(entry.term)は登録済み" : "\(entry.term)を習得語彙に登録")
+                            )
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.top, DSSpacing.s)
+            }
+            .frame(maxHeight: vocabularyListMaxHeight)
+        } label: {
+            Label("語彙グロッサリ", systemImage: "text.book.closed")
+                .font(DSFont.meta)
+                .foregroundStyle(DSColor.inkSecondary)
+        }
+        .tint(DSColor.accent)
+        .accessibilityHint(isVocabularyExpanded ? "語彙グロッサリを折りたたみます" : "語彙グロッサリを展開して表示します")
+    }
+
+    private func normalizedTerm(_ term: String) -> String {
+        term.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// 初期状態は best-effort。旧 server やオフライン時もプレイヤーをエラーにしない。
+    private func loadSavedVocabulary(for podcast: Podcast) async {
+        guard let response = try? await vm.fetchSavedVocabulary() else { return }
+        guard !Task.isCancelled, vm.currentPodcast?.id == podcast.id else { return }
+        registeredTerms = Set(
+            response.vocabulary
+                .filter { $0.podcastId == podcast.id }
+                .map { normalizedTerm($0.term) }
+        )
+    }
+
+    private func save(_ entry: VocabularyEntry, for podcast: Podcast) async {
+        let key = normalizedTerm(entry.term)
+        guard !registeredTerms.contains(key), !savingTerms.contains(key) else { return }
+        savingTerms.insert(key)
+        defer { savingTerms.remove(key) }
+        do {
+            _ = try await vm.saveVocabulary(podcastId: podcast.id, term: entry.term)
+            if vm.currentPodcast?.id == podcast.id {
+                registeredTerms.insert(key)
+            }
+        } catch {
+            vocabularySaveError = "通信状況を確認して、もう一度お試しください。"
+        }
+    }
+
+    private var vocabularySaveErrorBinding: Binding<Bool> {
+        Binding(
+            get: { vocabularySaveError != nil },
+            set: { if !$0 { vocabularySaveError = nil } }
+        )
     }
 }
 

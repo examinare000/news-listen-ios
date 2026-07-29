@@ -14,7 +14,11 @@ import SwiftUI
 /// RSS ソースの取得/追加/編集/削除は ``SettingsViewModel`` 経由で行う。
 struct SettingsView: View {
     /// アプリ全体で共有する設定状態。
-    @EnvironmentObject private var appState: AppState
+    @ObservedObject private var appState: AppState
+    /// ADR-088 の端末ローカル設定。サーバー同期せずデバイスごとの好みを尊重する。
+    /// キーは DSFeedback で一元管理。
+    @AppStorage(DSFeedback.sfxEnabledKey) private var sfxEnabled = true
+    @AppStorage(DSFeedback.hapticsEnabledKey) private var hapticsEnabled = true
     /// RSS ソースの取得・追加・編集・削除を担う ViewModel。
     ///
     /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
@@ -47,8 +51,10 @@ struct SettingsView: View {
 
     /// ビューを生成する。
     /// - Parameter apiClient: ViewModel に注入する API クライアント。未設定時は `nil`。
-    init(apiClient: APIClient?) {
-        _viewModel = StateObject(wrappedValue: SettingsViewModel(apiClient: apiClient))
+    @MainActor
+    init(appState: AppState) {
+        self.appState = appState
+        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState))
     }
 
     var body: some View {
@@ -58,15 +64,19 @@ struct SettingsView: View {
                 feedSection
                 rssSourcesSection
                 featuredSitesSection
+                learningGoalSection
                 generationQuotaSection
                 listeningStreakSection
                 difficultySection
                 playbackSection
+                feedbackSection
                 cacheSection
             }
             .scrollContentBackground(.hidden)
             .background(DSColor.paper.ignoresSafeArea())
             .navigationTitle("設定")
+            // Settings 画面では聴取ストリークツールバーを表示しない
+            // （既存の聴取ストリークセクション内で表示済みのため重複を避ける）
             .sheet(isPresented: $showAddSource) { addSourceSheet }
             .sheet(item: $editingSource) { source in
                 EditSourceSheet(source: source, viewModel: viewModel)
@@ -81,8 +91,43 @@ struct SettingsView: View {
             await viewModel.loadSources()
             await viewModel.loadFeaturedSites()
             await viewModel.loadGenerationQuota()
-            await viewModel.loadListeningStreak()
+            await appState.refreshListeningStreak()
             await viewModel.loadCacheSize()
+        }
+    }
+
+    /// 学習ペースの目標。生成上限とは別物であり、未達でも制限しないことを明記する。
+    private var learningGoalSection: some View {
+        Section("学習目標") {
+            Picker("1週間に聴くエピソード", selection: $appState.weeklyGoalEpisodes) {
+                ForEach([3, 5, 7, 10], id: \.self) { goal in
+                    Text("\(goal) 本").tag(goal)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: appState.weeklyGoalEpisodes) { oldValue, newValue in
+                // 新値がサーバーで既に確認済みなら同期をスキップ。
+                // revert 代入が .onChange を再発火してループする無限ループを防ぐ（issue #164）。
+                guard newValue != appState.lastConfirmedWeeklyGoalEpisodes else { return }
+                Task {
+                    let saved = await viewModel.syncWeeklyGoal(newValue)
+                    if saved {
+                        // 同期成功時は確認済み値を更新してループ防止。
+                        appState.confirmWeeklyGoalSync(newValue)
+                    } else {
+                        // 同期失敗時は旧値へロールバック。
+                        appState.weeklyGoalEpisodes = oldValue
+                    }
+                }
+            }
+
+            Text(String(format: "1 日あたり平均 %.1f 本", Double(appState.weeklyGoalEpisodes) / 7))
+                .font(DSFont.footnote)
+                .foregroundStyle(DSColor.inkSecondary)
+
+            Text("この目標は学習ペースの目安です。生成クォータ（新しいエピソードを生成できる月あたりの上限）とは別のもので、目標を超えても・達成できなくても機能は制限されません。達成できなかった週も履歴は残ります")
+                .font(DSFont.footnote)
+                .foregroundStyle(DSColor.inkSecondary)
         }
     }
 
@@ -280,7 +325,7 @@ struct SettingsView: View {
     private var listeningStreakSection: some View {
         if appState.apiClient != nil {
             Section("聴取ストリーク") {
-                if let streak = viewModel.listeningStreak {
+                if let streak = appState.listeningStreak {
                     if let lastListenedDay = streak.lastListenedDay {
                         HStack {
                             DSBadge("\(streak.currentStreakDays)日連続", systemImage: "flame.fill")
@@ -300,13 +345,13 @@ struct SettingsView: View {
                             .foregroundStyle(DSColor.inkSecondary)
                     }
                 }
-                if viewModel.listeningStreakLoadFailed {
+                if appState.listeningStreakLoadFailed {
                     HStack {
                         Text("聴取ストリークの取得に失敗しました")
                             .font(DSFont.footnote)
                             .foregroundStyle(DSColor.danger)
                         Spacer()
-                        Button("再試行") { Task { await viewModel.loadListeningStreak() } }
+                        Button("再試行") { Task { await appState.refreshListeningStreak() } }
                             .buttonStyle(.borderless)
                     }
                 }
@@ -351,6 +396,16 @@ struct SettingsView: View {
                     if !ok { appState.defaultPlaybackSpeed = oldValue }
                 }
             }
+        }
+    }
+
+    /// ADR-088 の効果音・触覚はアカウント設定ではなく端末ローカル設定として保持する。
+    private var feedbackSection: some View {
+        Section("操作フィードバック") {
+            Toggle("効果音", isOn: $sfxEnabled)
+                .accessibilityHint("クイズやスワイプ確定時の控えめな効果音を切り替えます")
+            Toggle("ハプティクス", isOn: $hapticsEnabled)
+                .accessibilityHint("クイズやスワイプ確定時の触覚フィードバックを切り替えます")
         }
     }
 

@@ -15,7 +15,7 @@ import Foundation
 ///   `current_streak_days = 0` を返す（`last_listened_day` は非 `null` のまま）。
 ///   `lastListenedDay` が `null` になるのは、聴取記録が一度もない場合のみ。
 ///   0日と「記録なし」を同一視して分岐しないこと（issue #165 レビュー指摘）。
-struct ListeningStreak: Codable {
+struct ListeningStreak: Codable, Equatable {
     /// 連続聴取日数。`0` は「連続記録が途切れている」ことを表すのみで、
     /// 聴取歴の有無とは独立（``lastListenedDay`` を参照すること）。
     let currentStreakDays: Int

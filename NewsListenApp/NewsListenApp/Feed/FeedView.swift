@@ -65,6 +65,7 @@ struct FeedView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .dsScreenBackground()
             .navigationTitle("フィード")
+            .dsStreakToolbar(appState: appState)
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button {

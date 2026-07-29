@@ -46,6 +46,10 @@ struct Podcast: Codable, Identifiable {
     /// 文字起こしの発話一覧。旧エピソードや未デプロイ環境ではキー自体が欠落、または `null` になるため
     /// Optional にして後方互換を保つ（issue #162）。
     let segments: [TranscriptSegment]?
+    /// エピソード語彙。旧エピソードではキー欠落または `null` のため Optional。
+    private(set) var vocabulary: [VocabularyEntry]? = nil
+    /// 公開用クイズ設問。正解キーは API 契約上含まれない。
+    private(set) var quiz: [QuizQuestion]? = nil
 
     /// バックエンドの snake_case フィールドに対応する。
     enum CodingKeys: String, CodingKey {
@@ -58,7 +62,7 @@ struct Podcast: Codable, Identifiable {
         case createdAt = "created_at"
         case errorMessage = "error_message"
         case playbackPositionSeconds = "playback_position_seconds"
-        case segments
+        case segments, vocabulary, quiz
     }
 
     /// `durationSeconds` を `分:秒`（例: `3:05`）の表示用文字列に整形する。
@@ -92,6 +96,8 @@ extension Podcast {
         self.errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         self.playbackPositionSeconds = try container.decodeIfPresent(Double.self, forKey: .playbackPositionSeconds) ?? 0.0
         self.segments = try container.decodeIfPresent([TranscriptSegment].self, forKey: .segments)
+        self.vocabulary = try container.decodeIfPresent([VocabularyEntry].self, forKey: .vocabulary)
+        self.quiz = try container.decodeIfPresent([QuizQuestion].self, forKey: .quiz)
     }
 }
 
@@ -116,6 +122,18 @@ extension Podcast {
     var hasTranscript: Bool {
         guard let segments else { return false }
         return !segments.isEmpty
+    }
+
+    /// 語彙グロッサリを表示できる内容があるか。
+    var hasVocabulary: Bool {
+        guard let vocabulary else { return false }
+        return !vocabulary.isEmpty
+    }
+
+    /// 理解度クイズを提示できる設問があるか。
+    var hasQuiz: Bool {
+        guard let quiz else { return false }
+        return !quiz.isEmpty
     }
 }
 

@@ -75,62 +75,39 @@ struct NewsListenAppApp: App {
     }
 }
 
-/// メインのタブビュー。フィード / Podcast / スター / 設定の4タブを表示する。
+/// メインのタブビュー。フィード / Podcast / スター / 設定 / 学習の5タブを表示する。
 struct ContentView: View {
     /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var appState: AppState
 
     /// タブ選択。通知タップ時に Podcast タブ（tag 1）へ切り替えるため保持する。
     @State private var selectedTab = 0
+    /// foreground 復帰時に共有ストリークを更新するためのライフサイクル状態。
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            // ContentView は isConfigured 時のみ表示されるため apiClient は通常非 nil。
-            // URL 不正など稀な nil 時はセットアップ確認を促す。
-            if let client = appState.apiClient {
+            apiTab("フィード", systemImage: "newspaper", tag: 0) { client in
                 FeedView(apiClient: client)
-                    .tabItem { Label("フィード", systemImage: "newspaper") }
-                    .tag(0)
-            } else {
-                ContentUnavailableView(
-                    "API 設定を確認してください",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text("設定タブで API URL とキーを確認してください")
-                )
-                .tabItem { Label("フィード", systemImage: "newspaper") }
-                .tag(0)
             }
-            if let client = appState.apiClient {
-                PodcastView(apiClient: client)
-                    .tabItem { Label("Podcast", systemImage: "headphones") }
-                    .tag(1)
-            } else {
-                ContentUnavailableView(
-                    "API 設定を確認してください",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text("設定タブで API URL とキーを確認してください")
+            apiTab("Podcast", systemImage: "headphones", tag: 1) { client in
+                PodcastView(
+                    apiClient: client,
+                    refreshListeningStreak: { await appState.refreshListeningStreak() }
                 )
-                .tabItem { Label("Podcast", systemImage: "headphones") }
-                .tag(1)
             }
-            if let client = appState.apiClient {
+            apiTab("スター", systemImage: "star", tag: 2) { client in
                 StarredView(apiClient: client)
-                    .tabItem { Label("スター", systemImage: "star") }
-                    .tag(2)
-            } else {
-                ContentUnavailableView(
-                    "API 設定を確認してください",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text("設定タブで API URL とキーを確認してください")
-                )
-                .tabItem { Label("スター", systemImage: "star") }
-                .tag(2)
             }
-            // Settings は API 未設定の修正導線として常に表示する。
+            // 学習は第 3 タブ（iOS 慣習: 学習機能は追加タブ）。
+            apiTab("学習", systemImage: "book.closed", tag: 3) { client in
+                LearningView(apiClient: client)
+            }
+            // Settings は API 未設定の修正導線として常に表示する（第 4 タブ末尾）。
             // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
-            SettingsView(apiClient: appState.apiClient)
+            SettingsView(appState: appState)
                 .tabItem { Label("設定", systemImage: "gearshape") }
-                .tag(3)
+                .tag(4)
         }
         // 通知タップで遷移先 Podcast が指定されたら Podcast タブへ切り替える。
         // .task(id:) はマウント時にも発火するため、コールドスタート（ContentView 生成前に
@@ -141,10 +118,40 @@ struct ContentView: View {
         }
         // 起動ごとに onboarding 状態を取得し、未完了なら追加ステップを被せる。
         // 3分岐ルーティングではなく cover にすることで launch をブロックしない。
-        .task { await appState.refreshOnboardingStatus() }
+        .task {
+            await appState.refreshOnboardingStatus()
+            await appState.refreshListeningStreak()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else { return }
+            Task { await appState.refreshListeningStreak() }
+        }
         .fullScreenCover(isPresented: onboardingBinding) {
             OnboardingSourcesView(apiClient: appState.apiClient)
                 .environmentObject(appState)
+        }
+    }
+
+    /// API 必須タブの稀な client=nil 表示を一元化し、タブ追加で分岐を複製しない。
+    @ViewBuilder
+    private func apiTab<Content: View>(
+        _ title: String,
+        systemImage: String,
+        tag: Int,
+        @ViewBuilder content: (APIClient) -> Content
+    ) -> some View {
+        if let client = appState.apiClient {
+            content(client)
+                .tabItem { Label(title, systemImage: systemImage) }
+                .tag(tag)
+        } else {
+            ContentUnavailableView(
+                "API 設定を確認してください",
+                systemImage: "exclamationmark.triangle",
+                description: Text("ビルド時の API URL とキーを確認してください")
+            )
+            .tabItem { Label(title, systemImage: systemImage) }
+            .tag(tag)
         }
     }
 

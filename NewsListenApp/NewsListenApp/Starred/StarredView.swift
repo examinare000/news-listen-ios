@@ -41,6 +41,7 @@ struct StarredView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .dsScreenBackground()
             .navigationTitle("スター")
+            .dsStreakToolbar(appState: appState)
             .alert("エラー", isPresented: errorBinding) {
                 Button("OK") { viewModel.errorMessage = nil }
             } message: {

@@ -136,6 +136,20 @@ final class APIClient {
         return try await request(.updatePlaybackPosition(id: podcastId), body: body, responseType: Podcast.self)
     }
 
+    /// Podcast の自然終端到達を記録する。リクエストボディは送らない。
+    func markCompleted(id: String) async throws {
+        try await requestVoid(.markCompleted(podcastId: id))
+    }
+
+    /// 理解度クイズの選択肢添字を送信し、サーバー採点結果を取得する。
+    func submitQuizAnswers(podcastId: String, answers: [Int]) async throws -> QuizAnswerResponse {
+        try await request(
+            .submitQuizAnswers(podcastId: podcastId),
+            body: ["answers": answers],
+            responseType: QuizAnswerResponse.self
+        )
+    }
+
     /// 指定 URL から音声データをダウンロードする。
     ///
     /// **セキュリティ**: 外部署名 URL（GCS 等）に対してヘッダを付けない。
@@ -161,10 +175,15 @@ final class APIClient {
     ///   - defaultDifficulty: 新しい既定難易度（任意）。
     ///   - defaultPlaybackSpeed: 新しい既定再生速度（任意）。
     /// - Returns: 更新後の設定選択。
-    func updatePreferences(defaultDifficulty: String?, defaultPlaybackSpeed: Double?) async throws -> Preferences {
+    func updatePreferences(
+        defaultDifficulty: String?,
+        defaultPlaybackSpeed: Double?,
+        weeklyGoalEpisodes: Int? = nil
+    ) async throws -> Preferences {
         var body: [String: Any] = [:]
         if let defaultDifficulty { body["default_difficulty"] = defaultDifficulty }
         if let defaultPlaybackSpeed { body["default_playback_speed"] = defaultPlaybackSpeed }
+        if let weeklyGoalEpisodes { body["weekly_goal_episodes"] = weeklyGoalEpisodes }
         return try await request(.updatePreferences, body: body, responseType: Preferences.self)
     }
 
@@ -176,6 +195,49 @@ final class APIClient {
     /// 聴取ストリーク（連続聴取日数）を取得する（issue #165）。
     func fetchListeningStreak() async throws -> ListeningStreak {
         try await request(.listeningStreak, responseType: ListeningStreak.self)
+    }
+
+    // MARK: - Learning engagement
+
+    func fetchLearningDashboard() async throws -> LearningDashboard {
+        try await request(.learningDashboard, responseType: LearningDashboard.self)
+    }
+
+    func saveVocabulary(podcastId: String, term: String) async throws -> VocabularyItem {
+        try await request(
+            .saveVocabulary,
+            body: ["podcast_id": podcastId, "term": term],
+            responseType: VocabularyItem.self
+        )
+    }
+
+    func fetchVocabulary() async throws -> VocabularyListResponse {
+        try await request(.vocabulary, responseType: VocabularyListResponse.self)
+    }
+
+    func deleteVocabulary(id: String) async throws -> DeleteVocabularyResponse {
+        try await request(.deleteVocabulary(id: id), responseType: DeleteVocabularyResponse.self)
+    }
+
+    func fetchVocabularyTestSession() async throws -> VocabularyTestSessionResponse {
+        try await request(.vocabularyTestSession, responseType: VocabularyTestSessionResponse.self)
+    }
+
+    func submitVocabularyTestResult(
+        _ items: [VocabularyTestResultItem]
+    ) async throws -> VocabularyTestResultResponse {
+        let body: [[String: Any]] = items.map {
+            [
+                "vocabulary_id": $0.vocabularyId,
+                "self_known": $0.selfKnown,
+                "retest_correct": $0.retestCorrect ?? NSNull(),
+            ]
+        }
+        return try await request(
+            .submitVocabularyTestResult,
+            body: body,
+            responseType: VocabularyTestResultResponse.self
+        )
     }
 
     /// 登録済みの RSS 配信元一覧を取得する。
@@ -426,7 +488,7 @@ final class APIClient {
     ///   - responseType: デコード先の型。
     private func request<T: Decodable>(
         _ endpoint: APIEndpoint,
-        body: [String: Any]? = nil,
+        body: Any? = nil,
         responseType: T.Type
     ) async throws -> T {
         let req = try buildRequest(endpoint, body: body)
@@ -453,7 +515,7 @@ final class APIClient {
     /// - Parameters:
     ///   - endpoint: 対象エンドポイント。
     ///   - body: JSON 化して送信するボディ（任意）。
-    private func buildRequest(_ endpoint: APIEndpoint, body: [String: Any]?) throws -> URLRequest {
+    private func buildRequest(_ endpoint: APIEndpoint, body: Any?) throws -> URLRequest {
         let url = baseURL.appendingPathComponent(endpoint.path)
         var request = URLRequest(url: url)
         request.httpMethod = endpoint.method

@@ -28,10 +28,6 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var generationQuota: GenerationQuota?
     /// 直近の `loadGenerationQuota()` が失敗したか。
     @Published private(set) var generationQuotaLoadFailed = false
-    /// 聴取ストリーク（issue #165）。未取得・取得失敗時は `nil`。
-    @Published private(set) var listeningStreak: ListeningStreak?
-    /// 直近の `loadListeningStreak()` が失敗したか。
-    @Published private(set) var listeningStreakLoadFailed = false
     /// ダウンロード音声キャッシュの合計サイズ（バイト・issue #52）。未取得時は `0`。
     @Published private(set) var cacheSizeBytes: Int64 = 0
 
@@ -40,7 +36,10 @@ final class SettingsViewModel: ObservableObject {
     /// `AppState/apiClient` は URL 不正・未設定時に `nil` を返すため optional とする。
     /// `nil` の場合は RSS ソース操作を行わず、難易度・API 設定の編集のみ可能にする
     /// （設定タブからの設定修正の導線を残すため）。
-    private let apiClient: APIClient?
+    private let apiClientOverride: APIClient?
+    /// 本番では共有状態を正本として API クライアントも AppState から取得する。
+    private let appState: AppState?
+    private var apiClient: APIClient? { appState?.apiClient ?? apiClientOverride }
     /// ダウンロード音声キャッシュの容量取得・全削除に使うマネージャ（issue #52）。
     private let cacheManager: AudioCacheManager
 
@@ -50,13 +49,23 @@ final class SettingsViewModel: ObservableObject {
     private var latestDifficultyRequestId: Int = 0
     /// 再生速度同期の最新リクエスト ID。stale レスポンスを見分ける。
     private var latestPlaybackSpeedRequestId: Int = 0
+    /// 週次目標同期の最新リクエスト ID。stale レスポンスを見分ける。
+    private var latestWeeklyGoalRequestId: Int = 0
 
     /// ViewModel を生成する。
     /// - Parameters:
     ///   - apiClient: API 通信に使うクライアント。未設定時は `nil`。
     ///   - cacheManager: 音声キャッシュの容量取得・全削除に使うマネージャ（既定: `AudioCacheManager()`）。
     init(apiClient: APIClient?, cacheManager: AudioCacheManager = AudioCacheManager()) {
-        self.apiClient = apiClient
+        self.apiClientOverride = apiClient
+        self.appState = nil
+        self.cacheManager = cacheManager
+    }
+
+    /// 共有 AppState を正本として使う本番用 initializer。
+    init(appState: AppState, cacheManager: AudioCacheManager = AudioCacheManager()) {
+        self.apiClientOverride = nil
+        self.appState = appState
         self.cacheManager = cacheManager
     }
 
@@ -151,24 +160,6 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
-    /// 聴取ストリーク（連続聴取日数）を取得する（issue #165）。
-    /// 失敗時は `listeningStreak` を `nil` のまま `listeningStreakLoadFailed` を立てる。
-    /// 404 時は graceful degradation: セクション非表示（`listeningStreakLoadFailed = false`）。
-    func loadListeningStreak() async {
-        guard let apiClient else { return }
-        do {
-            listeningStreak = try await apiClient.fetchListeningStreak()
-            listeningStreakLoadFailed = false
-        } catch APIError.httpError(let statusCode) where statusCode == 404 {
-            // 404 = 旧 backend への graceful degradation。セクション非表示（警告なし）
-            listeningStreak = nil
-            listeningStreakLoadFailed = false
-        } catch {
-            listeningStreak = nil
-            listeningStreakLoadFailed = true
-        }
-    }
-
     // MARK: - ダウンロード音声キャッシュの容量表示・全削除 (issue #52)
     //
     // LRU 等の自動退避は行わない（スコープ外）。容量把握と手動全削除の導線のみ提供する。
@@ -199,7 +190,8 @@ final class SettingsViewModel: ObservableObject {
     /// デフォルト難易度をサーバーへ同期する。
     /// - Parameter value: 新しい既定難易度。
     /// - Returns: 成功したら `true`、失敗したら `false`（`errorMessage` にも反映する）。
-    /// 複数リクエストが飛んだ場合、最新のもののみ反映・エラー設定。stale な失敗は無視（issue #164）。
+    /// 複数リクエストが飛んだ場合、最新のもののみ反映・エラー設定。stale な失敗は無視し
+    /// `true` を返してロールバック・エラー表示を抑止する（issue #164）。
     func syncDefaultDifficulty(_ value: String) async -> Bool {
         // リクエスト ID をインクリメント（この値で stale チェック）
         latestDifficultyRequestId += 1
@@ -209,11 +201,8 @@ final class SettingsViewModel: ObservableObject {
             _ = try await apiClient.updatePreferences(defaultDifficulty: value, defaultPlaybackSpeed: nil)
         }
 
-        // stale レスポンス判定: 現在の最新 ID より古い → ロールバック・エラー表示なし
-        if requestId != latestDifficultyRequestId {
-            // stale な結果は無視して、既存の errorMessage はそのまま
-            return result
-        }
+        // stale レスポンス判定: 現在の最新 ID より古い → 無視してロールバック・エラー表示なし
+        if requestId != latestDifficultyRequestId { return true }
 
         return result
     }
@@ -221,7 +210,8 @@ final class SettingsViewModel: ObservableObject {
     /// デフォルト再生速度をサーバーへ同期する。
     /// - Parameter value: 新しい既定再生速度。
     /// - Returns: 成功したら `true`、失敗したら `false`（`errorMessage` にも反映する）。
-    /// 複数リクエストが飛んだ場合、最新のもののみ反映・エラー設定。stale な失敗は無視（issue #164）。
+    /// 複数リクエストが飛んだ場合、最新のもののみ反映・エラー設定。stale な失敗は無視し
+    /// `true` を返してロールバック・エラー表示を抑止する（issue #164）。
     func syncDefaultPlaybackSpeed(_ value: Double) async -> Bool {
         // リクエスト ID をインクリメント（この値で stale チェック）
         latestPlaybackSpeedRequestId += 1
@@ -231,13 +221,43 @@ final class SettingsViewModel: ObservableObject {
             _ = try await apiClient.updatePreferences(defaultDifficulty: nil, defaultPlaybackSpeed: value)
         }
 
-        // stale レスポンス判定: 現在の最新 ID より古い → ロールバック・エラー表示なし
-        if requestId != latestPlaybackSpeedRequestId {
-            // stale な結果は無視して、既存の errorMessage はそのまま
-            return result
-        }
+        // stale レスポンス判定: 現在の最新 ID より古い → 無視してロールバック・エラー表示なし
+        if requestId != latestPlaybackSpeedRequestId { return true }
 
         return result
+    }
+
+    /// 週次目標をサーバーへ同期する。許容値は UI と backend 契約の 3 / 5 / 7 / 10 に限定する。
+    /// - Parameter value: 新しい週次目標。
+    /// - Returns: 成功したら `true`、失敗したら `false`（`errorMessage` にも反映する）。
+    /// 複数リクエストが飛んだ場合、最新のもののみ反映・エラー設定。stale な失敗は無視し
+    /// `true` を返してロールバック・エラー表示を抑止する（issue #164）。
+    func syncWeeklyGoal(_ value: Int) async -> Bool {
+        guard [3, 5, 7, 10].contains(value) else {
+            errorMessage = "学習目標の値が正しくありません"
+            return false
+        }
+        latestWeeklyGoalRequestId += 1
+        let requestId = latestWeeklyGoalRequestId
+
+        guard let apiClient else { return true }
+        do {
+            _ = try await apiClient.updatePreferences(
+                defaultDifficulty: nil,
+                defaultPlaybackSpeed: nil,
+                weeklyGoalEpisodes: value
+            )
+            errorMessage = nil
+        } catch {
+            errorMessage = "学習目標の保存に失敗しました"
+            // stale レスポンス判定: 現在の最新 ID より古い → エラー表示を抑止して true を返す
+            if requestId != latestWeeklyGoalRequestId { return true }
+            return false
+        }
+
+        // stale レスポンス判定: 現在の最新 ID より古い → 無視してロールバック・エラー表示なし
+        if requestId != latestWeeklyGoalRequestId { return true }
+        return true
     }
 
     /// 設定同期の成否を共通化する内部ヘルパー。apiClient 未設定時は同期対象が無いため成功扱いにする。
