@@ -435,6 +435,34 @@ final class APIClientTests: XCTestCase {
         XCTAssertNil(mockSession.lastRequest?.httpBody)
     }
 
+    func testSubmitQuizAnswersSendsIndicesAndDecodesGrade() async throws {
+        let mockJSON = #"""
+        {
+            "correct_count": 3,
+            "total": 3,
+            "correct_rate": 1.0,
+            "results": [
+                {"question_index":0,"selected_index":1,"correct_index":1,"is_correct":true}
+            ]
+        }
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let response = try await client.submitQuizAnswers(podcastId: "pod-quiz", answers: [1, 2, 0])
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/podcasts/pod-quiz/quiz-answers")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "POST")
+        let body = try XCTUnwrap(mockSession.lastRequest?.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(object["answers"] as? [Int], [1, 2, 0])
+        XCTAssertEqual(response.correctCount, 3)
+    }
+
     // MARK: - Podcast position sync
 
     func testUpdatePlaybackPositionCallsCorrectEndpoint() async throws {

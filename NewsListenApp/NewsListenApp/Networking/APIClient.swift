@@ -141,6 +141,15 @@ final class APIClient {
         try await requestVoid(.markCompleted(podcastId: id))
     }
 
+    /// 理解度クイズの選択肢添字を送信し、サーバー採点結果を取得する。
+    func submitQuizAnswers(podcastId: String, answers: [Int]) async throws -> QuizAnswerResponse {
+        try await request(
+            .submitQuizAnswers(podcastId: podcastId),
+            body: ["answers": answers],
+            responseType: QuizAnswerResponse.self
+        )
+    }
+
     /// 指定 URL から音声データをダウンロードする。
     ///
     /// **セキュリティ**: 外部署名 URL（GCS 等）に対してヘッダを付けない。

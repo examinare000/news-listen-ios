@@ -22,6 +22,13 @@ struct AudioPlayerView: View {
     /// WHY: 新規詳細画面を作らずこのプレイヤー内で完結させる（issue #162 のユーザー決定）ため、
     ///      ナビゲーションではなく View ローカルの開閉状態として保持する。
     @State private var isTranscriptExpanded = false
+    /// 語彙グロッサリの開閉状態。
+    @State private var isVocabularyExpanded = false
+    /// クイズ導線タップ時の Podcast スナップショット。
+    @State private var quizPodcast: Podcast?
+
+    /// 語彙リストの最大高さ（Dynamic Type に応じてスケール）。
+    @ScaledMetric(relativeTo: .body) private var vocabularyListMaxHeight: CGFloat = 200
 
     var body: some View {
         VStack(spacing: DSSpacing.l) {
@@ -44,6 +51,11 @@ struct AudioPlayerView: View {
             //      グレースフルデグレードにより、レイアウトを不変に保つ（issue #162）。
             if let podcast = vm.currentPodcast, podcast.hasTranscript {
                 transcriptSection(segments: podcast.segments ?? [])
+                    .padding(.horizontal)
+            }
+
+            if let podcast = vm.currentPodcast, podcast.hasVocabulary || podcast.hasQuiz {
+                learningSections(podcast)
                     .padding(.horizontal)
             }
 
@@ -139,6 +151,11 @@ struct AudioPlayerView: View {
         )
         .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: -2)
         .padding(DSSpacing.l)
+        .sheet(item: $quizPodcast) { podcast in
+            QuizSheetView(podcast: podcast) { answers in
+                try await vm.submitQuizAnswers(podcastId: podcast.id, answers: answers)
+            }
+        }
     }
 
     /// 秒数を `分:秒`（例: `1:05`）の表示用文字列へ整形する。非有限値は `0:00` を返す。
@@ -198,6 +215,64 @@ struct AudioPlayerView: View {
         }
         .tint(DSColor.accent)
         .accessibilityHint(isTranscriptExpanded ? "トランスクリプトを折りたたみます" : "トランスクリプトを展開して表示します")
+    }
+
+    /// 語彙グロッサリと理解度クイズへの導線を近接配置する。
+    @ViewBuilder
+    private func learningSections(_ podcast: Podcast) -> some View {
+        VStack(alignment: .leading, spacing: DSSpacing.m) {
+            if podcast.hasVocabulary {
+                vocabularySection(entries: podcast.vocabulary ?? [])
+            }
+            if podcast.hasQuiz {
+                Button {
+                    quizPodcast = podcast
+                } label: {
+                    Label("聴き終わったら試す", systemImage: "questionmark.bubble")
+                        .font(DSFont.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(DSColor.accent)
+                .accessibilityLabel("聴き終わったら試す")
+                .accessibilityHint("このエピソードの\(podcast.quiz?.count ?? 0)問クイズを開きます")
+            }
+        }
+    }
+
+    /// 語彙グロッサリの折りたたみ表示。長い場合もプレイヤー操作を押し下げない。
+    @ViewBuilder
+    private func vocabularySection(entries: [VocabularyEntry]) -> some View {
+        DisclosureGroup(isExpanded: $isVocabularyExpanded) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: DSSpacing.m) {
+                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                        VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                            Text(entry.term)
+                                .font(DSFont.headline)
+                                .foregroundStyle(DSColor.ink)
+                            Text(entry.meaningJa)
+                                .font(DSFont.body)
+                                .foregroundStyle(DSColor.ink)
+                            Text(entry.example)
+                                .font(DSFont.meta.italic())
+                                .foregroundStyle(DSColor.inkSecondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(entry.term)。意味: \(entry.meaningJa)。例文: \(entry.example)")
+                    }
+                }
+                .padding(.top, DSSpacing.s)
+            }
+            .frame(maxHeight: vocabularyListMaxHeight)
+        } label: {
+            Label("語彙グロッサリ", systemImage: "text.book.closed")
+                .font(DSFont.meta)
+                .foregroundStyle(DSColor.inkSecondary)
+        }
+        .tint(DSColor.accent)
+        .accessibilityHint(isVocabularyExpanded ? "語彙グロッサリを折りたたみます" : "語彙グロッサリを展開して表示します")
     }
 }
 

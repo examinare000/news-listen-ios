@@ -407,6 +407,11 @@ final class PodcastViewModel: NSObject, ObservableObject {
         }
     }
 
+    /// 現在のクイズ回答をサーバーへ送り、採点結果を返す。
+    func submitQuizAnswers(podcastId: String, answers: [Int]) async throws -> QuizAnswerResponse {
+        try await apiClient.submitQuizAnswers(podcastId: podcastId, answers: answers)
+    }
+
     /// このエピソードを今すぐ再生する（一覧タップ起点）。
     /// キュー内にあればそこへジャンプ、無ければ現在の次に挿入してそこへジャンプする。
     /// WHY(#81 review): start で丸ごと置換すると利用者が組んだ待機列が消えるため、挿入方式で保持する。
