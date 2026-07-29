@@ -20,13 +20,14 @@ private struct DSStreakToolbarModifier: ViewModifier {
                 ToolbarItem(placement: .navigationBarLeading) {
                     DSBadge(
                         "\(streak.currentStreakDays)日連続",
-                        systemImage: "flame.fill",
                         tint: DSColor.accent
                     )
                     // 数字のカウントアップ遷移：Reduce Motion が enabled なら即時表示。
                     // このリポ初の Reduce Motion パターンを確立。
                     // iOS は accessibilityReduceMotion で transition/animation を条件分岐し、
                     // VoiceOver ユーザー等に配慮する（WCAG 2.1 Animation from Interactions）。
+                    // ADR-086 決定 1：マスコット・炎アニメーション等は用いない。icon を削除し
+                    // テキストのみのバッジで設計統一（Web と一致）。
                     .contentTransition(.numericText(value: Double(streak.currentStreakDays)))
                     .transaction { transaction in
                         if reduceMotion {

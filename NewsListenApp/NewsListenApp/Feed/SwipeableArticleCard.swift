@@ -154,10 +154,10 @@ struct SwipeableArticleCard: View {
                 }
                 crossedThreshold = false
                 guard passed else { return }   // 閾値未満は元に戻す（操作しない）
-                // 確定（操作が実行されるとき）に swipeConfirm を発火。
-                // 不発時（戻した場合）は発火しない（guard passed で return）。
-                DSFeedback.shared.play(.swipeConfirm)
+                // ADR-088 語彙 5: Star 確定のみに swipeConfirm フィードバックを発火。
+                // Dismiss 確定はフィードバックなし（ADR 注記準拠）。
                 if width > 0 {
+                    DSFeedback.shared.play(.swipeConfirm)
                     onStar()
                 } else {
                     onDismiss()
