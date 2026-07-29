@@ -34,9 +34,17 @@ struct PodcastView: View {
     init(
         apiClient: APIClient,
         cacheManager: AudioCacheManager = AudioCacheManager(),
-        networkMonitor: NetworkMonitoring = NetworkMonitor()
+        networkMonitor: NetworkMonitoring = NetworkMonitor(),
+        refreshListeningStreak: @escaping @MainActor () async -> Void = {}
     ) {
-        _viewModel = StateObject(wrappedValue: PodcastViewModel(apiClient: apiClient, cacheManager: cacheManager, networkMonitor: networkMonitor))
+        _viewModel = StateObject(
+            wrappedValue: PodcastViewModel(
+                apiClient: apiClient,
+                cacheManager: cacheManager,
+                networkMonitor: networkMonitor,
+                refreshListeningStreak: refreshListeningStreak
+            )
+        )
         self.cacheManager = cacheManager
         self.networkMonitor = networkMonitor
     }

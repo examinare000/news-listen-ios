@@ -82,6 +82,8 @@ struct ContentView: View {
 
     /// タブ選択。通知タップ時に Podcast タブ（tag 1）へ切り替えるため保持する。
     @State private var selectedTab = 0
+    /// foreground 復帰時に共有ストリークを更新するためのライフサイクル状態。
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -101,7 +103,10 @@ struct ContentView: View {
                 .tag(0)
             }
             if let client = appState.apiClient {
-                PodcastView(apiClient: client)
+                PodcastView(
+                    apiClient: client,
+                    refreshListeningStreak: { await appState.refreshListeningStreak() }
+                )
                     .tabItem { Label("Podcast", systemImage: "headphones") }
                     .tag(1)
             } else {
@@ -128,7 +133,7 @@ struct ContentView: View {
             }
             // Settings は API 未設定の修正導線として常に表示する。
             // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
-            SettingsView(apiClient: appState.apiClient)
+            SettingsView(appState: appState)
                 .tabItem { Label("設定", systemImage: "gearshape") }
                 .tag(3)
         }
@@ -141,7 +146,14 @@ struct ContentView: View {
         }
         // 起動ごとに onboarding 状態を取得し、未完了なら追加ステップを被せる。
         // 3分岐ルーティングではなく cover にすることで launch をブロックしない。
-        .task { await appState.refreshOnboardingStatus() }
+        .task {
+            await appState.refreshOnboardingStatus()
+            await appState.refreshListeningStreak()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else { return }
+            Task { await appState.refreshListeningStreak() }
+        }
         .fullScreenCover(isPresented: onboardingBinding) {
             OnboardingSourcesView(apiClient: appState.apiClient)
                 .environmentObject(appState)

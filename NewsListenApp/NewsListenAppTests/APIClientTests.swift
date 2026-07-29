@@ -418,6 +418,23 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(streak.lastListenedDay, "2026-07-07")
     }
 
+    // MARK: - Learning engagement（ADR-070 / ADR-075）
+
+    func testMarkCompletedSendsBodylessPostToPodcastPath() async throws {
+        let mockSession = MockURLSession(data: Data("{}".utf8), statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        try await client.markCompleted(id: "pod-completed")
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/podcasts/pod-completed/completed")
+        XCTAssertEqual(mockSession.lastRequest?.httpMethod, "POST")
+        XCTAssertNil(mockSession.lastRequest?.httpBody)
+    }
+
     // MARK: - Podcast position sync
 
     func testUpdatePlaybackPositionCallsCorrectEndpoint() async throws {

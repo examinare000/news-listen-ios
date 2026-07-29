@@ -14,7 +14,7 @@ import SwiftUI
 /// RSS ソースの取得/追加/編集/削除は ``SettingsViewModel`` 経由で行う。
 struct SettingsView: View {
     /// アプリ全体で共有する設定状態。
-    @EnvironmentObject private var appState: AppState
+    @ObservedObject private var appState: AppState
     /// RSS ソースの取得・追加・編集・削除を担う ViewModel。
     ///
     /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
@@ -47,8 +47,10 @@ struct SettingsView: View {
 
     /// ビューを生成する。
     /// - Parameter apiClient: ViewModel に注入する API クライアント。未設定時は `nil`。
-    init(apiClient: APIClient?) {
-        _viewModel = StateObject(wrappedValue: SettingsViewModel(apiClient: apiClient))
+    @MainActor
+    init(appState: AppState) {
+        self.appState = appState
+        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState))
     }
 
     var body: some View {
@@ -67,6 +69,8 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .background(DSColor.paper.ignoresSafeArea())
             .navigationTitle("設定")
+            // Settings 画面では聴取ストリークツールバーを表示しない
+            // （既存の聴取ストリークセクション内で表示済みのため重複を避ける）
             .sheet(isPresented: $showAddSource) { addSourceSheet }
             .sheet(item: $editingSource) { source in
                 EditSourceSheet(source: source, viewModel: viewModel)
@@ -81,7 +85,7 @@ struct SettingsView: View {
             await viewModel.loadSources()
             await viewModel.loadFeaturedSites()
             await viewModel.loadGenerationQuota()
-            await viewModel.loadListeningStreak()
+            await appState.refreshListeningStreak()
             await viewModel.loadCacheSize()
         }
     }
@@ -280,7 +284,7 @@ struct SettingsView: View {
     private var listeningStreakSection: some View {
         if appState.apiClient != nil {
             Section("聴取ストリーク") {
-                if let streak = viewModel.listeningStreak {
+                if let streak = appState.listeningStreak {
                     if let lastListenedDay = streak.lastListenedDay {
                         HStack {
                             DSBadge("\(streak.currentStreakDays)日連続", systemImage: "flame.fill")
@@ -300,13 +304,13 @@ struct SettingsView: View {
                             .foregroundStyle(DSColor.inkSecondary)
                     }
                 }
-                if viewModel.listeningStreakLoadFailed {
+                if appState.listeningStreakLoadFailed {
                     HStack {
                         Text("聴取ストリークの取得に失敗しました")
                             .font(DSFont.footnote)
                             .foregroundStyle(DSColor.danger)
                         Spacer()
-                        Button("再試行") { Task { await viewModel.loadListeningStreak() } }
+                        Button("再試行") { Task { await appState.refreshListeningStreak() } }
                             .buttonStyle(.borderless)
                     }
                 }

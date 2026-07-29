@@ -25,6 +25,8 @@ enum APIEndpoint {
     case podcast(id: String)
     /// 指定 ID の Podcast の再生位置を更新。
     case updatePlaybackPosition(id: String)
+    /// 指定 ID の Podcast の自然終端到達を記録。
+    case markCompleted(podcastId: String)
     /// 登録済み RSS 配信元一覧の取得。
     case sources
     /// RSS 配信元の追加。
@@ -107,6 +109,7 @@ enum APIEndpoint {
         case .podcasts: return "/podcasts"
         case .podcast(let id): return "/podcasts/\(id)"
         case .updatePlaybackPosition(let id): return "/podcasts/\(id)/position"
+        case .markCompleted(let podcastId): return "/podcasts/\(podcastId)/completed"
         case .sources, .addSource, .updateSource: return "/settings/sources"
         case .removeSource: return "/settings/sources"
         case .featuredSources: return "/settings/featured-sources"
@@ -147,7 +150,7 @@ enum APIEndpoint {
              .login, .logout, .changePassword, .createUser,
              .passkeyRegisterOptions, .passkeyRegisterVerify,
              .passkeyLoginOptions, .passkeyLoginVerify, .revokeOtherSessions, .clientErrors,
-             .registerDeviceToken:
+             .registerDeviceToken, .markCompleted:
             return "POST"
         case .updateProfile, .updateUser, .updatePlaybackPosition:
             return "PATCH"

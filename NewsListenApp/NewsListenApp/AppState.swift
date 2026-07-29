@@ -92,6 +92,12 @@ final class AppState: ObservableObject {
     /// 変えず、失敗の有無だけを可視化して設定画面のインライン警告・再試行導線に使う。
     @Published var preferencesSyncFailed = false
 
+    /// アプリ全体で共有する聴取ストリーク。未取得・未提供時は `nil`。
+    @Published var listeningStreak: ListeningStreak?
+
+    /// 直近のストリーク取得が 404 以外で失敗したか。
+    @Published var listeningStreakLoadFailed = false
+
     /// プッシュ通知タップで開く対象 Podcast ID（ディープリンク・issue #80）。
     /// 設定されると Podcast タブへ遷移して再生する。遷移後は受け手が nil に戻す。
     @Published var selectedPodcastId: String?
@@ -219,6 +225,31 @@ final class AppState: ObservableObject {
         } catch {
             // ローカルの既存値は保持しつつ、失敗を可視化する。
             preferencesSyncFailed = true
+        }
+    }
+
+    /// サーバーから聴取ストリークを取得して共有状態を更新する。
+    ///
+    /// 404 は旧 backend または未提供機能として非表示へ graceful degradation する。
+    /// 旧値→新値で currentStreakDays が増加していれば streakUp フィードバックを発火。
+    func refreshListeningStreak() async {
+        guard let apiClient else { return }
+        let previousStreakDays = listeningStreak?.currentStreakDays
+        do {
+            let newStreak = try await apiClient.fetchListeningStreak()
+            listeningStreak = newStreak
+            listeningStreakLoadFailed = false
+            // 初回ロード（previousStreakDays == nil）では発火させない。
+            // 既存値から増加した場合のみ streakUp フィードバック。
+            if let prev = previousStreakDays, newStreak.currentStreakDays > prev {
+                DSFeedback.shared.play(.streakUp)
+            }
+        } catch APIError.httpError(let statusCode) where statusCode == 404 {
+            listeningStreak = nil
+            listeningStreakLoadFailed = false
+        } catch {
+            listeningStreak = nil
+            listeningStreakLoadFailed = true
         }
     }
 

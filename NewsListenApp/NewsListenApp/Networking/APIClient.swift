@@ -136,6 +136,11 @@ final class APIClient {
         return try await request(.updatePlaybackPosition(id: podcastId), body: body, responseType: Podcast.self)
     }
 
+    /// Podcast の自然終端到達を記録する。リクエストボディは送らない。
+    func markCompleted(id: String) async throws {
+        try await requestVoid(.markCompleted(podcastId: id))
+    }
+
     /// 指定 URL から音声データをダウンロードする。
     ///
     /// **セキュリティ**: 外部署名 URL（GCS 等）に対してヘッダを付けない。

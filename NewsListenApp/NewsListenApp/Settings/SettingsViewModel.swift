@@ -28,10 +28,6 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var generationQuota: GenerationQuota?
     /// 直近の `loadGenerationQuota()` が失敗したか。
     @Published private(set) var generationQuotaLoadFailed = false
-    /// 聴取ストリーク（issue #165）。未取得・取得失敗時は `nil`。
-    @Published private(set) var listeningStreak: ListeningStreak?
-    /// 直近の `loadListeningStreak()` が失敗したか。
-    @Published private(set) var listeningStreakLoadFailed = false
     /// ダウンロード音声キャッシュの合計サイズ（バイト・issue #52）。未取得時は `0`。
     @Published private(set) var cacheSizeBytes: Int64 = 0
 
@@ -40,7 +36,10 @@ final class SettingsViewModel: ObservableObject {
     /// `AppState/apiClient` は URL 不正・未設定時に `nil` を返すため optional とする。
     /// `nil` の場合は RSS ソース操作を行わず、難易度・API 設定の編集のみ可能にする
     /// （設定タブからの設定修正の導線を残すため）。
-    private let apiClient: APIClient?
+    private let apiClientOverride: APIClient?
+    /// 本番では共有状態を正本として API クライアントも AppState から取得する。
+    private let appState: AppState?
+    private var apiClient: APIClient? { appState?.apiClient ?? apiClientOverride }
     /// ダウンロード音声キャッシュの容量取得・全削除に使うマネージャ（issue #52）。
     private let cacheManager: AudioCacheManager
 
@@ -56,7 +55,15 @@ final class SettingsViewModel: ObservableObject {
     ///   - apiClient: API 通信に使うクライアント。未設定時は `nil`。
     ///   - cacheManager: 音声キャッシュの容量取得・全削除に使うマネージャ（既定: `AudioCacheManager()`）。
     init(apiClient: APIClient?, cacheManager: AudioCacheManager = AudioCacheManager()) {
-        self.apiClient = apiClient
+        self.apiClientOverride = apiClient
+        self.appState = nil
+        self.cacheManager = cacheManager
+    }
+
+    /// 共有 AppState を正本として使う本番用 initializer。
+    init(appState: AppState, cacheManager: AudioCacheManager = AudioCacheManager()) {
+        self.apiClientOverride = nil
+        self.appState = appState
         self.cacheManager = cacheManager
     }
 
@@ -148,24 +155,6 @@ final class SettingsViewModel: ObservableObject {
         } catch {
             generationQuota = nil
             generationQuotaLoadFailed = true
-        }
-    }
-
-    /// 聴取ストリーク（連続聴取日数）を取得する（issue #165）。
-    /// 失敗時は `listeningStreak` を `nil` のまま `listeningStreakLoadFailed` を立てる。
-    /// 404 時は graceful degradation: セクション非表示（`listeningStreakLoadFailed = false`）。
-    func loadListeningStreak() async {
-        guard let apiClient else { return }
-        do {
-            listeningStreak = try await apiClient.fetchListeningStreak()
-            listeningStreakLoadFailed = false
-        } catch APIError.httpError(let statusCode) where statusCode == 404 {
-            // 404 = 旧 backend への graceful degradation。セクション非表示（警告なし）
-            listeningStreak = nil
-            listeningStreakLoadFailed = false
-        } catch {
-            listeningStreak = nil
-            listeningStreakLoadFailed = true
         }
     }
 
