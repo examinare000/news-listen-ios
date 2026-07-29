@@ -15,6 +15,10 @@ import SwiftUI
 struct SettingsView: View {
     /// アプリ全体で共有する設定状態。
     @ObservedObject private var appState: AppState
+    /// ADR-088 の端末ローカル設定。サーバー同期せずデバイスごとの好みを尊重する。
+    /// キーは DSFeedback で一元管理。
+    @AppStorage(DSFeedback.sfxEnabledKey) private var sfxEnabled = true
+    @AppStorage(DSFeedback.hapticsEnabledKey) private var hapticsEnabled = true
     /// RSS ソースの取得・追加・編集・削除を担う ViewModel。
     ///
     /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
@@ -64,6 +68,7 @@ struct SettingsView: View {
                 listeningStreakSection
                 difficultySection
                 playbackSection
+                feedbackSection
                 cacheSection
             }
             .scrollContentBackground(.hidden)
@@ -355,6 +360,16 @@ struct SettingsView: View {
                     if !ok { appState.defaultPlaybackSpeed = oldValue }
                 }
             }
+        }
+    }
+
+    /// ADR-088 の効果音・触覚はアカウント設定ではなく端末ローカル設定として保持する。
+    private var feedbackSection: some View {
+        Section("操作フィードバック") {
+            Toggle("効果音", isOn: $sfxEnabled)
+                .accessibilityHint("クイズやスワイプ確定時の控えめな効果音を切り替えます")
+            Toggle("ハプティクス", isOn: $hapticsEnabled)
+                .accessibilityHint("クイズやスワイプ確定時の触覚フィードバックを切り替えます")
         }
     }
 

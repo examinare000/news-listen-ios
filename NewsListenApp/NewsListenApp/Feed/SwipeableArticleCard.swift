@@ -50,10 +50,6 @@ struct SwipeableArticleCard: View {
                 .simultaneousGesture(dragGesture)
         }
         .clipped()
-        // 閾値到達時に触覚フィードバック（越えた瞬間のみ）。
-        .sensoryFeedback(trigger: crossedThreshold) { _, crossed in
-            crossed ? .impact(weight: .medium) : nil
-        }
     }
 
     /// スワイプ方向に応じた背景アフォーダンス（右=Star 金 / 左=Dismiss 赤）。
@@ -144,6 +140,8 @@ struct SwipeableArticleCard: View {
                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
                 dragOffset = value.translation.width
                 let crossed = abs(dragOffset) >= threshold
+                // 閾値横断時のビジュアルアフォーダンス（背景色・アイコン変化）のみ。
+                // 確定フィードバックは .onEnded で実装。
                 if crossed != crossedThreshold {
                     crossedThreshold = crossed
                 }
@@ -156,6 +154,9 @@ struct SwipeableArticleCard: View {
                 }
                 crossedThreshold = false
                 guard passed else { return }   // 閾値未満は元に戻す（操作しない）
+                // 確定（操作が実行されるとき）に swipeConfirm を発火。
+                // 不発時（戻した場合）は発火しない（guard passed で return）。
+                DSFeedback.shared.play(.swipeConfirm)
                 if width > 0 {
                     onStar()
                 } else {

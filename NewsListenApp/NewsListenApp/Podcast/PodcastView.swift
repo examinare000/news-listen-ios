@@ -65,6 +65,7 @@ struct PodcastView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .dsScreenBackground()
             .navigationTitle("Podcast")
+            .dsStreakToolbar(appState: appState)
             .animation(.spring(), value: viewModel.currentPodcast?.id)
             .toolbar {
                 // 再生待ち一覧（キュー）を開く。待機数をバッジ的に併記する。
