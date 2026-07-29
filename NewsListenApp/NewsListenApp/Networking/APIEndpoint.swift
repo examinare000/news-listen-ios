@@ -51,6 +51,18 @@ enum APIEndpoint {
     case generationQuota
     /// 聴取ストリーク（連続聴取日数）を取得（issue #165）。
     case listeningStreak
+    /// 学習ダッシュボードを取得。
+    case learningDashboard
+    /// Podcast の語彙を個人語彙帳へ登録。
+    case saveVocabulary
+    /// 個人語彙帳の一覧を取得。
+    case vocabulary
+    /// 個人語彙帳から指定語を削除。
+    case deleteVocabulary(id: String)
+    /// 期日到来した単語テストセッションを取得。
+    case vocabularyTestSession
+    /// 単語テスト結果を送信。
+    case submitVocabularyTestResult
     /// iOS APNs デバイストークンを登録（Bearer 要）。
     case registerDeviceToken
     /// iOS APNs デバイストークンを解除（Bearer 要・クエリ param token）。
@@ -121,6 +133,11 @@ enum APIEndpoint {
         case .preferences, .updatePreferences: return "/settings/preferences"
         case .generationQuota: return "/users/me/generation-quota"
         case .listeningStreak: return "/users/me/listening-streak"
+        case .learningDashboard: return "/users/me/learning-dashboard"
+        case .saveVocabulary, .vocabulary: return "/vocabulary"
+        case .deleteVocabulary(let id): return "/vocabulary/\(id)"
+        case .vocabularyTestSession: return "/vocabulary/test-session"
+        case .submitVocabularyTestResult: return "/vocabulary/test-result"
         case .registerDeviceToken, .unregisterDeviceToken: return "/notifications/device-tokens"
         case .login: return "/auth/login"
         case .logout: return "/auth/logout"
@@ -147,7 +164,7 @@ enum APIEndpoint {
         switch self {
         case .feed, .starredArticles, .podcasts, .podcast, .sources, .featuredSources, .onboardingStatus,
              .me, .listUsers, .passkeyCredentials, .preferences, .sessions, .generationQuota,
-             .listeningStreak:
+             .listeningStreak, .learningDashboard, .vocabulary, .vocabularyTestSession:
             return "GET"
         case .starArticle, .dismissArticle, .addSource, .completeOnboarding,
              .login, .logout, .changePassword, .createUser,
@@ -155,12 +172,16 @@ enum APIEndpoint {
              .passkeyLoginOptions, .passkeyLoginVerify, .revokeOtherSessions, .clientErrors,
              .registerDeviceToken, .markCompleted, .submitQuizAnswers:
             return "POST"
+        case .saveVocabulary, .submitVocabularyTestResult:
+            return "POST"
         case .updateProfile, .updateUser, .updatePlaybackPosition:
             return "PATCH"
         case .updatePreferences, .updateSource:
             return "PUT"
         case .removeSource, .deleteUser, .passkeyDeleteCredential, .revokeSession, .unregisterDeviceToken,
              .unstarArticle:
+            return "DELETE"
+        case .deleteVocabulary:
             return "DELETE"
         }
     }
