@@ -1,5 +1,6 @@
 import XCTest
 import AVFoundation
+import os
 @testable import NewsListenApp
 
 // PodcastViewModel は @MainActor 分離（AVPlayer 操作を含む）のため、
@@ -7,8 +8,14 @@ import AVFoundation
 @MainActor
 final class PodcastViewModelTests: XCTestCase {
 
+    // WHY: 完了ハンドラの順序入れ替え（PodcastViewModel §handlePlaybackEnded）以降、
+    //      markCompleted と stopPlayback() 由来の /position 同期 Task が並行して
+    //      `data(for:)` を呼び得るため、`requests` への追記を `OSAllocatedUnfairLock` で直列化する
+    //      （actor 化すると呼び出し側の同期アクセス `session.requests.last` が壊れるため不採用。
+    //      `NSLock` は async 文脈からの直接呼び出しが Swift 6 で警告/エラーになるため使わない）。
     private final class RequestRecordingSession: URLSessionProtocol {
-        private(set) var requests: [URLRequest] = []
+        private let storage = OSAllocatedUnfairLock(initialState: [URLRequest]())
+        var requests: [URLRequest] { storage.withLock { $0 } }
         let statusCode: Int
 
         init(statusCode: Int = 200) {
@@ -16,7 +23,7 @@ final class PodcastViewModelTests: XCTestCase {
         }
 
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-            requests.append(request)
+            storage.withLock { $0.append(request) }
             let response = HTTPURLResponse(
                 url: request.url!,
                 statusCode: statusCode,
@@ -46,13 +53,19 @@ final class PodcastViewModelTests: XCTestCase {
 
     // MARK: - issue #81: 再生キュー（連続再生）
 
-    private func queuePodcast(_ id: String) -> Podcast {
+    // WHY: 位置復元テスト（末尾/途中/duration=0 境界）で playbackPositionSeconds / durationSeconds を
+    //      個別に指定する必要があるため、既定値付き引数へ拡張する（既存呼び出しは無変更で通る）。
+    private func queuePodcast(
+        _ id: String,
+        playbackPositionSeconds: Double = 0,
+        durationSeconds: Int = 60
+    ) -> Podcast {
         Podcast(
             id: id, type: "single", articleIds: [], difficulty: "toeic_900",
             audioUrl: "https://storage.example.com/\(id).mp3", title: "",
             japaneseIntroText: "i",
-            durationSeconds: 60, createdAt: "2026-05-31T06:00:00Z", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0, segments: nil
+            durationSeconds: durationSeconds, createdAt: "2026-05-31T06:00:00Z", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: playbackPositionSeconds, segments: nil
         )
     }
 
@@ -86,6 +99,7 @@ final class PodcastViewModelTests: XCTestCase {
         await vm.handlePlaybackEnded()           // 次が無い → 停止しつつ currentPodcast は保持
         XCTAssertEqual(vm.currentPodcast?.id, "a")
         XCTAssertFalse(vm.isPlaying)
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
     }
 
     func testPlaybackEndedPreservesPodcastForQuizWhenQueueExhausted() async {
@@ -101,9 +115,10 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertFalse(vm.isPlaying)
         // キューは末尾要素を指したまま（再聴・ジャンプ可能な状態を保つ）
         XCTAssertEqual(vm.queue.current?.id, "completed-podcast")
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
     }
 
-    func testPlaybackEndedMarksCapturedPodcastBeforeAutoAdvanceAndRefreshesStreak() async {
+    func testPlaybackEndedMarksCapturedPodcastBeforeAutoAdvanceAndRefreshesStreak() async throws {
         let session = RequestRecordingSession()
         let client = APIClient(
             baseURL: URL(string: "https://api.example.com")!,
@@ -111,13 +126,18 @@ final class PodcastViewModelTests: XCTestCase {
             session: session
         )
         var refreshCount = 0
-        var pathSeenByRefresh: String?
+        var completedSentBeforeRefresh = false
         let vm = makeViewModel(
             apiClient: client,
             networkMonitor: StubNetworkMonitor(isOnline: true),
             refreshListeningStreak: {
                 refreshCount += 1
-                pathSeenByRefresh = session.requests.last?.url?.path
+                // WHY: /position 同期 Task が並行して混ざり得るため requests.last では
+                //      順序依存になる。「refresh 時点で /completed が送信済み」という
+                //      本来の順序保証だけを内容ベースで捕捉する。
+                completedSentBeforeRefresh = session.requests.contains {
+                    $0.url?.path == "/podcasts/completed-id/completed"
+                }
             }
         )
         await vm.addToQueue(queuePodcast("completed-id"))
@@ -125,12 +145,18 @@ final class PodcastViewModelTests: XCTestCase {
 
         await vm.handlePlaybackEnded()
 
-        XCTAssertEqual(session.requests.first?.url?.path, "/podcasts/completed-id/completed")
-        XCTAssertEqual(session.requests.first?.httpMethod, "POST")
-        XCTAssertNil(session.requests.first?.httpBody)
+        // WHY: handlePlaybackEnded の順序入れ替え（UI収束を先行させる）により、
+        //      stopPlayback() 由来の /position 同期 Task が /completed より先に
+        //      enqueue され得るため、リクエスト**順序**ではなく含有で検証する。
+        let completedRequest = try XCTUnwrap(
+            session.requests.first { $0.url?.path == "/podcasts/completed-id/completed" }
+        )
+        XCTAssertEqual(completedRequest.httpMethod, "POST")
+        XCTAssertNil(completedRequest.httpBody)
         XCTAssertEqual(vm.currentPodcast?.id, "next-id")
         XCTAssertEqual(refreshCount, 1)
-        XCTAssertEqual(pathSeenByRefresh, "/podcasts/completed-id/completed")
+        // 順序非依存: ストリーク更新は完聴記録の後、という契約のみを検証する。
+        XCTAssertTrue(completedSentBeforeRefresh)
     }
 
     func testCompletionFailureDoesNotBlockQueueAutoAdvance() async {
@@ -149,7 +175,8 @@ final class PodcastViewModelTests: XCTestCase {
 
         await vm.handlePlaybackEnded()
 
-        XCTAssertEqual(session.requests.first?.url?.path, "/podcasts/failed-completion/completed")
+        // 順序非依存: /completed リクエストが送られたことのみを検証する（§理由は上記テスト参照）。
+        XCTAssertTrue(session.requests.contains { $0.url?.path == "/podcasts/failed-completion/completed" })
         XCTAssertEqual(vm.currentPodcast?.id, "still-plays")
     }
 
@@ -782,6 +809,164 @@ final class PodcastViewModelTests: XCTestCase {
         let body = try XCTUnwrap(mockSession.lastRequest?.httpBody)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Double])
         XCTAssertEqual(json["position_seconds"], 42)
+    }
+
+    // MARK: - 完了時自動収束
+
+    func testQueueEndSetsFinishedState() async {
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))   // キューは [a] のみ
+
+        await vm.handlePlaybackEnded()
+
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertEqual(vm.currentPodcast?.id, "a")
+        XCTAssertFalse(vm.isPlaying)
+    }
+
+    func testAutoAdvanceDoesNotSetFinishedState() async {
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))
+        await vm.addToQueue(queuePodcast("b"))
+
+        await vm.handlePlaybackEnded()           // a 終了 → 自動で b へ
+
+        XCTAssertFalse(vm.didFinishCurrentEpisode)
+        XCTAssertEqual(vm.currentPodcast?.id, "b")
+    }
+
+    func testReplayCurrentEpisodeClearsFinishedStateAndPlaysFromZero() async {
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))
+        await vm.handlePlaybackEnded()
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
+
+        await vm.replayCurrentEpisode()
+
+        XCTAssertFalse(vm.didFinishCurrentEpisode)
+        XCTAssertEqual(vm.currentPodcast?.id, "a")
+        XCTAssertTrue(vm.isPlaying)
+        XCTAssertEqual(vm.currentTime, 0)
+    }
+
+    func testReplayCurrentEpisodeOverridesMidPositionRestore() async {
+        // WHY: finished 状態への復帰時に、サーバーから復元された途中位置（playbackPositionSeconds: 120）
+        //      を replayCurrentEpisode() が seek(to: 0) で明示的に上書きすることを検証。
+        //      修正対象: replayCurrentEpisode() 内の seek(to: 0) を削ると、このテストは RED になる。
+        let vm = makeOnlineViewModel()
+        let podcast = queuePodcast("mid-position", playbackPositionSeconds: 120, durationSeconds: 300)
+        vm.currentPodcast = podcast
+        await vm.handlePlaybackEnded()
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
+
+        await vm.replayCurrentEpisode()
+
+        XCTAssertFalse(vm.didFinishCurrentEpisode)
+        XCTAssertEqual(vm.currentTime, 0)  // 途中位置 120s を上書き
+    }
+
+    func testReplayCurrentEpisodeIsNoOpWithoutCurrentPodcast() async {
+        let vm = makeOnlineViewModel()
+
+        await vm.replayCurrentEpisode()
+
+        XCTAssertNil(vm.currentPodcast)
+        XCTAssertFalse(vm.isPlaying)
+    }
+
+    func testReplayWhileOfflineNotCachedKeepsFinishedStateAndSetsError() async {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key",
+            session: MockURLSession(data: Data("{}".utf8), statusCode: 200)
+        )
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: false))
+        let podcast = queuePodcast("offline-episode")
+        vm.currentPodcast = podcast
+        await vm.handlePlaybackEnded()           // キュー空 → 収束
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
+
+        await vm.replayCurrentEpisode()
+
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
+    }
+
+    func testStopPlaybackDoesNotSetFinishedState() async throws {
+        let vm = await playingViewModel()
+
+        vm.stopPlayback()
+
+        XCTAssertFalse(vm.didFinishCurrentEpisode)
+    }
+
+    func testStopPlaybackAfterFinishPreservesFinishedState() async {
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))
+        await vm.handlePlaybackEnded()
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
+
+        vm.stopPlayback()                        // タブ離脱を想定
+
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertEqual(vm.currentPodcast?.id, "a")
+    }
+
+    func testPlayDifferentEpisodeClearsFinishedState() async {
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))
+        await vm.handlePlaybackEnded()
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
+
+        await vm.play(podcast: queuePodcast("b"))
+
+        XCTAssertFalse(vm.didFinishCurrentEpisode)
+        XCTAssertEqual(vm.currentPodcast?.id, "b")
+    }
+
+    func testPlayWithEndPositionStartsFromZero() async {
+        // 保存位置が末尾±2秒 → 完聴済みの記録とみなし、復元せず先頭から再生する
+        // （再タップ即完了ループの回帰防止）。
+        let vm = makeOnlineViewModel()
+        let podcast = queuePodcast("resumed", playbackPositionSeconds: 58, durationSeconds: 60)
+
+        await vm.play(podcast: podcast)
+
+        XCTAssertEqual(vm.currentTime, 0)
+    }
+
+    func testPlayWithMidPositionRestoresPosition() async {
+        // 対のテスト: 末尾ガードが途中位置の復元まで巻き込んで殺していないことを確認する。
+        let vm = makeOnlineViewModel()
+        let podcast = queuePodcast("mid", playbackPositionSeconds: 120, durationSeconds: 300)
+
+        await vm.play(podcast: podcast)
+
+        XCTAssertEqual(vm.currentTime, 120)
+    }
+
+    func testPlayWithZeroDurationRestoresPosition() async {
+        // durationSeconds == 0（メタデータ欠損）で isAtEnd が常に true にならず、
+        // レジューム自体が無効化されない境界を確認する。
+        let vm = makeOnlineViewModel()
+        let podcast = queuePodcast("zero-duration", playbackPositionSeconds: 30, durationSeconds: 0)
+
+        await vm.play(podcast: podcast)
+
+        XCTAssertEqual(vm.currentTime, 30)
+    }
+
+    func testHandlePlaybackEndedIgnoresStaleEndedId() async {
+        // 終了通知の endedId が、その間に利用者が切り替えた現在の episode と一致しなければ
+        // 収束もキュー遷移も起こさない（issue #59 の shouldProcessPlayerItemCallback と同型のガード）。
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))
+        await vm.addToQueue(queuePodcast("b"))
+        await vm.play(podcast: queuePodcast("b"))
+
+        await vm.handlePlaybackEnded(endedId: "a")
+
+        XCTAssertEqual(vm.currentPodcast?.id, "b")
+        XCTAssertFalse(vm.didFinishCurrentEpisode)
     }
 }
 
