@@ -36,115 +36,15 @@ struct AudioPlayerView: View {
     @ScaledMetric(relativeTo: .body) private var vocabularyListMaxHeight: CGFloat = 200
 
     var body: some View {
+        // WHY: view identity（this VStack）を維持したまま内側で分岐する。差し替え方式だと
+        //      .sheet(item:) / .task(id:) / .alert が乗る修飾子ごと入れ替わり、完了の瞬間に
+        //      表示中のクイズシートが強制 dismiss される（AudioPlayerView 自体は差し替えない）。
         VStack(spacing: DSSpacing.l) {
-            // 再生中ラベル＋日本語イントロ（セリフで雑誌的に）
-            VStack(spacing: DSSpacing.s) {
-                Text("再生中")
-                    .dsEyebrow()
-                if let podcast = vm.currentPodcast, !podcast.japaneseIntroText.isEmpty {
-                    Text(podcast.japaneseIntroText)
-                        .font(DSFont.body)
-                        .foregroundStyle(DSColor.ink)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                }
+            if vm.didFinishCurrentEpisode {
+                finishedContent
+            } else {
+                playingContent
             }
-            .padding(.horizontal)
-
-            // トランスクリプト（折りたたみ）
-            // WHY: segments が無い（旧エピソード・未デプロイ環境）場合は何も描画しない
-            //      グレースフルデグレードにより、レイアウトを不変に保つ（issue #162）。
-            if let podcast = vm.currentPodcast, podcast.hasTranscript {
-                transcriptSection(segments: podcast.segments ?? [])
-                    .padding(.horizontal)
-            }
-
-            if let podcast = vm.currentPodcast, podcast.hasVocabulary || podcast.hasQuiz {
-                learningSections(podcast)
-                    .padding(.horizontal)
-            }
-
-            // シークバー
-            VStack(spacing: DSSpacing.xs) {
-                Slider(
-                    value: Binding(
-                        get: { vm.currentTime },
-                        set: { vm.seek(to: $0) }
-                    ),
-                    in: 0...max(vm.duration, 1)
-                )
-                .tint(DSColor.accent)
-                HStack {
-                    Text(formatTime(vm.currentTime))
-                    Spacer()
-                    Text(formatTime(vm.duration))
-                }
-                .font(DSFont.caption.monospacedDigit())
-                .foregroundStyle(DSColor.inkSecondary)
-            }
-            .padding(.horizontal)
-
-            // バッファリング中インジケータ（issue #51）。
-            // WHY: 再生ボタンの見た目は isPlaying のまま変わらないため、無反応に見える stall 状態を
-            //      利用者に伝える最小限の表示として、コントロール直上にラベル付きスピナーを出す。
-            if vm.isBuffering {
-                HStack(spacing: DSSpacing.xs) {
-                    ProgressView()
-                        .scaleEffect(0.8, anchor: .center)
-                    Text("バッファリング中…")
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.inkSecondary)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("バッファリング中")
-            }
-
-            // 再生コントロール
-            HStack(spacing: DSSpacing.xxl + DSSpacing.s) {
-                Button {
-                    vm.seek(to: max(0, vm.currentTime - PlaybackConstants.skipBackwardSeconds))
-                } label: {
-                    Image(systemName: "gobackward.15")
-                        .font(.title2)
-                        .foregroundStyle(DSColor.ink)
-                }
-                .accessibilityLabel("15秒戻す")
-                .accessibilityHint("再生位置を15秒前に移動します")
-
-                Button {
-                    vm.togglePlayPause()
-                } label: {
-                    Image(systemName: vm.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 60))
-                        .foregroundStyle(DSColor.accent)
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                .accessibilityLabel(vm.isPlaying ? "一時停止" : "再生")
-                .accessibilityHint(vm.isPlaying ? "再生を一時停止します" : "再生を開始します")
-
-                Button {
-                    vm.seek(to: min(vm.duration, vm.currentTime + PlaybackConstants.skipForwardSeconds))
-                } label: {
-                    Image(systemName: "goforward.30")
-                        .font(.title2)
-                        .foregroundStyle(DSColor.ink)
-                }
-                .accessibilityLabel("30秒進む")
-                .accessibilityHint("再生位置を30秒先に移動します")
-            }
-
-            // 再生速度
-            Picker("速度", selection: Binding(
-                get: { vm.playbackSpeed },
-                set: { vm.setSpeed($0) }
-            )) {
-                ForEach(speeds, id: \.self) { speed in
-                    Text(speedLabel(speed)).tag(speed)
-                }
-            }
-            .pickerStyle(.segmented)
-            .tint(DSColor.accent)
-            .padding(.horizontal)
         }
         .padding(.vertical, DSSpacing.l)
         .frame(maxWidth: .infinity)
@@ -171,6 +71,165 @@ struct AudioPlayerView: View {
         } message: {
             Text(vocabularySaveError ?? "")
         }
+        .onChange(of: vm.didFinishCurrentEpisode) { _, finished in
+            // WHY: finished/playing 双方向の遷移でリセットする。
+            //      finished→playing（replay）時に展開状態を持ち越さないため。
+            //      VoiceOver通知は finished=true 遷移時のみ（レイアウト確定後の読み上げが必要）。
+            isTranscriptExpanded = false
+            isVocabularyExpanded = false
+            if finished {
+                UIAccessibility.post(notification: .layoutChanged, argument: nil)
+            }
+        }
+    }
+
+    /// フルプレイヤー表示（再生中/一時停止中）。
+    @ViewBuilder
+    private var playingContent: some View {
+        // 再生中ラベル＋日本語イントロ（セリフで雑誌的に）
+        VStack(spacing: DSSpacing.s) {
+            Text("再生中")
+                .dsEyebrow()
+            if let podcast = vm.currentPodcast, !podcast.japaneseIntroText.isEmpty {
+                Text(podcast.japaneseIntroText)
+                    .font(DSFont.body)
+                    .foregroundStyle(DSColor.ink)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+            }
+        }
+        .padding(.horizontal)
+
+        // トランスクリプト（折りたたみ）
+        // WHY: segments が無い（旧エピソード・未デプロイ環境）場合は何も描画しない
+        //      グレースフルデグレードにより、レイアウトを不変に保つ（issue #162）。
+        if let podcast = vm.currentPodcast, podcast.hasTranscript {
+            transcriptSection(segments: podcast.segments ?? [])
+                .padding(.horizontal)
+        }
+
+        if let podcast = vm.currentPodcast, podcast.hasVocabulary || podcast.hasQuiz {
+            learningSections(podcast)
+                .padding(.horizontal)
+        }
+
+        // シークバー
+        VStack(spacing: DSSpacing.xs) {
+            Slider(
+                value: Binding(
+                    get: { vm.currentTime },
+                    set: { vm.seek(to: $0) }
+                ),
+                in: 0...max(vm.duration, 1)
+            )
+            .tint(DSColor.accent)
+            HStack {
+                Text(formatTime(vm.currentTime))
+                Spacer()
+                Text(formatTime(vm.duration))
+            }
+            .font(DSFont.caption.monospacedDigit())
+            .foregroundStyle(DSColor.inkSecondary)
+        }
+        .padding(.horizontal)
+
+        // バッファリング中インジケータ（issue #51）。
+        // WHY: 再生ボタンの見た目は isPlaying のまま変わらないため、無反応に見える stall 状態を
+        //      利用者に伝える最小限の表示として、コントロール直上にラベル付きスピナーを出す。
+        if vm.isBuffering {
+            HStack(spacing: DSSpacing.xs) {
+                ProgressView()
+                    .scaleEffect(0.8, anchor: .center)
+                Text("バッファリング中…")
+                    .font(DSFont.caption)
+                    .foregroundStyle(DSColor.inkSecondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("バッファリング中")
+        }
+
+        // 再生コントロール
+        HStack(spacing: DSSpacing.xxl + DSSpacing.s) {
+            Button {
+                vm.seek(to: max(0, vm.currentTime - PlaybackConstants.skipBackwardSeconds))
+            } label: {
+                Image(systemName: "gobackward.15")
+                    .font(.title2)
+                    .foregroundStyle(DSColor.ink)
+            }
+            .accessibilityLabel("15秒戻す")
+            .accessibilityHint("再生位置を15秒前に移動します")
+
+            Button {
+                vm.togglePlayPause()
+            } label: {
+                Image(systemName: vm.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 60))
+                    .foregroundStyle(DSColor.accent)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .accessibilityLabel(vm.isPlaying ? "一時停止" : "再生")
+            .accessibilityHint(vm.isPlaying ? "再生を一時停止します" : "再生を開始します")
+
+            Button {
+                vm.seek(to: min(vm.duration, vm.currentTime + PlaybackConstants.skipForwardSeconds))
+            } label: {
+                Image(systemName: "goforward.30")
+                    .font(.title2)
+                    .foregroundStyle(DSColor.ink)
+            }
+            .accessibilityLabel("30秒進む")
+            .accessibilityHint("再生位置を30秒先に移動します")
+        }
+
+        // 再生速度
+        Picker("速度", selection: Binding(
+            get: { vm.playbackSpeed },
+            set: { vm.setSpeed($0) }
+        )) {
+            ForEach(speeds, id: \.self) { speed in
+                Text(speedLabel(speed)).tag(speed)
+            }
+        }
+        .pickerStyle(.segmented)
+        .tint(DSColor.accent)
+        .padding(.horizontal)
+    }
+
+    /// 聴き終わり後のコンパクト表示。シークバー・再生コントロール・トランスクリプトは出さず、
+    /// 「もう一度聴く」と語彙/クイズ導線のみを残して一覧に空間を返す（ユーザー決定のUX）。
+    @ViewBuilder
+    private var finishedContent: some View {
+        VStack(spacing: DSSpacing.s) {
+            Text("聴き終わりました")
+                .dsEyebrow()
+            if let podcast = vm.currentPodcast, !podcast.japaneseIntroText.isEmpty {
+                Text(podcast.japaneseIntroText)
+                    .font(DSFont.body)
+                    .foregroundStyle(DSColor.ink)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal)
+
+        if let podcast = vm.currentPodcast, podcast.hasVocabulary || podcast.hasQuiz {
+            learningSections(podcast)
+                .padding(.horizontal)
+        }
+
+        Button {
+            Task { await vm.replayCurrentEpisode() }
+        } label: {
+            Label("もう一度聴く", systemImage: "arrow.counterclockwise")
+                .font(DSFont.body.weight(.semibold))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(DSColor.accent)
+        .padding(.horizontal)
+        .accessibilityLabel("もう一度聴く")
+        .accessibilityHint("このエピソードを先頭から再生します")
     }
 
     /// 秒数を `分:秒`（例: `1:05`）の表示用文字列へ整形する。非有限値は `0:00` を返す。
@@ -363,5 +422,14 @@ struct AudioPlayerView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(DSColor.paper)
     .preferredColorScheme(.dark)
+}
+
+#Preview("Player / Finished") {
+    VStack {
+        Spacer()
+        AudioPlayerView(vm: PreviewSamples.finishedPlayerViewModel())
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(DSColor.paper)
 }
 #endif

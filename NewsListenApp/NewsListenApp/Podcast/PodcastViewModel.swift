@@ -11,6 +11,7 @@ import Combine
 import AVFoundation
 import MediaPlayer
 import SwiftUI
+import UIKit
 
 /// 音声再生の準備状態を表す列挙型。
 enum DownloadState: Equatable {
@@ -58,6 +59,10 @@ final class PodcastViewModel: NSObject, ObservableObject {
     @Published private(set) var queue = PlaybackQueue()
     /// 現在ネットワークがオンラインかどうか（オフラインバナー表示用に View から購読する・issue #54）。
     @Published private(set) var isOnline: Bool
+    /// キュー終端まで聴き終えたかどうか（完了時プレイヤー自動収束用）。
+    /// `currentPodcast` は語彙/クイズ導線のため聴き終えた後も保持するため、
+    /// 「フルプレイヤー」と「聴き終わりましたのコンパクト表示」の切替はこのフラグで判定する。
+    @Published private(set) var didFinishCurrentEpisode = false
 
     /// 一覧画面の表示状態（ロード中/エラー/空/一覧）。
     /// ロード失敗と「本当に空」を同一の空状態に畳んで表示しないよう、View はこの値のみで分岐する（issue #53）。
@@ -253,6 +258,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
         }
         // ガード通過＝再生開始が確定した経路なので、前回の失敗アラートが残留しないようここで消す（issue #58）。
         errorMessage = nil
+        // 同様に、ガード通過後（＝実際に再生が始まる経路）でのみ収束表示を解除する。
+        // オフライン+未キャッシュで失敗した replay はコンパクト状態のまま残す（guard 手前で return するため未到達）。
+        didFinishCurrentEpisode = false
 
         // マナーモード（消音スイッチ ON）でも再生されるよう .playback を指定する。
         // 既定の .soloAmbient だと無音になり「再生されない」不具合になるため。
@@ -269,7 +277,18 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
         // 前回の再生位置から復元する。同期 seek ヘルパに委譲し、async コンテキストでの
         // AVPlayer.seek(to:) async オーバーロード選択（要 await）を避ける。
-        if podcast.playbackPositionSeconds > 0 {
+        //
+        // 末尾付近の保存位置は「聴き終えた」記録なので復元せず先頭から再生する
+        // （backend の markCompleted は completed_at のみ書き込み、position はリセットしないため、
+        // 完聴済みエピソードの再タップが末尾へ即 seek → 即 didPlayToEndTime の完了ループになるのを防ぐ）。
+        // durationSeconds > 0 の前置が必須: 0（メタデータ欠損）だと isAtEnd が常に true になり
+        // レジューム機能が全面無効化される。
+        // WHY: 固定2秒ウィンドウ（末尾 2 秒以内は復元しない）は、本番のニュース Podcast が
+        //      分単位尺のみ生成される前提に基づいている。極短エピソード（数秒尺）では全域が
+        //      末尾扱いになり得るが、本番制約により許容。
+        let isAtEnd = podcast.durationSeconds > 0
+            && podcast.playbackPositionSeconds >= Double(podcast.durationSeconds) - 2
+        if podcast.playbackPositionSeconds > 0 && !isAtEnd {
             seek(to: podcast.playbackPositionSeconds)
         }
 
@@ -314,6 +333,13 @@ final class PodcastViewModel: NSObject, ObservableObject {
         }
 
         // 再生終了で次のキューへ自動遷移する（issue #81）。object に playerItem を指定し当該再生のみ購読。
+        // WHY: 終了した item に対応する podcast の ID を「観測登録時」に閉じ込めて Task へ渡す。
+        //      通知配信は queue: .main 経由で非同期化されるため、発火時点で self.currentPodcast を
+        //      読むと、その間に利用者が別エピソードへ切り替えていた場合に新しい ID を誤って
+        //      「終了した episode の ID」として渡してしまい、handlePlaybackEnded 側の stale ガード
+        //      （currentPodcast?.id != endedId）が本来の役目を果たせなくなる（レビュー指摘 PR #74）。
+        //      registration 時点の immutable な `podcast.id` を閉じ込めることでこの race を構造的に排除する。
+        let endedId = podcast.id
         endOfPlaybackObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification,
             object: playerItem,
@@ -321,7 +347,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                Task { await self.handlePlaybackEnded() }
+                Task { await self.handlePlaybackEnded(endedId: endedId) }
             }
         }
 
@@ -387,15 +413,16 @@ final class PodcastViewModel: NSObject, ObservableObject {
     // MARK: - 再生キュー（issue #81）
 
     /// 再生終了時の自動次再生。キューに次があれば再生し、無ければ停止してプレイヤーを閉じる。
-    func handlePlaybackEnded() async {
-        // キュー遷移で currentPodcast が差し替わる前に、完聴した ID を確定する。
+    ///
+    /// - Parameter endedId: 終了通知の発火元となった podcast の ID。`nil`（既定・直接呼び出し用）なら
+    ///   stale ガードは働かない。非 nil のとき、現在の `currentPodcast` と一致しなければ
+    ///   （Task 実行までの隙間に利用者が別エピソードへ切り替えた stale 呼び出しとみなし）何もしない。
+    func handlePlaybackEnded(endedId: String? = nil) async {
+        if let endedId, currentPodcast?.id != endedId { return }
         let completedPodcastId = currentPodcast?.id
-        if let completedPodcastId {
-            // 完聴記録は best-effort。通信失敗で自動遷移や次の再生を止めない。
-            try? await apiClient.markCompleted(id: completedPodcastId)
-            await refreshListeningStreak()
-        }
 
+        // UI 収束をネットワーク待ちより先に確定する（await を挟むと収束が2RTT分遅れるため）。
+        // play() は実質同期（内部に await ポイントを持たない）。
         if let next = queue.advance() {
             await play(podcast: next)
         } else {
@@ -404,8 +431,41 @@ final class PodcastViewModel: NSObject, ObservableObject {
             // 回答途中のシートが強制 dismiss されない。
             stopPlayback()
             // currentPodcast は保持（再生位置は末尾のまま、プレイヤーは一時停止状態）
+            didFinishCurrentEpisode = true
+        }
+
+        // 完聴記録は best-effort（通信失敗で自動遷移や次の再生を止めない）。キュー終端では
+        // player 解放後（画面ロック中も含む）に走るため、サスペンドされないよう background task で囲う。
+        // `UIBackgroundModes` は audio のみのため、これはベストエフォートの保護（expirationHandler なし）。
+        if let completedPodcastId {
+            let bgTask = UIApplication.shared.beginBackgroundTask()
+            defer {
+                if bgTask != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTask)
+                }
+            }
+            try? await apiClient.markCompleted(id: completedPodcastId)
+            await refreshListeningStreak()
         }
     }
+
+    /// 同じエピソードを先頭から再生し直す（「もう一度聴く」）。
+    func replayCurrentEpisode() async {
+        guard let podcast = currentPodcast else { return }
+        await play(podcast: podcast)
+        // play() はフェッチ時の途中位置へ復元し得るため、成功時のみ明示的に先頭へ。
+        guard player != nil else { return }
+        seek(to: 0)
+    }
+
+#if DEBUG
+    /// プレビュー専用シーム。`didFinishCurrentEpisode` は `private(set)` のため、
+    /// `PreviewSupport` から finished（聴き終わりましたコンパクト表示）状態を直接組み立てられない。
+    /// DEBUG ビルドのみ内部メソッドとして公開する。
+    func previewMarkFinished() {
+        didFinishCurrentEpisode = true
+    }
+#endif
 
     /// 現在のクイズ回答をサーバーへ送り、採点結果を返す。
     func submitQuizAnswers(podcastId: String, answers: [Int]) async throws -> QuizAnswerResponse {

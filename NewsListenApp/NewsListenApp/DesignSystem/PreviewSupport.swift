@@ -152,6 +152,15 @@ enum PreviewSamples {
         vm.playbackSpeed = 1.0
         return vm
     }
+
+    /// 聴き終わり後のコンパクト表示を仕込んだ `PodcastViewModel`（finishedContent プレビュー用）。
+    /// `didFinishCurrentEpisode` は `private(set)` のため、DEBUG シーム `previewMarkFinished()` 経由で立てる。
+    @MainActor static func finishedPlayerViewModel() -> PodcastViewModel {
+        let vm = PodcastViewModel(apiClient: apiClient())
+        vm.currentPodcast = podcasts[0]
+        vm.previewMarkFinished()
+        return vm
+    }
 }
 
 /// `feed` / `podcasts` / `starred` のパスに応じてサンプル JSON を 200 で返すプレビュー用モックセッション。
