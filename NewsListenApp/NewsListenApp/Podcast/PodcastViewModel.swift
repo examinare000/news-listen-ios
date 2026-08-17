@@ -333,9 +333,13 @@ final class PodcastViewModel: NSObject, ObservableObject {
         }
 
         // 再生終了で次のキューへ自動遷移する（issue #81）。object に playerItem を指定し当該再生のみ購読。
-        // WHY: 終了した item に対応する podcast の ID をここで閉じ込めて Task へ渡す。
-        //      Task 実行までの MainActor ジョブ1ホップの隙間に利用者が別エピソードへ切り替えていた場合、
-        //      handlePlaybackEnded 側の stale ガードで無視するため（issue #59 と同型）。
+        // WHY: 終了した item に対応する podcast の ID を「観測登録時」に閉じ込めて Task へ渡す。
+        //      通知配信は queue: .main 経由で非同期化されるため、発火時点で self.currentPodcast を
+        //      読むと、その間に利用者が別エピソードへ切り替えていた場合に新しい ID を誤って
+        //      「終了した episode の ID」として渡してしまい、handlePlaybackEnded 側の stale ガード
+        //      （currentPodcast?.id != endedId）が本来の役目を果たせなくなる（レビュー指摘 PR #74）。
+        //      registration 時点の immutable な `podcast.id` を閉じ込めることでこの race を構造的に排除する。
+        let endedId = podcast.id
         endOfPlaybackObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification,
             object: playerItem,
@@ -343,7 +347,6 @@ final class PodcastViewModel: NSObject, ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let endedId = self.currentPodcast?.id
                 Task { await self.handlePlaybackEnded(endedId: endedId) }
             }
         }

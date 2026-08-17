@@ -955,6 +955,60 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(vm.currentTime, 30)
     }
 
+    func testEndOfPlaybackObserverCapturesEndedIdAtRegistrationNotAtFireTime() async throws {
+        // PR #74 レビュー指摘: 終了通知(didPlayToEndTimeNotification)は queue: .main 経由で
+        // 非同期配信されるため、クロージャ発火時点で self.currentPodcast を読むと、
+        // 登録〜発火の間に利用者が別エピソードへ切り替えた場合、新しい currentPodcast の ID を
+        // 「終了した episode の ID」として誤って渡してしまい、handlePlaybackEnded 側の
+        // stale ガード（currentPodcast?.id != endedId）が素通りする。
+        // ここでは stopPlayback() を経由させず currentPodcast だけを書き換えることで、
+        // 「観測オブザーバは a の item を指したまま、currentPodcast だけ b に変わった」状況を再現する。
+        let session = RequestRecordingSession()
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: session
+        )
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        await vm.play(podcast: queuePodcast("a"))
+        let endedItem = try XCTUnwrap(vm.player?.currentItem)
+
+        vm.currentPodcast = queuePodcast("b")
+
+        NotificationCenter.default.post(name: AVPlayerItem.didPlayToEndTimeNotification, object: endedItem)
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        // a の stale な終了通知が b に誤適用されていないこと。
+        XCTAssertEqual(vm.currentPodcast?.id, "b")
+        XCTAssertFalse(vm.didFinishCurrentEpisode)
+        XCTAssertFalse(session.requests.contains { $0.url?.path == "/podcasts/b/completed" })
+    }
+
+    func testEndOfPlaybackObserverTriggersConvergenceForCurrentEpisode() async throws {
+        // 上の stale テストの正方向対照（positive control）。これが無いと、オブザーバが
+        // handlePlaybackEnded を一切呼ばないミュータントでも stale テストは green のまま通り、
+        // 「ガードが効いている」ことと「オブザーバが死んでいる」ことを区別できない
+        // （敵対的検証のミューテーションテストで実証済み）。
+        // 実 NotificationCenter 配信経路で、現エピソードの終了通知が収束と完聴記録を起こすことを固定する。
+        let session = RequestRecordingSession()
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: session
+        )
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        await vm.addToQueue(queuePodcast("a"))
+        let endedItem = try XCTUnwrap(vm.player?.currentItem)
+
+        NotificationCenter.default.post(name: AVPlayerItem.didPlayToEndTimeNotification, object: endedItem)
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        // キュー終端: 収束フラグが立ち、a の完聴が記録される。
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertEqual(vm.currentPodcast?.id, "a")
+        XCTAssertTrue(session.requests.contains { $0.url?.path == "/podcasts/a/completed" })
+    }
+
     func testHandlePlaybackEndedIgnoresStaleEndedId() async {
         // 終了通知の endedId が、その間に利用者が切り替えた現在の episode と一致しなければ
         // 収束もキュー遷移も起こさない（issue #59 の shouldProcessPlayerItemCallback と同型のガード）。
