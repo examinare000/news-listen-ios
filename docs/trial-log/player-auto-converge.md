@@ -61,3 +61,19 @@
   5. [minor] `isAtEnd` 固定2秒ウィンドウの前提（分単位尺のみ生成）をWHYコメント化
 - [major] シミュレータ目視確認は未実施のまま人間レビューへハンドオフ（`make test` はUIテスト非実行のため）
 - 参考指摘（auto-advance時のオフライン早期returnで旧stateが残る既存構造）はスコープ外・followup issue化候補
+
+## coderabbitai 未解決指摘への対応（PR #74, line 347, 2026-08-17）
+
+- **目的**: 「Capture the ended item ID before registering the observer」指摘の修正。
+  **前提**: `play(podcast:)` 内の `endOfPlaybackObserver` クロージャが `self.currentPodcast?.id` をクロージャ**発火時**に読んでいた。`queue: .main` 指定により通知配信は非同期化されるため、登録〜発火の間に利用者が別エピソードへ切り替えると、新しい `currentPodcast` の ID を「終了した episode の ID」として誤って `handlePlaybackEnded(endedId:)` に渡し、stale ガード（`currentPodcast?.id != endedId`）がトートロジーで無効化される。
+  **やったこと**: まず RED を確認するため、`vm.play(podcast: a)` 後に `vm.currentPodcast` を直接 `b` へ書き換え（`stopPlayback()` を経由させず、観測オブザーバは a の item を指したまま currentPodcast だけ変わった状況を再現）、a の item に対して実際に `AVPlayerItem.didPlayToEndTimeNotification` を post する回帰テスト（`testEndOfPlaybackObserverCapturesEndedIdAtRegistrationNotAtFireTime`）を追加して `xcodebuild test -only-testing:...` を実行。
+  **結果（RED）**: `XCTAssertFalse(vm.didFinishCurrentEpisode)` が失敗（`true` になる）＝ a の stale 通知が b に誤適用されることを確認。
+  **やったこと**: レビューの提案diffどおり、`let endedId = podcast.id`（関数引数の immutable な値）を `addObserver` 呼び出しの**手前**へ移動し、クロージャ内の `self.currentPodcast?.id` 読み取りを削除。
+  **結果（GREEN）**: 同テストおよび `PodcastViewModelTests` 全61件が green（`xcodebuild test -only-testing:NewsListenAppTests/PodcastViewModelTests`）。既存の `testHandlePlaybackEndedIgnoresStaleEndedId`（`handlePlaybackEnded(endedId:)` の直接呼び出しでガードのみを検証）とは異なり、新規テストは実際の `NotificationCenter` 配信経路を通して「クロージャの捕捉タイミング」自体を検証する。
+
+- **目的**: 敵対的検証（ミューテーションテスト）で回帰テストの検出力を反証する。
+  **前提**: 上記の stale 回帰テストは「誤適用が**起きない**こと」しか主張しない否定形のテスト。
+  **やったこと**: 検証エージェントが、オブザーバのクロージャを `handlePlaybackEnded` を一切呼ばないミュータントに置換して `PodcastViewModelTests` を実行。
+  **結果（欠陥検出）**: ミュータントでも全61件 green のまま通過。つまり既存テスト群は「stale ガードが効いている」ことと「オブザーバが死んでいる」ことを区別できていなかった（実 NotificationCenter 経路の正方向テストが存在しなかった）。
+  **やったこと（修正）**: 正方向対照 `testEndOfPlaybackObserverTriggersConvergenceForCurrentEpisode` を追加。現エピソードの実 item への実通知 post で `didFinishCurrentEpisode == true` と `/podcasts/a/completed` 送信を固定。
+  **結果**: 実コードで62件 green。ミュータントに対して再実行すると新テストのみが失敗（stale テストは素通り）＝ミュータント kill を実測確認。全スイート464件 green（`SIMULATOR="iPhone 17" ./scripts/test.sh`）。
