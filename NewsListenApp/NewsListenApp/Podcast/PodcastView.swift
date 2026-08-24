@@ -11,43 +11,13 @@ import SwiftUI
 struct PodcastView: View {
     /// 一覧取得と再生制御を担う ViewModel。
     ///
-    /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
-    /// （`FeedView` と同様、プレースホルダ生成 + 後差し替えのアンチパターンを避ける）。
-    @StateObject private var viewModel: PodcastViewModel
-    /// キャッシュマネージャ。
-    private let cacheManager: AudioCacheManager
-    /// ネットワーク監視。
-    private let networkMonitor: NetworkMonitoring
+    /// タブ間で再生を継続させるため所有は `ContentView`（`@StateObject`）にあり、
+    /// 本ビューは参照するだけ（タブ切替で本ビューが消えても再生状態は生きる）。
+    @ObservedObject var viewModel: PodcastViewModel
     /// 再生待ちキューのシート表示状態（issue #81）。
     @State private var showQueue = false
-    /// アプリ全体で共有する設定状態（通知ディープリンクの監視に使う）。
+    /// アプリ全体で共有する設定状態（ストリーク表示に使う）。
     @EnvironmentObject private var appState: AppState
-
-    /// ビューを生成する。
-    /// - Parameters:
-    ///   - apiClient: ViewModel に注入する API クライアント。
-    ///   - cacheManager: 音声キャッシュマネージャ（既定: `AudioCacheManager()`）。
-    ///   - networkMonitor: ネットワーク監視（既定: `NetworkMonitor()`）。
-    /// - Note: `@MainActor` 化した ``NetworkMonitoring`` の既定値生成を分離文脈で行うため、
-    ///   ビューの init も `@MainActor` にする（View 生成は常にメインで行われるため安全）。
-    @MainActor
-    init(
-        apiClient: APIClient,
-        cacheManager: AudioCacheManager = AudioCacheManager(),
-        networkMonitor: NetworkMonitoring = NetworkMonitor(),
-        refreshListeningStreak: @escaping @MainActor () async -> Void = {}
-    ) {
-        _viewModel = StateObject(
-            wrappedValue: PodcastViewModel(
-                apiClient: apiClient,
-                cacheManager: cacheManager,
-                networkMonitor: networkMonitor,
-                refreshListeningStreak: refreshListeningStreak
-            )
-        )
-        self.cacheManager = cacheManager
-        self.networkMonitor = networkMonitor
-    }
 
     var body: some View {
         NavigationStack {
@@ -88,23 +58,8 @@ struct PodcastView: View {
             }
         }
         .task { await viewModel.loadPodcasts() }
-        // タブ離脱時に再生を止め、AVPlayer / TimeObserver を解放する。
-        .onDisappear { viewModel.stopPlayback() }
         .sheet(isPresented: $showQueue) {
             QueueSheet(viewModel: viewModel)
-        }
-        // 通知タップで指定された Podcast を再生する（ディープリンク・issue #80）。
-        // コールドスタート（既に値が入っている）と起動後の両方に対応する。
-        .task(id: appState.selectedPodcastId) { await consumeDeepLink() }
-    }
-
-    /// 通知ディープリンクで指定された Podcast を再生し、消費後に状態をクリアする。
-    private func consumeDeepLink() async {
-        guard let id = appState.selectedPodcastId else { return }
-        await viewModel.playById(id)
-        // await 中に新しい通知タップで id が変わり得るため、自分が消費した id のときだけクリアする。
-        if appState.selectedPodcastId == id {
-            appState.selectedPodcastId = nil
         }
     }
 
@@ -194,12 +149,12 @@ struct PodcastView: View {
 
 #if DEBUG
 #Preview("Podcast List / Light") {
-    PodcastView(apiClient: PreviewSamples.apiClient())
+    PodcastView(viewModel: PreviewSamples.playerViewModel())
         .environmentObject(PreviewSamples.appState())
 }
 
 #Preview("Podcast List / Dark") {
-    PodcastView(apiClient: PreviewSamples.apiClient())
+    PodcastView(viewModel: PreviewSamples.playerViewModel())
         .environmentObject(PreviewSamples.appState())
         .preferredColorScheme(.dark)
 }
