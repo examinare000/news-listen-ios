@@ -811,6 +811,48 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(json["position_seconds"], 42)
     }
 
+    // MARK: - タブ間再生継続: scenePhase 離脱時の位置フラッシュ
+
+    func testFlushPlaybackPositionSyncsCurrentPositionWithoutStopping() async throws {
+        let mockSession = MockURLSession(data: Data(), statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        await vm.play(podcast: queuePodcast("p1", durationSeconds: 300))
+        vm.seek(to: 42)
+
+        vm.flushPlaybackPosition()
+
+        // syncPlaybackPositionIfNeeded は非同期 Task で送信するため、完了を少し待つ。
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(mockSession.lastRequest?.url?.path, "/podcasts/p1/position")
+        let body = try XCTUnwrap(mockSession.lastRequest?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Double])
+        XCTAssertEqual(json["position_seconds"], 42)
+        // stopPlayback と異なり再生状態は解放しない（バックグラウンド再生を継続させる）。
+        XCTAssertNotNil(vm.player)
+        XCTAssertEqual(vm.currentTime, 42)
+    }
+
+    func testFlushPlaybackPositionWithoutCurrentPodcastSendsNothing() async throws {
+        let mockSession = MockURLSession(data: Data(), statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+
+        vm.flushPlaybackPosition()
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertNil(mockSession.lastRequest)
+    }
+
     // MARK: - 完了時自動収束
 
     func testQueueEndSetsFinishedState() async {
