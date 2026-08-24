@@ -27,21 +27,11 @@ struct PodcastView: View {
                     OfflineBanner()
                 }
                 content
-                if viewModel.currentPodcast != nil {
-                    AudioPlayerView(vm: viewModel)
-                        .transition(.move(edge: .bottom))
-                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .dsScreenBackground()
             .navigationTitle("Podcast")
             .dsStreakToolbar(appState: appState)
-            // WHY: value を id ではなく2本の Bool へ分ける（キュー自動遷移で id は変わるが
-            //      どちらの Bool も変わらないため、List を巻き込む暗黙アニメーションが消える）。
-            //      外側 VStack に置くことで、パネル縮小に伴う List の再レイアウトも同じ
-            //      トランザクションで駆動する（Group へ分離すると挿入 transition が不発になる）。
-            .animation(.spring(), value: viewModel.currentPodcast != nil)
-            .animation(.spring(duration: 0.35), value: viewModel.didFinishCurrentEpisode)
             .toolbar {
                 // 再生待ち一覧（キュー）を開く。待機数をバッジ的に併記する。
                 ToolbarItem(placement: .navigationBarTrailing) {
