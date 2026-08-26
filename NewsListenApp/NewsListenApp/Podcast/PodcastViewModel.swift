@@ -797,6 +797,14 @@ final class PodcastViewModel: NSObject, ObservableObject {
         }
     }
 
+    /// 現在の再生位置を即時にサーバーへ同期する（再生状態は変更しない）。
+    ///
+    /// タブ間再生継続によりタブ離脱では stopPlayback() を呼ばなくなったため、
+    /// アプリのバックグラウンド遷移（scenePhase）時の取りこぼし防止として View 層から呼ぶ。
+    func flushPlaybackPosition() {
+        syncPlaybackPositionIfNeeded()
+    }
+
     /// 現在の再生位置をサーバーへ同期する。
     /// currentPodcast が nil の場合や通信失敗時はサイレント失敗。
     ///

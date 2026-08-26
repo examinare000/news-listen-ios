@@ -63,7 +63,18 @@ struct NewsListenAppApp: App {
                             )
                         }
                     case .authenticated:
-                        ContentView()
+                        if let client = appState.apiClient {
+                            ContentView(
+                                apiClient: client,
+                                refreshListeningStreak: { await appState.refreshListeningStreak() }
+                            )
+                        } else {
+                            ContentUnavailableView(
+                                "API 設定を確認してください",
+                                systemImage: "exclamationmark.triangle",
+                                description: Text("接続先 URL が不正です")
+                            )
+                        }
                     }
                 }
             }
@@ -85,16 +96,39 @@ struct ContentView: View {
     /// foreground 復帰時に共有ストリークを更新するためのライフサイクル状態。
     @Environment(\.scenePhase) private var scenePhase
 
+    /// 全タブで共有する再生 ViewModel。
+    ///
+    /// PodcastView の `@StateObject` 所有だとタブ切替の onDisappear で再生を止めるしか
+    /// なかったため、ContentView へ引き上げてタブ間で再生を継続させる（Podcast タブ以外
+    /// でもバックグラウンド再生・ロック画面操作が生きる）。
+    @StateObject private var playerViewModel: PodcastViewModel
+
+    /// ビューを生成する。
+    /// - Parameters:
+    ///   - apiClient: 再生 ViewModel に注入する API クライアント。
+    ///   - refreshListeningStreak: 完聴時に共有ストリークを更新するクロージャ。
+    /// - Note: `@MainActor` 化した `NetworkMonitor` の既定値生成を分離文脈で行うため、
+    ///   ビューの init も `@MainActor` にする（旧 PodcastView.init と同じ理由）。
+    @MainActor
+    init(
+        apiClient: APIClient,
+        refreshListeningStreak: @escaping @MainActor () async -> Void
+    ) {
+        _playerViewModel = StateObject(
+            wrappedValue: PodcastViewModel(
+                apiClient: apiClient,
+                refreshListeningStreak: refreshListeningStreak
+            )
+        )
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             apiTab("フィード", systemImage: "newspaper", tag: 0) { client in
                 FeedView(apiClient: client)
             }
-            apiTab("Podcast", systemImage: "headphones", tag: 1) { client in
-                PodcastView(
-                    apiClient: client,
-                    refreshListeningStreak: { await appState.refreshListeningStreak() }
-                )
+            apiTab("Podcast", systemImage: "headphones", tag: 1) { _ in
+                PodcastView(viewModel: playerViewModel)
             }
             apiTab("スター", systemImage: "star", tag: 2) { client in
                 StarredView(apiClient: client)
@@ -109,13 +143,11 @@ struct ContentView: View {
                 .tabItem { Label("設定", systemImage: "gearshape") }
                 .tag(4)
         }
-        // 通知タップで遷移先 Podcast が指定されたら Podcast タブへ切り替える。
+        // 通知タップで遷移先 Podcast が指定されたら Podcast タブへ切り替えて再生する。
         // .task(id:) はマウント時にも発火するため、コールドスタート（ContentView 生成前に
         // selectedPodcastId が確定済み）でも初期値を拾える（onChange はマウント済みの変化のみで取りこぼす）。
-        // 実際の再生は PodcastView 側が selectedPodcastId を監視して行う。
-        .task(id: appState.selectedPodcastId) {
-            if appState.selectedPodcastId != nil { selectedTab = 1 }
-        }
+        // 再生 ViewModel を ContentView が所有するため、PodcastView のマウントに依存せず消費できる。
+        .task(id: appState.selectedPodcastId) { await consumeDeepLink() }
         // 起動ごとに onboarding 状態を取得し、未完了なら追加ステップを被せる。
         // 3分岐ルーティングではなく cover にすることで launch をブロックしない。
         .task {
@@ -123,12 +155,31 @@ struct ContentView: View {
             await appState.refreshListeningStreak()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            guard newPhase == .active else { return }
-            Task { await appState.refreshListeningStreak() }
+            switch newPhase {
+            case .active:
+                Task { await appState.refreshListeningStreak() }
+            case .background, .inactive:
+                // タブ離脱で stopPlayback() を呼ばなくなったため、アプリ離脱直前の
+                // 再生位置をここで同期する（15秒毎の定期同期の取りこぼし補完）。
+                playerViewModel.flushPlaybackPosition()
+            @unknown default:
+                break
+            }
         }
         .fullScreenCover(isPresented: onboardingBinding) {
             OnboardingSourcesView(apiClient: appState.apiClient)
                 .environmentObject(appState)
+        }
+    }
+
+    /// 通知ディープリンクで指定された Podcast へタブを切り替えて再生し、消費後に状態をクリアする。
+    private func consumeDeepLink() async {
+        guard let id = appState.selectedPodcastId else { return }
+        selectedTab = 1
+        await playerViewModel.playById(id)
+        // await 中に新しい通知タップで id が変わり得るため、自分が消費した id のときだけクリアする。
+        if appState.selectedPodcastId == id {
+            appState.selectedPodcastId = nil
         }
     }
 
