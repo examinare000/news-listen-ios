@@ -140,8 +140,14 @@ struct ContentView: View {
             // Settings は API 未設定の修正導線として常に表示する（第 4 タブ末尾）。
             // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
             SettingsView(appState: appState)
+                .withMiniPlayer(playerViewModel)
                 .tabItem { Label("設定", systemImage: "gearshape") }
                 .tag(4)
+        }
+        // フルプレイヤーはタブ内カードではなくグローバルシート。下スワイプ（interactive
+        // dismiss）＝最小化としてミニプレイヤーへ落とす（hidden にはしない）。
+        .sheet(isPresented: playerSheetBinding) {
+            PlayerSheetView(vm: playerViewModel)
         }
         // 通知タップで遷移先 Podcast が指定されたら Podcast タブへ切り替えて再生する。
         // .task(id:) はマウント時にも発火するため、コールドスタート（ContentView 生成前に
@@ -193,6 +199,7 @@ struct ContentView: View {
     ) -> some View {
         if let client = appState.apiClient {
             content(client)
+                .withMiniPlayer(playerViewModel)
                 .tabItem { Label(title, systemImage: systemImage) }
                 .tag(tag)
         } else {
@@ -204,6 +211,14 @@ struct ContentView: View {
             .tabItem { Label(title, systemImage: systemImage) }
             .tag(tag)
         }
+    }
+
+    /// フルプレイヤーシートの表示 Binding。閉じる操作（下スワイプ含む）は最小化として扱う。
+    private var playerSheetBinding: Binding<Bool> {
+        Binding(
+            get: { playerViewModel.presentation == .expanded },
+            set: { if !$0 { playerViewModel.minimizePlayer() } }
+        )
     }
 
     /// `onboardingCompleted == false`（明示的に未完了）のときだけ追加ステップを提示する Binding。
