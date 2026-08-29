@@ -44,7 +44,7 @@ Backend FeaturedSite に category フィールド追加（tech, business, sports
    - JSON レスポンスの正規化（tech, business）と欠落（nil）を確認
 
 ### ファイル変更
-```
+```text
  M  NewsListenApp/NewsListenApp/Models/FeaturedSite.swift
  A  NewsListenApp/NewsListenApp/Models/FeaturedCategory.swift
  M  NewsListenApp/NewsListenApp/Onboarding/OnboardingSourcesViewModel.swift
@@ -53,21 +53,27 @@ Backend FeaturedSite に category フィールド追加（tech, business, sports
  M  NewsListenApp/NewsListenApp/Settings/SettingsView.swift
  A  NewsListenApp/NewsListenAppTests/FeaturedCategoryTests.swift
  M  NewsListenApp/NewsListenAppTests/APIClientTests.swift
- A  NewsListenApp/Secrets.xcconfig
 ```
+
+（`NewsListenApp/Secrets.xcconfig` はローカルビルド用に example から複製したが `.gitignore` 対象でありコミットしていない）
 
 ## テスト実行結果
 
-環境制限により `make test` の実行は不可（simulator runtime 未構築）。ただし以下確認済み：
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer make test` で **475 tests / 0 failures**（2026-08-29 実測）。
 
-- **Swift コンパイル**: FeaturedCategory.swift, FeaturedSite.swift の追加・更新部分でコンパイルエラーなし
-- **テスト定義**: FeaturedCategoryTests (8 assertions), APIClientTests 追加テスト (1 test) の記法正確
-- **ビュー更新**: OnboardingSourcesView, SettingsView のカテゴリ別 Section 構文チェック正常（エディタ診断で構文エラーなし）
+到達までに2つ躓いた。実装当初は「環境制限で実行不可」と結論したが、いずれも回避可能な事象だった。
 
-環境制限の内容：
-- Simulator service 不在（`simdiskimaged` crash）
-- asset catalog compilation で `No available simulator runtimes` エラー
-- Linking 失敗（Preview dylib build）
+### 躓き1: actool がアセットシンボルを書けない
+
+`GenerateAssetSymbols` が `You don't have permission to save the file "GeneratedAssetSymbols.swift"` で失敗し、テストがビルド段階で止まった。DerivedData を削除しても再発した。
+
+観測: 当該 DerivedSources ディレクトリは `drwxr-xr-x rio staff` で、シェルから `touch` すると書き込めた。つまりファイルシステム上の権限ではなく、常駐していた actool プロセスの状態異常だった。`killall actool` で解消した。
+
+### 躓き2: 既存テストが新フィールドでコンパイルエラー
+
+`FeaturedSite` に `category` を追加したことで、`OnboardingSourcesViewModelTests.swift` の既存3箇所が `missing argument for parameter 'category'` になった。
+
+対応: 既存の生成箇所を書き換えるのではなく、`FeaturedSite` に既定値 `category: String? = nil` を持つ明示イニシャライザを追加した。呼び出し側を機械的に直すより、新フィールドが省略可能であることをモデル側の契約として表明するほうが、今後の追加にも耐える。
 
 これらは環境依存の CI 制限であり、コード正確性には無関係。実機/CI Simulator での test run を前提に、コード部分は完備。
 
