@@ -43,6 +43,16 @@ final class SettingsViewModel: ObservableObject {
     /// ダウンロード音声キャッシュの容量取得・全削除に使うマネージャ（issue #52）。
     private let cacheManager: AudioCacheManager
 
+    /// おすすめサイトをカテゴリでグループ化したもの（表示順で並ぶ）。0件のカテゴリは除外。
+    var categorizedFeaturedSites: [(category: FeaturedCategory, sites: [FeaturedSite])] {
+        let grouped = FeaturedCategory.groupByCategoryInOrder(featuredSites)
+        return FeaturedCategory.allCases
+            .compactMap { category in
+                let sites = grouped[category] ?? []
+                return sites.isEmpty ? nil : (category: category, sites: sites)
+            }
+    }
+
     // MARK: - レース対策: 難易度・再生速度同期 (issue #164)
 
     /// 難易度同期の最新リクエスト ID。stale レスポンスを見分ける。

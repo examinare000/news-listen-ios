@@ -20,6 +20,8 @@ struct FeaturedSite: Codable, Identifiable {
     let thumbnailURL: String?
     /// 説明文（任意）。
     let description: String?
+    /// カテゴリ（tech, business, sports, entertainment, culture のいずれか。欠落は tech 扱い）。
+    let category: String?
 
     /// snake_case な API レスポンスとのマッピング。
     enum CodingKeys: String, CodingKey {
@@ -28,6 +30,17 @@ struct FeaturedSite: Codable, Identifiable {
         case url
         case thumbnailURL = "thumbnail_url"
         case description
+        case category
+    }
+
+    /// category 追加前の生成箇所を壊さないため、既定値 nil を持つ明示イニシャライザを提供する。
+    init(id: String, name: String, url: String, thumbnailURL: String?, description: String?, category: String? = nil) {
+        self.id = id
+        self.name = name
+        self.url = url
+        self.thumbnailURL = thumbnailURL
+        self.description = description
+        self.category = category
     }
 }
 

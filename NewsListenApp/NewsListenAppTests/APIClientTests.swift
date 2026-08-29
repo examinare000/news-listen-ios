@@ -192,6 +192,29 @@ final class APIClientTests: XCTestCase {
         XCTAssertNil(response.sites[1].thumbnailURL)
     }
 
+    func testFetchFeaturedSitesDecodesCategory() async throws {
+        let mockJSON = #"""
+        {"sites": [
+            {"id":"the-verge","name":"The Verge","url":"https://www.theverge.com/rss/index.xml","thumbnail_url":"https://www.theverge.com/favicon.ico","description":"テクノロジー全般","category":"tech"},
+            {"id":"biz-news","name":"Biz News","url":"https://biz.com/feed/","thumbnail_url":null,"description":null,"category":"business"},
+            {"id":"sports-daily","name":"Sports Daily","url":"https://sports.com/feed/","thumbnail_url":null,"description":null}
+        ]}
+        """#.data(using: .utf8)!
+        let mockSession = MockURLSession(data: mockJSON, statusCode: 200)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        let response = try await client.fetchFeaturedSites()
+
+        XCTAssertEqual(response.sites.count, 3)
+        XCTAssertEqual(response.sites[0].category, "tech")
+        XCTAssertEqual(response.sites[1].category, "business")
+        XCTAssertNil(response.sites[2].category)
+    }
+
     func testFetchOnboardingStatusDecodesSnakeCase() async throws {
         let mockJSON = #"{"onboarding_completed": false}"#.data(using: .utf8)!
         let client = APIClient(

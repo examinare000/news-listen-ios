@@ -35,22 +35,36 @@ struct OnboardingSourcesView: View {
                         .font(DSFont.meta)
                         .foregroundStyle(DSColor.inkSecondary)
                 }
-                Section("おすすめサイト") {
-                    ForEach(viewModel.featuredSites) { site in
-                        row(for: site)
+                ForEach(viewModel.categorizedSites, id: \.category) { category, sites in
+                    Section(category.label) {
+                        ForEach(sites) { site in
+                            row(for: site)
+                        }
                     }
-                    // おすすめサイト取得の失敗を可視化する（issue #164・完全サイレントの解消）。
-                    // オンボーディング完走は阻害しないため、失敗時も「完了/スキップ」は有効なまま。
-                    if let error = viewModel.loadErrorMessage {
+                }
+
+                if !viewModel.categorizedSites.isEmpty {
+                    Section {
+                        if let error = viewModel.loadErrorMessage {
+                            HStack {
+                                Text(error).foregroundStyle(DSColor.danger).font(DSFont.footnote)
+                                Spacer()
+                                Button("再試行") { Task { await viewModel.loadFeaturedSites() } }
+                                    .buttonStyle(.borderless)
+                            }
+                        }
+                        if let error = viewModel.subscribeErrorMessage {
+                            Text(error).foregroundStyle(DSColor.danger).font(DSFont.footnote)
+                        }
+                    }
+                } else if let error = viewModel.loadErrorMessage {
+                    Section("おすすめサイト") {
                         HStack {
                             Text(error).foregroundStyle(DSColor.danger).font(DSFont.footnote)
                             Spacer()
                             Button("再試行") { Task { await viewModel.loadFeaturedSites() } }
                                 .buttonStyle(.borderless)
                         }
-                    }
-                    if let error = viewModel.subscribeErrorMessage {
-                        Text(error).foregroundStyle(DSColor.danger).font(DSFont.footnote)
                     }
                 }
             }
