@@ -240,33 +240,37 @@ struct SettingsView: View {
     /// 再試行を出すため、`featuredSites` が空でも `featuredSitesLoadFailed` なら表示する。
     @ViewBuilder
     private var featuredSitesSection: some View {
-        if appState.apiClient != nil, !viewModel.featuredSites.isEmpty || viewModel.featuredSitesLoadFailed {
-            Section("おすすめサイト") {
-                ForEach(viewModel.featuredSites) { site in
-                    HStack(spacing: 10) {
-                        AsyncImage(url: site.thumbnailURL.flatMap(URL.init(string:))) { image in
-                            image.resizable().scaledToFill()
-                        } placeholder: {
-                            Image(systemName: "globe").foregroundStyle(DSColor.inkTertiary)
-                        }
-                        .frame(width: 28, height: 28)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(site.name).font(DSFont.headline).foregroundStyle(DSColor.ink)
-                            if let description = site.description {
-                                Text(description).font(DSFont.caption).foregroundStyle(DSColor.inkTertiary)
+        if appState.apiClient != nil, !viewModel.categorizedFeaturedSites.isEmpty || viewModel.featuredSitesLoadFailed {
+            ForEach(viewModel.categorizedFeaturedSites, id: \.category) { category, sites in
+                Section(category.label) {
+                    ForEach(sites) { site in
+                        HStack(spacing: 10) {
+                            AsyncImage(url: site.thumbnailURL.flatMap(URL.init(string:))) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Image(systemName: "globe").foregroundStyle(DSColor.inkTertiary)
                             }
+                            .frame(width: 28, height: 28)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(site.name).font(DSFont.headline).foregroundStyle(DSColor.ink)
+                                if let description = site.description {
+                                    Text(description).font(DSFont.caption).foregroundStyle(DSColor.inkTertiary)
+                                }
+                            }
+                            Spacer()
+                            Button("購読") {
+                                Task { await viewModel.addSource(name: site.name, url: site.url) }
+                            }
+                            .buttonStyle(.borderless)
                         }
-                        Spacer()
-                        // ワンクリックで即購読（既存 addSource を再利用）。
-                        Button("購読") {
-                            Task { await viewModel.addSource(name: site.name, url: site.url) }
-                        }
-                        .buttonStyle(.borderless)
                     }
                 }
-                if viewModel.featuredSitesLoadFailed {
+            }
+
+            if viewModel.featuredSitesLoadFailed {
+                Section("おすすめサイト") {
                     HStack {
                         Text("おすすめサイトの取得に失敗しました")
                             .font(DSFont.footnote)

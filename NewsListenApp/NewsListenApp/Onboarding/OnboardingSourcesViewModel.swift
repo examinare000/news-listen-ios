@@ -26,6 +26,16 @@ final class OnboardingSourcesViewModel: ObservableObject {
 
     private let apiClient: APIClient?
 
+    /// おすすめサイトをカテゴリでグループ化したもの（表示順で並ぶ）。0件のカテゴリは除外。
+    var categorizedSites: [(category: FeaturedCategory, sites: [FeaturedSite])] {
+        let grouped = FeaturedCategory.groupByCategoryInOrder(featuredSites)
+        return FeaturedCategory.allCases
+            .compactMap { category in
+                let sites = grouped[category] ?? []
+                return sites.isEmpty ? nil : (category: category, sites: sites)
+            }
+    }
+
     /// ViewModel を生成する。
     /// - Parameter apiClient: API 通信に使うクライアント。未設定時は `nil`。
     init(apiClient: APIClient?) {
