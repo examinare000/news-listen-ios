@@ -811,6 +811,55 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(json["position_seconds"], 42)
     }
 
+    // MARK: - グローバルミニプレイヤー: プレイヤー表示状態遷移
+
+    func testPresentationIsHiddenUntilFirstPlay() async {
+        let vm = makeOnlineViewModel()
+        XCTAssertEqual(vm.presentation, .hidden)
+
+        await vm.play(podcast: queuePodcast("a"))
+
+        XCTAssertEqual(vm.presentation, .expanded)
+    }
+
+    func testMinimizeThenExpandRoundTrip() async {
+        let vm = makeOnlineViewModel()
+        await vm.play(podcast: queuePodcast("a"))
+
+        vm.minimizePlayer()
+        XCTAssertEqual(vm.presentation, .mini)
+
+        vm.expandPlayer()
+        XCTAssertEqual(vm.presentation, .expanded)
+    }
+
+    func testQueueEndKeepsMiniPresentationForFinishedState() async {
+        // WHY: キュー終端でも currentPodcast は保持される（語彙/クイズ導線）ため、
+        //      ミニプレイヤーも finished 状態のまま残す（hidden へ落とさない）。
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))
+        vm.minimizePlayer()
+
+        await vm.handlePlaybackEnded()
+
+        XCTAssertEqual(vm.presentation, .mini)
+        XCTAssertTrue(vm.didFinishCurrentEpisode)
+    }
+
+    func testAutoAdvanceKeepsCurrentPresentation() async {
+        // WHY: キュー自動遷移で表示形態が勝手に切り替わるとミニ再生中の閲覧を妨げるため、
+        //      次エピソードへの遷移では presentation を変更しない。
+        let vm = makeOnlineViewModel()
+        await vm.addToQueue(queuePodcast("a"))
+        await vm.addToQueue(queuePodcast("b"))
+        vm.minimizePlayer()
+
+        await vm.handlePlaybackEnded()           // a 終了 → 自動で b へ
+
+        XCTAssertEqual(vm.currentPodcast?.id, "b")
+        XCTAssertEqual(vm.presentation, .mini)
+    }
+
     // MARK: - タブ間再生継続: scenePhase 離脱時の位置フラッシュ
 
     func testFlushPlaybackPositionSyncsCurrentPositionWithoutStopping() async throws {
