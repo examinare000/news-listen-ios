@@ -77,9 +77,17 @@ struct AudioPlayerView: View {
             guard let podcast = vm.currentPodcast else { return }
             registeredTerms = []
             // エピソード切替でトランスクリプト同期状態を再構築する。
+            // WHY: キュー自動遷移は expandsPlayer: false で本 View を生かしたまま次エピソードへ
+            //      移るため、手動スクロール中の一時停止状態を持ち越すと新エピソードの自動追従が
+            //      最大3秒抑止される。追従状態も併せてリセットする。
+            resetTranscriptAutoScrollPause()
             segmentOffsets = transcriptTiming.segmentStartOffsets(for: podcast)
             activeTranscriptIndex = nil
             await loadSavedVocabulary(for: podcast)
+        }
+        .onDisappear {
+            // View が階層から外れたら復帰待ちの Task を残さない。
+            resetTranscriptAutoScrollPause()
         }
         .onChange(of: vm.currentTime) { _, time in
             // periodicTimeObserver（0.5秒毎）駆動。index が変わったときだけ書き込み、
@@ -367,6 +375,13 @@ struct AudioPlayerView: View {
             guard !Task.isCancelled else { return }
             isUserScrollingTranscript = false
         }
+    }
+
+    /// 自動追従の一時停止を即座に解除し、復帰待ちの Task を破棄する。
+    private func resetTranscriptAutoScrollPause() {
+        transcriptResumeTask?.cancel()
+        transcriptResumeTask = nil
+        isUserScrollingTranscript = false
     }
 
     /// 語彙グロッサリと理解度クイズへの導線を近接配置する。
