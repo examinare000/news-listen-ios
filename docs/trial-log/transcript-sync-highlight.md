@@ -25,6 +25,23 @@
 
 - **`simctl list devices` が空を返す件**: `xcode-select -p` が `/Library/Developer/CommandLineTools` を指すため。`DEVELOPER_DIR` の上書きで解消（memory `ios-xcodebuild-without-sudo` と同型）。同名シミュレータが重複しているため `name=` ではなく `id=<UDID>` 指定が確実。
 
+## ai-antipattern-reviewer の指摘と対応（2026-08-30）
+
+サイレントなコード欠落・表層的な修正・ハルシネーション API・偽の完了・スコープ逸脱については指摘なし。`TranscriptTimingTests` 13 件はミューテーション思考実験で実際に落ちる（`activeSegmentIndex` の「最後に一致した index を採用」を「最初に一致で break」に変えると `:44` が落ちる、`accumulatedWeight` の加算位置をずらすと `:11` / `:19` が落ちる）ことが確認され、実効性のあるテストと判定された。
+
+後始末について minor 2 件の指摘があり、いずれも修正した。
+
+- **目的**: エピソード切替時に手動スクロールの一時停止状態が持ち越される問題を解消する。
+  **前提**: `AudioPlayerView` は `PlayerSheetView` 経由でグローバルに1インスタンスが生き続ける。キュー自動遷移は `PodcastViewModel.swift:442` の `play(podcast:expandsPlayer: false)` を通り、`presentation` を変えないため View は破棄されない。
+  **やったこと**: `.task(id: vm.currentPodcast?.id)` は `segmentOffsets` と `activeTranscriptIndex` しかリセットしておらず、`isUserScrollingTranscript` と `transcriptResumeTask` が残ることを確認。
+  **結果**: トランスクリプトを手動スクロール中にキューが自動遷移すると、新エピソードの自動追従が最大 3 秒抑止される実害があった。`resetTranscriptAutoScrollPause()` を追加し `.task(id:)` から呼ぶよう修正。
+
+- **目的**: View 破棄時に復帰待ち Task を残さない。
+  **やったこと**: `.onDisappear` からも `resetTranscriptAutoScrollPause()` を呼ぶよう追加。
+  **結果**: 元々 `Task.sleep` 3 秒後に自己終了し `Task.isCancelled` ガードもあるため致命的リークではなかったが、明示的な後始末を入れた。
+
+**テストを追加しなかった理由**: どちらも `AudioPlayerView` の `@State`（`isUserScrollingTranscript` / `transcriptResumeTask`）に閉じた状態であり、SwiftUI の View 内部状態は XCTest から観測できない。純粋関数境界のみをテストで固定する既存方針を維持した。修正後 **Executed 492 tests, with 0 failures**・新規警告なしを再実測。
+
 ## 未実施（人間の確認が必要・引き継ぎ事項）
 
 PR #77 本文が「手動確認項目（未実施・レビュー時に確認要）」と自認していた項目は、**本セッションでも未実施のまま**である。理由: アプリはログインと実バックエンドを経由しないと segments 付きエピソードへ到達できず（モック起動用の launch argument や UI テスト経路が無い）、シミュレータ自動操作で検証できない。
