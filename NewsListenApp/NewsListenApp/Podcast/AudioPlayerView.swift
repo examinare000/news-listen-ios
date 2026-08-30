@@ -15,6 +15,10 @@ struct AudioPlayerView: View {
     /// 再生状態と操作を提供する ViewModel。
     @ObservedObject var vm: PodcastViewModel
 
+    /// トランスクリプト同期のタイミング供給源。既定は文字数按分の推定
+    /// （バックエンドが実時刻を返すようになったらここを差し替える）。
+    var transcriptTiming: TranscriptTimingProviding = EstimatedTranscriptTiming()
+
     /// 速度切替 Picker に並べる選択肢（倍率）。ロック画面/CC と共有する単一の真実。
     private let speeds: [Float] = PlaybackConstants.speeds
 
@@ -22,6 +26,14 @@ struct AudioPlayerView: View {
     /// WHY: 新規詳細画面を作らずこのプレイヤー内で完結させる（issue #162 のユーザー決定）ため、
     ///      ナビゲーションではなく View ローカルの開閉状態として保持する。
     @State private var isTranscriptExpanded = false
+    /// 各セグメントの推定開始秒（エピソード切替時に再計算）。nil なら同期機能を無効化。
+    @State private var segmentOffsets: [Double]?
+    /// 再生位置に対応するアクティブセグメント index。イントロ区間・未算出時は nil。
+    @State private var activeTranscriptIndex: Int?
+    /// 手動スクロール中は自動追従を止める（約3秒の無操作で復帰）。
+    @State private var isUserScrollingTranscript = false
+    /// 自動追従復帰のデバウンス Task。
+    @State private var transcriptResumeTask: Task<Void, Never>?
     /// 語彙グロッサリの開閉状態。
     @State private var isVocabularyExpanded = false
     /// クイズ導線タップ時の Podcast スナップショット。
@@ -64,7 +76,27 @@ struct AudioPlayerView: View {
         .task(id: vm.currentPodcast?.id) {
             guard let podcast = vm.currentPodcast else { return }
             registeredTerms = []
+            // エピソード切替でトランスクリプト同期状態を再構築する。
+            // WHY: キュー自動遷移は expandsPlayer: false で本 View を生かしたまま次エピソードへ
+            //      移るため、手動スクロール中の一時停止状態を持ち越すと新エピソードの自動追従が
+            //      最大3秒抑止される。追従状態も併せてリセットする。
+            resetTranscriptAutoScrollPause()
+            segmentOffsets = transcriptTiming.segmentStartOffsets(for: podcast)
+            activeTranscriptIndex = nil
             await loadSavedVocabulary(for: podcast)
+        }
+        .onDisappear {
+            // View が階層から外れたら復帰待ちの Task を残さない。
+            resetTranscriptAutoScrollPause()
+        }
+        .onChange(of: vm.currentTime) { _, time in
+            // periodicTimeObserver（0.5秒毎）駆動。index が変わったときだけ書き込み、
+            // ハイライト・自動スクロールの不要な再評価を避ける。
+            guard let offsets = segmentOffsets else { return }
+            let newIndex = EstimatedTranscriptTiming.activeSegmentIndex(offsets: offsets, currentTime: time)
+            if newIndex != activeTranscriptIndex {
+                activeTranscriptIndex = newIndex
+            }
         }
         .alert("語彙の登録に失敗しました", isPresented: vocabularySaveErrorBinding) {
             Button("OK") { vocabularySaveError = nil }
@@ -260,28 +292,38 @@ struct AudioPlayerView: View {
     @ViewBuilder
     private func transcriptSection(segments: [TranscriptSegment]) -> some View {
         DisclosureGroup(isExpanded: $isTranscriptExpanded) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: DSSpacing.m) {
-                    ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                        HStack(alignment: .top, spacing: DSSpacing.s) {
-                            Text(segment.speaker)
-                                .font(DSFont.caption.weight(.semibold))
-                                .foregroundStyle(DSColor.accent)
-                                .frame(minWidth: 20, alignment: .leading)
-                            Text(segment.text)
-                                .font(DSFont.body)
-                                .foregroundStyle(DSColor.ink)
-                                .fixedSize(horizontal: false, vertical: true)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DSSpacing.m) {
+                        ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                            transcriptRow(index: index, segment: segment)
                         }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("話者\(segment.speaker): \(segment.text)")
                     }
+                    .padding(.top, DSSpacing.s)
                 }
-                .padding(.top, DSSpacing.s)
+                // WHY: 発話数が多い場合でもプレイヤー全体の高さを一定に保ち、
+                //      シークバーや再生ボタンの位置がずれないようにする。
+                .frame(maxHeight: 200)
+                // WHY: iOS 17 デプロイターゲットでは .onScrollPhaseChange が使えないため、
+                //      ドラッグ検知で手動スクロールとみなし自動追従を一時停止する。
+                .simultaneousGesture(
+                    DragGesture().onChanged { _ in pauseTranscriptAutoScroll() }
+                )
+                .onChange(of: activeTranscriptIndex) { _, newIndex in
+                    guard isTranscriptExpanded, !isUserScrollingTranscript, let newIndex else { return }
+                    withAnimation(.easeInOut) { proxy.scrollTo(newIndex, anchor: .center) }
+                }
+                .onChange(of: isTranscriptExpanded) { _, expanded in
+                    // 展開した瞬間は現在の再生位置へアニメーションなしでジャンプする。
+                    guard expanded, let index = activeTranscriptIndex else { return }
+                    proxy.scrollTo(index, anchor: .center)
+                }
+                .onChange(of: isUserScrollingTranscript) { _, scrolling in
+                    // 手動スクロールからの復帰時、次のセグメント切替を待たずに追従へ戻す。
+                    guard !scrolling, isTranscriptExpanded, let index = activeTranscriptIndex else { return }
+                    withAnimation(.easeInOut) { proxy.scrollTo(index, anchor: .center) }
+                }
             }
-            // WHY: 発話数が多い場合でもプレイヤー全体の高さを一定に保ち、
-            //      シークバーや再生ボタンの位置がずれないようにする。
-            .frame(maxHeight: 200)
         } label: {
             Text("トランスクリプト")
                 .font(DSFont.meta)
@@ -289,6 +331,57 @@ struct AudioPlayerView: View {
         }
         .tint(DSColor.accent)
         .accessibilityHint(isTranscriptExpanded ? "トランスクリプトを折りたたみます" : "トランスクリプトを展開して表示します")
+    }
+
+    /// トランスクリプトの1発話行。再生中の行はハイライトし、タップで推定位置へシークする。
+    @ViewBuilder
+    private func transcriptRow(index: Int, segment: TranscriptSegment) -> some View {
+        let isActive = index == activeTranscriptIndex
+        HStack(alignment: .top, spacing: DSSpacing.s) {
+            Text(segment.speaker)
+                .font(DSFont.caption.weight(.semibold))
+                .foregroundStyle(DSColor.accent)
+                .frame(minWidth: 20, alignment: .leading)
+            Text(segment.text)
+                .font(DSFont.body)
+                .foregroundStyle(DSColor.ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(DSSpacing.xs)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: DSRadius.control, style: .continuous)
+                .fill(isActive ? DSColor.accentSoft : Color.clear)
+        )
+        .id(index)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // 推定オフセットへのシーク。推定誤差をユーザー自身が補正する手段も兼ねる。
+            guard let offsets = segmentOffsets, offsets.indices.contains(index) else { return }
+            vm.seek(to: offsets[index])
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("話者\(segment.speaker): \(segment.text)")
+        .accessibilityHint("タップでこの発話の推定位置へ移動します")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+
+    /// 手動スクロールとみなして自動追従を止め、約3秒の無操作で復帰させる。
+    private func pauseTranscriptAutoScroll() {
+        isUserScrollingTranscript = true
+        transcriptResumeTask?.cancel()
+        transcriptResumeTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            isUserScrollingTranscript = false
+        }
+    }
+
+    /// 自動追従の一時停止を即座に解除し、復帰待ちの Task を破棄する。
+    private func resetTranscriptAutoScrollPause() {
+        transcriptResumeTask?.cancel()
+        transcriptResumeTask = nil
+        isUserScrollingTranscript = false
     }
 
     /// 語彙グロッサリと理解度クイズへの導線を近接配置する。

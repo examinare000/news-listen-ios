@@ -64,6 +64,10 @@ final class PodcastViewModel: NSObject, ObservableObject {
     /// 「フルプレイヤー」と「聴き終わりましたのコンパクト表示」の切替はこのフラグで判定する。
     @Published private(set) var didFinishCurrentEpisode = false
 
+    /// プレイヤー UI の表示形態（ミニ/フル/非表示）。
+    /// 遷移規則は ``PlayerPresentation`` と ``play(podcast:expandsPlayer:)`` を参照。
+    @Published private(set) var presentation: PlayerPresentation = .hidden
+
     /// 一覧画面の表示状態（ロード中/エラー/空/一覧）。
     /// ロード失敗と「本当に空」を同一の空状態に畳んで表示しないよう、View はこの値のみで分岐する（issue #53）。
     var displayState: ListDisplayState {
@@ -249,8 +253,13 @@ final class PodcastViewModel: NSObject, ObservableObject {
     /// オフライン+未キャッシュの場合は、errorMessage をセットして何もしない。
     /// オンライン+未キャッシュの場合は、署名付き URL を再取得して再生（失敗時は元 audioUrl でフォールバック）。
     ///
-    /// - Parameter podcast: 再生対象の Podcast。
-    func play(podcast: Podcast) async {
+    /// - Parameters:
+    ///   - podcast: 再生対象の Podcast。
+    ///   - expandsPlayer: true（既定）ならフルプレイヤーを開く。キュー自動遷移や
+    ///     「もう一度聴く」のような、利用者が明示的にエピソードを選んでいない・
+    ///     既に表示形態を選んでいる経路では false を渡して現在の形態を保つ
+    ///     （ミニ再生中の閲覧をシート表示で妨げない）。
+    func play(podcast: Podcast, expandsPlayer: Bool = true) async {
         // 再生 URL を解決する。
         guard let url = Self.resolvePlaybackURL(for: podcast, isOnline: networkMonitor.isOnline, cacheManager: cacheManager) else {
             errorMessage = "Offline and not cached"
@@ -270,6 +279,12 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
         stopPlayback()
         currentPodcast = podcast
+        if expandsPlayer {
+            presentation = .expanded
+        } else if presentation == .hidden {
+            // 明示展開しない経路でも、再生が始まる以上ミニプレイヤーは出す（防御的既定）。
+            presentation = .mini
+        }
 
         let playerItem = AVPlayerItem(url: url)
         player = AVPlayer(playerItem: playerItem)
@@ -424,7 +439,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
         // UI 収束をネットワーク待ちより先に確定する（await を挟むと収束が2RTT分遅れるため）。
         // play() は実質同期（内部に await ポイントを持たない）。
         if let next = queue.advance() {
-            await play(podcast: next)
+            await play(podcast: next, expandsPlayer: false)
         } else {
             // キュー終端: 再生を停止しつつ currentPodcast を保持する。
             // これにより、語彙/クイズ導線が「聴き終わった」瞬間に残り、
@@ -449,10 +464,23 @@ final class PodcastViewModel: NSObject, ObservableObject {
         }
     }
 
+    /// プレイヤーをミニ表示へ最小化する（フルプレイヤーシートの下スワイプ dismiss から呼ぶ）。
+    func minimizePlayer() {
+        guard presentation != .hidden else { return }
+        presentation = .mini
+    }
+
+    /// フルプレイヤーシートを開く（ミニプレイヤーのタップから呼ぶ）。
+    func expandPlayer() {
+        guard currentPodcast != nil else { return }
+        presentation = .expanded
+    }
+
     /// 同じエピソードを先頭から再生し直す（「もう一度聴く」）。
+    /// 表示形態は変えない（ミニの replay ボタンからも呼ばれるため）。
     func replayCurrentEpisode() async {
         guard let podcast = currentPodcast else { return }
-        await play(podcast: podcast)
+        await play(podcast: podcast, expandsPlayer: false)
         // play() はフェッチ時の途中位置へ復元し得るため、成功時のみ明示的に先頭へ。
         guard player != nil else { return }
         seek(to: 0)
