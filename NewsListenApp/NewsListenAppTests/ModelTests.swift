@@ -492,6 +492,39 @@ final class ModelTests: XCTestCase {
         XCTAssertNotEqual(a, c)
     }
 
+    // MARK: - TranscriptSegment.role（ADR-094 第一段階・Issue #237）
+    //
+    // WHY: 正本 backend/shared/models.py の TranscriptSegment.role（fact|commentary|null）に
+    // 合わせ、iOS 側にも省略可フィールドとして role を追加済み。以下は present/absent/null の
+    // 3 経路のデコード契約を固定する回帰テスト群。
+
+    /// "role" キーが含まれる segment を "fact"/"commentary" としてデコードできること。
+    func testTranscriptSegmentDecodesRoleWhenPresent() throws {
+        let json = """
+        {"speaker": "A", "text": "Rust is fast.", "role": "fact"}
+        """.data(using: .utf8)!
+        let segment = try JSONDecoder().decode(TranscriptSegment.self, from: json)
+        XCTAssertEqual(segment.role, "fact")
+    }
+
+    /// "role" キーが無い（旧エピソード）場合は nil にデコードされること。
+    func testTranscriptSegmentRoleAbsentDefaultsToNil() throws {
+        let json = """
+        {"speaker": "A", "text": "Rust is fast."}
+        """.data(using: .utf8)!
+        let segment = try JSONDecoder().decode(TranscriptSegment.self, from: json)
+        XCTAssertNil(segment.role)
+    }
+
+    /// "role" が JSON null の場合も nil にデコードされること。
+    func testTranscriptSegmentRoleNullDefaultsToNil() throws {
+        let json = """
+        {"speaker": "A", "text": "Rust is fast.", "role": null}
+        """.data(using: .utf8)!
+        let segment = try JSONDecoder().decode(TranscriptSegment.self, from: json)
+        XCTAssertNil(segment.role)
+    }
+
     // MARK: - Podcast.hasTranscript（AudioPlayerView の折りたたみ表示可否・issue #162）
 
     /// segments が非空配列を持つ場合、hasTranscript は true を返す。

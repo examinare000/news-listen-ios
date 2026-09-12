@@ -13,6 +13,10 @@ struct TranscriptSegment: Codable, Equatable {
     let speaker: String
     /// その発話のテキスト。
     let text: String
+    /// 役割ラベル（`"fact"` / `"commentary"`）。ADR-094 第一段階（issue #237）。
+    /// バックエンドは常にキーを返す（未設定時 null）が、`var` + 既定値にして
+    /// 既存の `TranscriptSegment(speaker:text:)` 呼び出し（memberwise init）を維持する。
+    var role: String? = nil
 }
 
 /// 生成済みの Podcast 1件。バックエンドの `PodcastResponse` に対応する。
