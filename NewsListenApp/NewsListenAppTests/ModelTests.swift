@@ -663,6 +663,269 @@ final class ModelTests: XCTestCase {
         XCTAssertNil(podcast.quiz)
     }
 
+    // MARK: - Podcast.sourceArticles / Podcast.sourceKind（ADR-095 / issue #240）
+    //
+    // WHY: ADR-095 は一律 CC BY-SA 4.0 表示を featured 由来の生成物に限定する。
+    // source_kind == "featured" のときだけライセンス表示を出す判定を、デコードと
+    // 純computed propertyでここに固定する。
+
+    /// "source_articles"（2件）と "source_kind":"featured" を含むレスポンスをデコードできる。
+    func testPodcastDecodesSourceArticlesAndSourceKind() throws {
+        let json = """
+        {
+            "id": "pod-source",
+            "type": "single",
+            "article_ids": ["abc123", "def456"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed",
+            "source_articles": [
+                {"article_id": "abc123", "title": "Rust is amazing", "url": "https://example.com/rust", "source": "hackernews"},
+                {"article_id": "def456", "title": "Swift 6 released", "url": "https://example.com/swift6", "source": "techcrunch"}
+            ],
+            "source_kind": "featured"
+        }
+        """.data(using: .utf8)!
+
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+
+        XCTAssertEqual(podcast.sourceArticles, [
+            PodcastSourceArticle(articleId: "abc123", title: "Rust is amazing", url: "https://example.com/rust", source: "hackernews"),
+            PodcastSourceArticle(articleId: "def456", title: "Swift 6 released", url: "https://example.com/swift6", source: "techcrunch"),
+        ])
+        XCTAssertEqual(podcast.sourceKind, "featured")
+    }
+
+    /// "source_articles" / "source_kind" のキーが無い（旧エピソード）場合は nil になり、他フィールドは無傷。
+    func testPodcastSourceArticlesAbsentDefaultsToNil() throws {
+        let json = """
+        {
+            "id": "pod-nosource",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed"
+        }
+        """.data(using: .utf8)!
+
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+
+        XCTAssertNil(podcast.sourceArticles)
+        XCTAssertNil(podcast.sourceKind)
+        XCTAssertEqual(podcast.durationSeconds, 300)
+        XCTAssertEqual(podcast.status, "completed")
+    }
+
+    /// "source_articles" / "source_kind" が JSON null の場合も nil としてデコードできる。
+    func testPodcastSourceArticlesNullDefaultsToNil() throws {
+        let json = """
+        {
+            "id": "pod-nullsource",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed",
+            "source_articles": null,
+            "source_kind": null
+        }
+        """.data(using: .utf8)!
+
+        let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+
+        XCTAssertNil(podcast.sourceArticles)
+        XCTAssertNil(podcast.sourceKind)
+    }
+
+    /// source_articles 要素に必須キー（url）が欠落している場合、Podcast 全体のデコードが失敗する
+    /// （VocabularyEntry / QuizQuestion と同じく部分救済はしない）。
+    func testPodcastSourceArticleMissingRequiredKeyFailsDecoding() {
+        let json = """
+        {
+            "id": "pod-badsource",
+            "type": "single",
+            "article_ids": ["abc123"],
+            "difficulty": "toeic_900",
+            "audio_url": "https://storage.example.com/pod.mp3",
+            "japanese_intro_text": "今日のニュースは...",
+            "duration_seconds": 300,
+            "created_at": "2026-05-31T06:00:00Z",
+            "status": "completed",
+            "source_articles": [
+                {"article_id": "abc123", "title": "Rust is amazing", "source": "hackernews"}
+            ]
+        }
+        """.data(using: .utf8)!
+
+        XCTAssertThrowsError(try JSONDecoder().decode(Podcast.self, from: json))
+    }
+
+    // MARK: - Podcast.hasSourceArticles（出典セクション表示可否・issue #240）
+
+    /// sourceArticles が非空配列を持つ場合、hasSourceArticles は true を返す。
+    func testHasSourceArticlesTrueWhenNonEmpty() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil,
+            sourceArticles: [PodcastSourceArticle(articleId: "a1", title: "t", url: "https://example.com", source: "s")]
+        )
+        XCTAssertTrue(podcast.hasSourceArticles)
+    }
+
+    /// sourceArticles が nil（省略）の場合、hasSourceArticles は false を返す。
+    func testHasSourceArticlesFalseWhenNil() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil
+        )
+        XCTAssertFalse(podcast.hasSourceArticles)
+    }
+
+    /// sourceArticles が空配列の場合も、表示すべき内容が無いため hasSourceArticles は false を返す。
+    func testHasSourceArticlesFalseWhenEmpty() {
+        let podcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil,
+            sourceArticles: []
+        )
+        XCTAssertFalse(podcast.hasSourceArticles)
+    }
+
+    // MARK: - Podcast.showsCcBySaLicense（ADR-095 fail-closed 判定・issue #240）
+
+    /// sourceKind == "featured" のときだけ true。"user"/"unknown"/nil/大文字違い/空文字は false
+    /// （fail-closed、完全一致。trim / lowercased は行わない）。
+    func testShowsCcBySaLicenseTrueOnlyForFeatured() {
+        let featuredPodcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil,
+            sourceKind: "featured"
+        )
+        let userPodcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil,
+            sourceKind: "user"
+        )
+        let unknownPodcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil,
+            sourceKind: "unknown"
+        )
+        let nilKindPodcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil
+        )
+        let capitalizedPodcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil,
+            sourceKind: "Featured"
+        )
+        let emptyKindPodcast = Podcast(
+            id: "p1", type: "daily", articleIds: [],
+            difficulty: "toeic_900", audioUrl: "",
+            title: "", japaneseIntroText: "イントロ",
+            durationSeconds: 0, createdAt: "", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0,
+            segments: nil,
+            sourceKind: ""
+        )
+
+        XCTAssertTrue(featuredPodcast.showsCcBySaLicense)
+        XCTAssertFalse(userPodcast.showsCcBySaLicense)
+        XCTAssertFalse(unknownPodcast.showsCcBySaLicense)
+        XCTAssertFalse(nilKindPodcast.showsCcBySaLicense)
+        XCTAssertFalse(capitalizedPodcast.showsCcBySaLicense)
+        XCTAssertFalse(emptyKindPodcast.showsCcBySaLicense)
+    }
+
+    // MARK: - PodcastSourceArticle.linkURL（スキーム検証・issue #240）
+
+    /// http / https（大文字小文字を問わない）は linkURL が非 nil。
+    func testPodcastSourceArticleLinkURLAcceptsHttpAndHttps() {
+        let httpsArticle = PodcastSourceArticle(articleId: "a1", title: "t", url: "https://example.com/a", source: "s")
+        let httpArticle = PodcastSourceArticle(articleId: "a2", title: "t", url: "http://example.com/b", source: "s")
+        let upperCaseSchemeArticle = PodcastSourceArticle(articleId: "a3", title: "t", url: "HTTPS://example.com/c", source: "s")
+
+        XCTAssertNotNil(httpsArticle.linkURL)
+        XCTAssertNotNil(httpArticle.linkURL)
+        XCTAssertNotNil(upperCaseSchemeArticle.linkURL)
+    }
+
+    /// http(s) 以外のスキーム・不正な文字列は linkURL が nil
+    /// （バックエンド経由の外部由来文字列を無検証で openURL に渡さない）。
+    func testPodcastSourceArticleLinkURLRejectsNonWebSchemesAndInvalid() {
+        let cases = ["javascript:alert(1)", "tel:000", "", "not a url", "/relative"]
+        for url in cases {
+            let article = PodcastSourceArticle(articleId: "a1", title: "t", url: url, source: "s")
+            XCTAssertNil(article.linkURL, "url=\(url) は linkURL が nil であるべき")
+        }
+    }
+
+    // MARK: - Podcast.ccBySaLicenseNotice（ADR-095 ライセンス文・issue #240）
+
+    /// Markdown 記法を除去したプレーンテキストが web と同一文言と一致する
+    /// （Markdown 記法が文字として残っていないことも含意する）。
+    func testCcBySaLicenseNoticePlainTextMatchesWebCopy() {
+        let plain = String(Podcast.ccBySaLicenseNotice.characters)
+        XCTAssertEqual(plain, Podcast.ccBySaLicenseNoticePlainText)
+        XCTAssertEqual(plain, "この音声コンテンツは CC BY-SA 4.0 で提供されます。")
+    }
+
+    /// リンク属性を持つ run はちょうど1つで、"CC BY-SA 4.0" 部分だけに
+    /// ADR-095 のライセンス URL が付与される（`Text(String)` の verbatim 描画では
+    /// この属性自体が存在しない）。
+    func testCcBySaLicenseNoticeLinksOnlyLicenseName() throws {
+        let notice = Podcast.ccBySaLicenseNotice
+        let linkRuns = notice.runs.filter { $0.link != nil }
+
+        XCTAssertEqual(linkRuns.count, 1)
+        let run = try XCTUnwrap(linkRuns.first)
+        XCTAssertEqual(run.link, URL(string: "https://creativecommons.org/licenses/by-sa/4.0/deed.ja"))
+        XCTAssertEqual(String(notice[run.range].characters), "CC BY-SA 4.0")
+    }
+
     func testQuizAnswerResponseDecodesBackendContract() throws {
         let json = """
         {

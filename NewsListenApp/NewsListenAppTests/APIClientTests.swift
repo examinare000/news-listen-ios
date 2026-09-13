@@ -537,6 +537,28 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(podcast.playbackPositionSeconds, 0.0)
     }
 
+    // MARK: - Podcast.sourceArticles / Podcast.sourceKind（ADR-095 / issue #240）
+
+    /// fetchPodcast(id:) の JSON デコード経路（APIClient.swift:125）でも
+    /// source_articles / source_kind をデコードできる。
+    func testFetchPodcastDecodesSourceArticlesAndSourceKind() async throws {
+        let mockJSON = #"""
+        {"id":"p4","type":"single","article_ids":["a1"],"difficulty":"toeic_900","audio_url":"https://storage.example.com/p4.mp3","japanese_intro_text":"今日は...","duration_seconds":300,"created_at":"2026-05-31T06:00:00Z","status":"completed","source_articles":[{"article_id":"a1","title":"Rust is amazing","url":"https://example.com/rust","source":"hackernews"}],"source_kind":"featured"}
+        """#.data(using: .utf8)!
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: mockJSON, statusCode: 200)
+        )
+
+        let podcast = try await client.fetchPodcast(id: "p4")
+
+        XCTAssertEqual(podcast.sourceArticles, [
+            PodcastSourceArticle(articleId: "a1", title: "Rust is amazing", url: "https://example.com/rust", source: "hackernews"),
+        ])
+        XCTAssertEqual(podcast.sourceKind, "featured")
+    }
+
     // MARK: - RSS ソース編集 (issue #112)
 
     func testUpdateSourceSendsPutRequestWithBody() async throws {
