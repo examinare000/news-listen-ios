@@ -89,7 +89,12 @@ enum PreviewSamples {
                     "question": "What is the main topic of today's podcast?",
                     "options": ["Global stock market trends", "Central bank decisions and economic recovery", "Brexit negotiations", "Technology sector performance"]
                 }
-            ]
+            ],
+            "source_articles": [
+                {"article_id": "a1", "title": "Fed signals rate pause as inflation cools toward target", "url": "https://example.com/1", "source": "Reuters"},
+                {"article_id": "a2", "title": "UK economy returns to growth in surprise first-quarter rebound", "url": "not a url", "source": "BBC"}
+            ],
+            "source_kind": "featured"
         }
         """#.data(using: .utf8)!
         let p1 = try! decoder.decode(Podcast.self, from: p1JSON)
