@@ -8,6 +8,24 @@
 
 import SwiftUI
 
+/// プレイヤーで表示する Podcast の帰属情報。
+/// 出典一覧とライセンス表示を別々に決定し、featured 由来の帰属表示を出典の有無に依存させない。
+struct PodcastAttributionContent {
+    let sourceArticles: [PodcastSourceArticle]
+    let showsSourceArticleList: Bool
+    let licenseNotice: AttributedString?
+
+    init(podcast: Podcast) {
+        showsSourceArticleList = podcast.hasSourceArticles
+        sourceArticles = podcast.sourceArticles ?? []
+        licenseNotice = podcast.showsCcBySaLicense ? Podcast.ccBySaLicenseNotice : nil
+    }
+
+    var isVisible: Bool {
+        showsSourceArticleList || licenseNotice != nil
+    }
+}
+
 /// 再生中の Podcast を操作するプレイヤー UI。
 ///
 /// 日本語イントロ・シークバー・再生コントロール・再生速度切替を表示する。
@@ -226,10 +244,19 @@ struct AudioPlayerView: View {
         .pickerStyle(.segmented)
         .tint(DSColor.accent)
         .padding(.horizontal)
+
+        // 出典・ライセンス表示（ADR-095 / issue #240）。
+        // WHY: プレイヤー操作（シークバー・再生ボタン）の位置を押し下げないよう末尾に置く。
+        if let podcast = vm.currentPodcast,
+           PodcastAttributionContent(podcast: podcast).isVisible {
+            attributionSection(podcast)
+                .padding(.horizontal)
+        }
     }
 
     /// 聴き終わり後のコンパクト表示。シークバー・再生コントロール・トランスクリプトは出さず、
-    /// 「もう一度聴く」と語彙/クイズ導線のみを残して一覧に空間を返す（ユーザー決定のUX）。
+    /// 「もう一度聴く」と語彙/クイズ導線を残す。出典・ライセンス表記は帰属要件のため
+    /// 再生状態によらず両状態で末尾に出す（issue #240）。
     @ViewBuilder
     private var finishedContent: some View {
         VStack(spacing: DSSpacing.s) {
@@ -262,6 +289,13 @@ struct AudioPlayerView: View {
         .padding(.horizontal)
         .accessibilityLabel("もう一度聴く")
         .accessibilityHint("このエピソードを先頭から再生します")
+
+        // 出典・ライセンス表示（ADR-095 / issue #240）。
+        if let podcast = vm.currentPodcast,
+           PodcastAttributionContent(podcast: podcast).isVisible {
+            attributionSection(podcast)
+                .padding(.horizontal)
+        }
     }
 
     /// 秒数を `分:秒`（例: `1:05`）の表示用文字列へ整形する。非有限値は `0:00` を返す。
@@ -461,6 +495,50 @@ struct AudioPlayerView: View {
 
     private func normalizedTerm(_ term: String) -> String {
         term.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// 出典（ソース名・記事タイトル・原文リンク）と、`featured` のときだけの CC BY-SA 4.0 表示。
+    /// web `page.tsx` と同一文言・同一構造（ADR-095 / issue #240）。
+    @ViewBuilder
+    private func attributionSection(_ podcast: Podcast) -> some View {
+        let content = PodcastAttributionContent(podcast: podcast)
+        VStack(alignment: .leading, spacing: DSSpacing.xs) {
+            if content.showsSourceArticleList {
+                Text("出典")
+                    .dsEyebrow()
+                    .accessibilityAddTraits(.isHeader)
+                ForEach(Array(content.sourceArticles.enumerated()), id: \.offset) { _, article in
+                    HStack(alignment: .firstTextBaseline, spacing: DSSpacing.xs) {
+                        Text(article.source)
+                            .font(DSFont.caption)
+                            .foregroundStyle(DSColor.inkSecondary)
+                        Text("·")
+                            .font(DSFont.caption)
+                            .foregroundStyle(DSColor.inkTertiary)
+                        if let url = article.linkURL {
+                            Link(article.title, destination: url)
+                                .font(DSFont.caption)
+                                .tint(DSColor.accent)
+                                .lineLimit(2)
+                                .accessibilityHint("原文を外部ブラウザで開きます")
+                        } else {
+                            // WHY: url が非 http(s) / 不正な要素は openURL に渡さず、帰属表示だけは維持する。
+                            Text(article.title)
+                                .font(DSFont.caption)
+                                .foregroundStyle(DSColor.ink)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            }
+            if let licenseNotice = content.licenseNotice {
+                Text(licenseNotice)
+                    .font(DSFont.caption)
+                    .foregroundStyle(DSColor.inkSecondary)
+                    .tint(DSColor.accent)
+                    .padding(.top, DSSpacing.xs)
+            }
+        }
     }
 
     /// 初期状態は best-effort。旧 server やオフライン時もプレイヤーをエラーにしない。
