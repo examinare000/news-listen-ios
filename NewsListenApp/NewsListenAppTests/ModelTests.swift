@@ -813,6 +813,44 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(podcast.hasSourceArticles)
     }
 
+    /// featured 由来なら source_articles が欠落・null・空配列でも、出典一覧は出さず
+    /// CC BY-SA 4.0 の帰属表示だけを維持する（issue #240）。
+    func testFeaturedPodcastWithoutSourceArticlesStillShowsLicenseNotice() throws {
+        let sourceArticlesValues = [
+            "missing": "",
+            "null": "\"source_articles\": null,",
+            "empty": "\"source_articles\": [],"
+        ]
+
+        for (caseName, sourceArticles) in sourceArticlesValues {
+            let json = """
+            {
+                "id": "pod-\(caseName)",
+                "type": "single",
+                "article_ids": [],
+                "difficulty": "toeic_900",
+                "audio_url": "https://storage.example.com/pod.mp3",
+                "japanese_intro_text": "イントロ",
+                "duration_seconds": 300,
+                "created_at": "2026-05-31T06:00:00Z",
+                "status": "completed",
+                \(sourceArticles)
+                "source_kind": "featured"
+            }
+            """.data(using: .utf8)!
+
+            let podcast = try JSONDecoder().decode(Podcast.self, from: json)
+            let content = PodcastAttributionContent(podcast: podcast)
+
+            XCTAssertFalse(content.showsSourceArticleList, "case=\(caseName)")
+            XCTAssertEqual(
+                content.licenseNotice.map { String($0.characters) },
+                Podcast.ccBySaLicenseNoticePlainText,
+                "case=\(caseName)"
+            )
+        }
+    }
+
     // MARK: - Podcast.showsCcBySaLicense（ADR-095 fail-closed 判定・issue #240）
 
     /// sourceKind == "featured" のときだけ true。"user"/"unknown"/nil/大文字違い/空文字は false

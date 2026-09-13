@@ -8,6 +8,24 @@
 
 import SwiftUI
 
+/// プレイヤーで表示する Podcast の帰属情報。
+/// 出典一覧とライセンス表示を別々に決定し、featured 由来の帰属表示を出典の有無に依存させない。
+struct PodcastAttributionContent {
+    let sourceArticles: [PodcastSourceArticle]
+    let showsSourceArticleList: Bool
+    let licenseNotice: AttributedString?
+
+    init(podcast: Podcast) {
+        showsSourceArticleList = podcast.hasSourceArticles
+        sourceArticles = podcast.sourceArticles ?? []
+        licenseNotice = podcast.showsCcBySaLicense ? Podcast.ccBySaLicenseNotice : nil
+    }
+
+    var isVisible: Bool {
+        showsSourceArticleList || licenseNotice != nil
+    }
+}
+
 /// 再生中の Podcast を操作するプレイヤー UI。
 ///
 /// 日本語イントロ・シークバー・再生コントロール・再生速度切替を表示する。
@@ -229,7 +247,8 @@ struct AudioPlayerView: View {
 
         // 出典・ライセンス表示（ADR-095 / issue #240）。
         // WHY: プレイヤー操作（シークバー・再生ボタン）の位置を押し下げないよう末尾に置く。
-        if let podcast = vm.currentPodcast, podcast.hasSourceArticles {
+        if let podcast = vm.currentPodcast,
+           PodcastAttributionContent(podcast: podcast).isVisible {
             attributionSection(podcast)
                 .padding(.horizontal)
         }
@@ -272,7 +291,8 @@ struct AudioPlayerView: View {
         .accessibilityHint("このエピソードを先頭から再生します")
 
         // 出典・ライセンス表示（ADR-095 / issue #240）。
-        if let podcast = vm.currentPodcast, podcast.hasSourceArticles {
+        if let podcast = vm.currentPodcast,
+           PodcastAttributionContent(podcast: podcast).isVisible {
             attributionSection(podcast)
                 .padding(.horizontal)
         }
@@ -479,40 +499,40 @@ struct AudioPlayerView: View {
 
     /// 出典（ソース名・記事タイトル・原文リンク）と、`featured` のときだけの CC BY-SA 4.0 表示。
     /// web `page.tsx` と同一文言・同一構造（ADR-095 / issue #240）。
-    /// - Parameter podcast: `hasSourceArticles == true` であることを呼び出し側が保証する。
     @ViewBuilder
     private func attributionSection(_ podcast: Podcast) -> some View {
+        let content = PodcastAttributionContent(podcast: podcast)
         VStack(alignment: .leading, spacing: DSSpacing.xs) {
-            Text("出典")
-                .dsEyebrow()
-                .accessibilityAddTraits(.isHeader)
-            ForEach(Array((podcast.sourceArticles ?? []).enumerated()), id: \.offset) { _, article in
-                HStack(alignment: .firstTextBaseline, spacing: DSSpacing.xs) {
-                    Text(article.source)
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.inkSecondary)
-                    Text("·")
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.inkTertiary)
-                    if let url = article.linkURL {
-                        Link(article.title, destination: url)
+            if content.showsSourceArticleList {
+                Text("出典")
+                    .dsEyebrow()
+                    .accessibilityAddTraits(.isHeader)
+                ForEach(Array(content.sourceArticles.enumerated()), id: \.offset) { _, article in
+                    HStack(alignment: .firstTextBaseline, spacing: DSSpacing.xs) {
+                        Text(article.source)
                             .font(DSFont.caption)
-                            .tint(DSColor.accent)
-                            .lineLimit(2)
-                            .accessibilityHint("原文を外部ブラウザで開きます")
-                    } else {
-                        // WHY: url が非 http(s) / 不正な要素は openURL に渡さず、帰属表示だけは維持する。
-                        Text(article.title)
+                            .foregroundStyle(DSColor.inkSecondary)
+                        Text("·")
                             .font(DSFont.caption)
-                            .foregroundStyle(DSColor.ink)
-                            .lineLimit(2)
+                            .foregroundStyle(DSColor.inkTertiary)
+                        if let url = article.linkURL {
+                            Link(article.title, destination: url)
+                                .font(DSFont.caption)
+                                .tint(DSColor.accent)
+                                .lineLimit(2)
+                                .accessibilityHint("原文を外部ブラウザで開きます")
+                        } else {
+                            // WHY: url が非 http(s) / 不正な要素は openURL に渡さず、帰属表示だけは維持する。
+                            Text(article.title)
+                                .font(DSFont.caption)
+                                .foregroundStyle(DSColor.ink)
+                                .lineLimit(2)
+                        }
                     }
                 }
             }
-            if podcast.showsCcBySaLicense {
-                // WHY: 「featured かつ出典なし」ではこのブロック自体が描画されない
-                //      （呼び出し元の hasSourceArticles ガード）ため、ライセンス文だけの単独表示は起きない。
-                Text(Podcast.ccBySaLicenseNotice)
+            if let licenseNotice = content.licenseNotice {
+                Text(licenseNotice)
                     .font(DSFont.caption)
                     .foregroundStyle(DSColor.inkSecondary)
                     .tint(DSColor.accent)
