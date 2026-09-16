@@ -7,14 +7,14 @@ Spec §8 着手順 2。S1 の merge 後に着手する（`ApiFailure` を `handl
 
 ## 前提・着手条件
 - 依存: S1 が merge 済みで `ApiFailure` が使えること。
-- **SG-X3（cleanup 完了待ち）は pending**。web / iOS の現行は「待たない」（`authenticated → anonymous` の遷移を消去完了で止めない）。本 slice はこの現行のまま進め、gate 確定後に差分 PR とする。「待つ」方向へ先回りして実装しない。
+- SG-X3（cleanup 完了待ち）は「待たない」で確定（共有仕様 §6.5）。`authenticated → anonymous` の遷移を消去完了で止めない。
 - `docs/trial-log/` を最初に読み、棄却済み案を再試行しない。
 
 ## 対象（ios サブモジュールのみ。ファイル単位）
 1. **`AuthSession` union（CI-T14）**: `AppState.swift`。判別共用体 `resolving | authenticated(user) | anonymous | unavailable(failure)` を導入する。`resolving` で `fetchMe` が `unauthorized` なら `anonymous`、それ以外の `ApiFailure` なら `unavailable(failure)`（**トークンは保持**）。`authenticated` で `logout` または任意 API 呼出の `unauthorized` なら `anonymous`（失効）。`unavailable` からの再試行は `resolving` へ戻る。
 2. **失効検知 1 箇所**: `AppState.handle(failure:)` に、`ApiFailure.unauthorized` を受けて `anonymous` へ遷移させる処理を 1 箇所へ集約する。各 VM は `ApiFailure.unauthorized` を文言化せず、遷移は `AppState` に委ねる。
 3. **`refreshAuth` の失敗分類**: `unauthorized`（401 相当）のときだけトークンを破棄する。通信断・5xx・decode 失敗は `unavailable` としてトークンを保持し、再試行導線を出す。
-4. **`SubjectCleanup`（`Auth/SubjectCleanup.swift`、新規）**: `authenticated → anonymous` の全遷移（logout・失効の両方）の事後条件として、(1) `sessionStore.token = nil`、(2) `OfflineLibrary.clearAll()`、(3) `PlaybackCoordinator.stopForLogout()`（本 slice では composition root 節どおり **現行 `PodcastViewModel` が `PlaybackLifecycle` port を暫定実装**する。TP4）、(4) 主体依存 UserDefaults の削除（§3.4 registry で `subjectScoped: true` の key）、(5) `currentUser = nil` の順で実行する。各手順は独立に試み、1 つが失敗しても残りを実行する。消去失敗は `CleanupIncomplete` として観測可能に返し、認証状態の遷移自体は止めない（SG-X3 pending 中の現行方針）。
+4. **`SubjectCleanup`（`Auth/SubjectCleanup.swift`、新規）**: `authenticated → anonymous` の全遷移（logout・失効の両方）の事後条件として、(1) `sessionStore.token = nil`、(2) `OfflineLibrary.clearAll()`、(3) `PlaybackCoordinator.stopForLogout()`（本 slice では composition root 節どおり **現行 `PodcastViewModel` が `PlaybackLifecycle` port を暫定実装**する。TP4）、(4) 主体依存 UserDefaults の削除（§3.4 registry で `subjectScoped: true` の key）、(5) `currentUser = nil` の順で実行する。各手順は独立に試み、1 つが失敗しても残りを実行する。消去失敗は `CleanupIncomplete` として観測可能に返し、認証状態の遷移自体は止めない（SG-X3 確定）。
 5. **`PreferenceRegistry`（`Settings/PreferenceRegistry.swift`、新規）**: `AppState.swift:40-47` の `Keys`・`DSFeedback.swift:27-28`・`LearningEngagement.swift:147` に散在する設定宣言を `{ key, scope: local | server, subjectScoped: Bool, codec, default }` の 1 registry に集約する。`subjectScoped: true` の集合 = 実績既読（`seenAchievementIds`）・週目標（`weeklyGoalEpisodes`）・既定難易度（`defaultDifficulty`）・既定速度（`defaultPlaybackSpeed`）のローカルコピー。`articleOpenMode` / `timeFormat` / `sfxEnabled` / `hapticsEnabled` は `subjectScoped: false`（端末設定として残す）。`AppState` の `didSet → UserDefaults` 直書きは registry の `set` に置換する。`SubjectCleanup` は `subjectScoped == true` の key だけを消す。
 6. **`NowPlayingCenter` port（clear の最小）**: logout でクリアする入口として `NowPlayingCenter.clear()` を `SubjectCleanup` から呼べるようにする。本 slice では port と最小の clear 呼出のみを用意し、`update` / `registerCommands` 等の他操作の port 化は S3b で行う。
 
@@ -45,7 +45,6 @@ Spec §8 着手順 2。S1 の merge 後に着手する（`ApiFailure` を `handl
 
 ## 禁止事項 / scope 外
 - `PlaybackCoordinator` 本体・`PlaybackSession`・`PlaybackQueue` の dedupe gate（S3b）は作らない。
-- SG-X3 を「待つ」方向へ先回りして実装しない（pending のまま現行を維持）。
 - `AudioEngine` port（S3a/S3b）は行わない。
 - token provider 注入（RO: SG-A7 default）は作らない。失効遷移で client 再生成する既存方式を維持する。
 - Spec に無い業務条件（新しい `subjectScoped` key・新しい消去対象）を足さない。
