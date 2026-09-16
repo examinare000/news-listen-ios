@@ -15,7 +15,8 @@ Spec §8 着手順 4（最終 slice）。S3b の merge 後に着手する。
 1. **`Auth/PasswordPolicy.swift`（新規、1 実装）**: `validate(password) → Result` で **12〜20 文字**の長さ規則のみを検証する。
 2. **`AccountSettingsViewModel`（新規）**: `AccountSettingsView.swift:305-333` の `saveProfile` / `changePassword` を View から移す。View は状態を描くだけにする。
 3. **`AdminUsersViewModel.swift:47`・`AdminUsersView.swift:28`**: 文言をこの policy から導出する形に置換する（現状テスト 0 のため、置換前に特性テストを追加する）。
-4. **`.github/workflows/ci.yml`**: `xcodebuild test`（`name=` 動的選択の独自経路）を `make test` 呼出へ揃える。`scripts/test.sh` に `SIMULATOR` の動的選択と `CODE_SIGNING_*` の吸収を追加し、`make test` が CI 環境でも実行できるようにする。
+4. **`Settings/SettingsView.swift:50`**: 設定画面の既定速度 Picker が独自配列（5 段）を持つのを `PlaybackConstants.speeds`（8 段）参照に置換する（SG-X5 確定・共有仕様 §6.6。web / Android で保存した 1.75・2.5 を iOS の設定でも表示・選択できるようにする）。
+5. **`.github/workflows/ci.yml`**: `xcodebuild test`（`name=` 動的選択の独自経路）を `make test` 呼出へ揃える。`scripts/test.sh` に `SIMULATOR` の動的選択と `CODE_SIGNING_*` の吸収を追加し、`make test` が CI 環境でも実行できるようにする。
 
 ## 契約（CI-T → T-T の表）
 | CI | 内容 | T-T |
@@ -38,6 +39,7 @@ Spec §8 着手順 4（最終 slice）。S3b の merge 後に着手する。
 - T-T16 が `verifies: CI-T16` をテスト名またはコメントに持ち、境界値 11/12/20/21 を含む。
 - `AccountSettingsView.swift` に業務ロジック（`saveProfile` / `changePassword` の実処理）が残っていない。
 - `AdminUsersViewModel` と `AccountSettingsViewModel` が同一の `PasswordPolicy` インスタンス/型を参照する。
+- 設定画面の既定速度 Picker の選択肢が `PlaybackConstants.speeds` と同一（独自配列が残っていない）。
 - CI（`.github/workflows/ci.yml`）が `make test` を呼び出し、grep oracle（T-T7b / T-T13）を含む既存テストスイートが CI 上で実行される。
 
 ## 禁止事項 / scope 外

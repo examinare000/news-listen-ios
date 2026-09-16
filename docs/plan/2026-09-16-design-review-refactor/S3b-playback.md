@@ -7,10 +7,11 @@ Spec §8 着手順 3（**一括切替**）。S3a で移植した 17 関数を含
 
 ## 前提・着手条件
 - 依存: S3a が merge 済みで `PodcastViewModelTests`（68）が全 green であること。これが満たされない場合は着手しない。
-- **Selection Gate 3 件は pending のため現行値を pin する**（gate 確定後に差分 PR）:
-  - SG-X1（完聴時の送信値）: iOS 現行の **0** を維持する。`duration` へ変更しない。
-  - SG-X3（cleanup 完了待ち）: iOS は **待たない**（S2 の現行方針を継続。`stopForLogout()` は cleanup 完了を待たずに呼ばれる前提のまま）。
-  - SG-X5（速度 8 段）: iOS 現行の **`PlaybackConstants` の値域（5 段 Picker）を維持**する。8 段へ拡張しない。
+- **Selection Gate は確定済み（共有仕様 §6.7）。本 slice で実装する**:
+  - SG-X1: 完聴時に **`duration` を明示的に 1 回送る**（順序: 完聴イベント → `duration` → advance。現行は停止時同期の値に任せており明示送信がない）。次回の再開は末尾 2 秒窓（RS-05）が先頭に写す。
+  - SG-X3: 待たない（S2 の方針を継続。`stopForLogout()` は cleanup 完了を待たずに呼ばれる）。
+  - SG-X4: 一時停止中は周期送信しない（iOS 現行どおり。PS-05b で pin）。
+  - SG-X5: プレイヤーは既に `PlaybackConstants.speeds` 8 段。設定画面の Picker は S4 で揃える。
 - `docs/trial-log/player-auto-converge.md`・`docs/trial-log/transcript-sync-highlight.md` を必ず読む。stale ガード（`endedId` 引数化）・トランスクリプト自動追従リセット（`.task(id:)` / `.onDisappear`）は既存挙動として維持し、再設計しない。
 - 本 slice は一括切替。特性テスト（下記）が全て移植・green になってから production の切替に入る。それ以前は revert 以外の回復手段が無い（Spec §6 rollback）。
 
@@ -18,7 +19,7 @@ Spec §8 着手順 3（**一括切替**）。S3a で移植した 17 関数を含
 1. **`Podcast/Playback/PlaybackSession.swift`（新規）**: Spec §3.1 の 7 状態 union（idle / loading / playing / buffering / paused / ended / errored）と 16 遷移。`position ∈ [0, duration]` の clamp、`errored` からの `play()` は同じ source 解決をやり直す。
 2. **`Podcast/Playback/PlaybackCoordinator.swift`（新規）**: `startEpisode(_ podcast:, expandsPlayer:)` を 1 経路に統合（`playNow` / `playById` / `replayCurrentEpisode` の 3 経路を置換。挿入規則は全経路に `queue.jump` → 失敗なら `playNext` → `jump` を適用）。`onEnded(endedId:)`（stale ガード → `PositionReporter.listenCompleted` → `queue.advance()` → 成功なら次を `startEpisode`、**失敗時は停止**して `session = errored(reason)` かつ `queue.currentIndex` は進めたまま）。`removeFromQueue(id:)`・`retry()`・`stopForLogout()`（`PlaybackLifecycle` 実装を引き継ぎ、S2 の TP4 を解消する）。
 3. **`Podcast/Playback/OfflineLibrary.swift`（新規）**: 既存 `AudioCacheManager` を包み、合成 root で 1 インスタンスを生成して `PlaybackCoordinator` と `SettingsViewModel` に注入（S2 の TP2 を解消）。`has` / `url` はファイル実体を正本、`savedIds` を `@Published private(set)` で publish。
-4. **`Podcast/Playback/PositionReporter.swift`（新規）**: 15 秒 throttle、`pause`/`stop`/背景遷移で即時、完聴 → 位置 0 の順（SG-X1 pin により 0 のまま）。完聴通知はクライアント側で 1 セッション 1 回に抑止。失敗は `lastSyncFailure: ApiFailure?` で観測可能に。
+4. **`Podcast/Playback/PositionReporter.swift`（新規）**: 再生中は 15 秒 throttle、`pause`/`stop`/背景遷移で即時 1 回、一時停止中は送らない。完聴 → `duration` の位置書込 1 回 → advance の順（SG-X1 確定）。完聴通知はクライアント側で 1 セッション 1 回に抑止。失敗は `lastSyncFailure: ApiFailure?` で観測可能に。
 5. **`Podcast/Platform/AVPlayerEngine.swift`・`Podcast/Platform/MediaPlayerNowPlaying.swift`（新規）**: S3a の `AudioEngine` port の実装と `NowPlayingCenter` port の残り操作（`update` / `registerCommands` / `unregister`）。`AudioSession` / `NotificationCenter`（割り込み・route change）は adapter 内部に閉じ、port にしない。
 6. **`PlaybackQueue`（既存）**: `init` / `setQueue` に id dedupe の内部 gate を追加（不変条件 1。公開操作は throw しない）。公開操作名・型は変更しない（`reorderUpNext(fromOffsets:toOffset:)` は rename しない。Spec §5 naming_decisions）。
 7. **`Models/Episode.swift`（新規）**: `Podcast` DTO の decode 結果として `PlayableEpisode / GeneratingEpisode / FailedEpisode` を判別。未知 `status` は fail-closed で `FailedEpisode`。`PodcastRowView.swift:118-133` の文字列分岐を switch へ置換。
@@ -37,7 +38,7 @@ Spec §8 着手順 3（**一括切替**）。S3a で移植した 17 関数を含
 | CI-T5 | `unavailable` → gateway 呼出なし、`errored(offline_uncached)`。`network` → `fetchPodcast` を 1 回呼びその `audioUrl` で開始。取得失敗は保持 URL でフォールバック | T-T5（gateway double の呼出回数と URL を観測） |
 | CI-T6 | advance 後の再生失敗: `queue.current` = 失敗エピソード（index は進む）、`errored(reason)`、`retry()` が同エピソードで再実行。15 秒 Timer は停止 | T-T6。PS-01〜PS-03 の行 ID を含む |
 | CI-T7 | INV-P1（`session.episode.id == queue.current?.id`）が全公開操作後に成立。読出口は `nowPlaying()` のみ | T-T7a: 全操作後の INV-P1 検査。T-T7b: `grep -rn "currentPodcast\s*=" NewsListenApp/NewsListenApp --include=*.swift` が `Podcast/Playback/` 以外で 0 件。PS-04 の行 ID を含む |
-| CI-T8 | 完聴 → 位置 0 の順。同一 episode の完聴通知はクライアント側で 1 セッション内 1 回に抑止。失敗は `lastSyncFailure` に現れる | T-T8（gateway double の呼出列と `lastSyncFailure`）。PS-05〜PS-06 の行 ID を含む |
+| CI-T8 | 完聴 → `duration` の位置書込 1 回 → advance の順。同一 episode の完聴通知はクライアント側で 1 セッション内 1 回に抑止。一時停止中は周期送信しない。失敗は `lastSyncFailure` に現れる | T-T8（gateway double の呼出列と値、`lastSyncFailure`）。PS-05・PS-05b・PS-06 の行 ID を含む |
 | CI-T9 | `init`/`setQueue` は id を dedupe。単一要素 `reorderUpNext` は `moveUpNext` と等価。Q-01〜Q-32 不変 | 既存 conformance 32 件（不変）＋ T-T9（重複 id の property test） |
 | CI-T9b | 複数要素 `IndexSet` の `reorderUpNext` は `Array.move(fromOffsets:toOffset:)` と同じ結果 | T-T9b: 期待値表（Spec §4 CI-T9b 行）を実測突合 |
 | CI-T10 | `has`/`url` はファイル実体が正本。`clearAll` 後は `savedIds` が即 空 | T-T10（`FileStore` double） |
@@ -68,7 +69,6 @@ S3a で移植済みの `PodcastViewModelTests`（68、facade 切替後の回帰�
 ## 禁止事項 / scope 外
 - `AudioCacheManager` の protocol 化（RO7）・`BaseViewModel`（RO3）・再生ソース Strategy（RO2）・汎用 Repository（RO1）・stale guard 共通抽象（RO6）・AVPlayer 鏡写し `AudioEngineProtocol`（RO4）・token provider 注入（SG-A7 default）は作らない。
 - `reorderUpNext` の rename はしない（web と逆の判断。Spec §5 naming_decisions）。
-- SG-X1 / SG-X3 / SG-X5 の pending 値を先回りして変更しない（0 のまま・待たないまま・5 段のまま）。
 - `QueueSheet` / `PodcastView` / `MiniPlayerView` / `AudioPlayerView` の `nowPlaying()` / `session` 直読みへの全面置換（TP3 の削除）は S5 の範囲であり本 slice では行わない（本 slice の対象は §対象 11 の 2 箇所のみ）。
 - Spec に無い業務条件（新しい失敗理由・新しい状態）を足さない。
 

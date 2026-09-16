@@ -10,13 +10,13 @@ Spec §0 の `S0 spec`（共有仕様 `docs/design/shared-playback-spec.md` の�
 |---|---|---|---|---|---|
 | — | （S0 spec） | 共有仕様の改訂 | なし | なし | 完了済み（news-listen-docs #133） |
 | 1 | [S1-failure-meaning.md](S1-failure-meaning.md) | `ApiFailure`・`validateResponse` の変換・`notFound.subject`・非 HTTP 応答・`FailureMessages`。10 消費者の置換 | なし | なし | 旧 `APIError` 互換 throw（TP1）を暫定保持 |
-| 2 | [S2-session-boundary.md](S2-session-boundary.md) | `AuthSession` union・失効検知・`SubjectCleanup`・`PreferenceRegistry`・`NowPlayingCenter` port（clear の最小） | S1 | SG-X3（cleanup 完了待ち）は pending 中は「待たない」現行で進める | TP2（`SettingsViewModel` の既定引数）・TP4（`PodcastViewModel` が `PlaybackLifecycle` を暫定実装）を暫定保持 |
+| 2 | [S2-session-boundary.md](S2-session-boundary.md) | `AuthSession` union・失効検知・`SubjectCleanup`・`PreferenceRegistry`・`NowPlayingCenter` port（clear の最小） | S1 | SG-X3 確定: 待たない（iOS 現行どおり） | TP2（`SettingsViewModel` の既定引数）・TP4（`PodcastViewModel` が `PlaybackLifecycle` を暫定実装）を暫定保持 |
 | 3 | [S3a-audio-engine-doubles.md](S3a-audio-engine-doubles.md) | `AudioEngine` port と double を導入し、`PodcastViewModelTests` の AVFoundation / `vm.player` / KVO 直結の 17 関数を double 駆動へ移植（68 中）。production の挙動変更なし | S2 | なし | 小ステップ（17 関数のみ移植・残り 51 は不変） |
-| 4 | [S3b-playback.md](S3b-playback.md) | `Podcast/Playback/{Session,Coordinator,OfflineLibrary,PositionReporter}`・`Podcast/Platform/{AVPlayerEngine,MediaPlayerNowPlaying}`・`PlaybackQueue` dedupe・`Episode` decode・facade 化・`startEpisode` 1 経路・署名 URL 再取得・速度初期化・advance 失敗の停止・INV-P1 | S3a（17 関数移植・68 green が入口条件） | SG-X1（完聴時の送信値。iOS 現行 0 を pin）・SG-X3（cleanup 完了待ち。iOS は待たない）・SG-X5（速度 8 段。iOS 現行 5 段 Picker を pin）は現行値のまま進め、gate 確定後に差分 PR | **一括切替**（S3a の 68 green ＋特性テスト移植が入口条件） |
-| 5 | [S4-rules-ci.md](S4-rules-ci.md) | `PasswordPolicy`（12〜20、ADR-101）・`AccountSettingsViewModel` 新設・`AdminUsersViewModel` の policy 参照・`ci.yml` を `make test` 呼出へ | S3b | なし | 小ステップ |
+| 4 | [S3b-playback.md](S3b-playback.md) | `Podcast/Playback/{Session,Coordinator,OfflineLibrary,PositionReporter}`・`Podcast/Platform/{AVPlayerEngine,MediaPlayerNowPlaying}`・`PlaybackQueue` dedupe・`Episode` decode・facade 化・`startEpisode` 1 経路・署名 URL 再取得・速度初期化・advance 失敗の停止・INV-P1 | S3a（17 関数移植・68 green が入口条件） | SG-X1 確定: 完聴時に `duration` を明示送信（S3b で実装）・SG-X3 確定: 待たない・SG-X4 確定: 一時停止中は送らない（iOS 現行どおり） | **一括切替**（S3a の 68 green ＋特性テスト移植が入口条件） |
+| 5 | [S4-rules-ci.md](S4-rules-ci.md) | `PasswordPolicy`（12〜20、ADR-101）・`AccountSettingsViewModel` 新設・`AdminUsersViewModel` の policy 参照・設定画面の既定速度 Picker を 8 段へ（SG-X5）・`ci.yml` を `make test` 呼出へ | S3b | SG-X5 確定: 8 段 | 小ステップ |
 | 保留 | （S5 views） | `QueueSheet` / `PodcastView` / `MiniPlayerView` / `AudioPlayerView` を `nowPlaying()` / `session` 直読みへ、TP3 の削除、`QuizSheetView` の VM 化 | S4 | — | order 未作成 |
 
-- Selection Gate の正本は親 docs `design/shared-playback-spec.md` §6.7（SG-X1〜X5、owner: user）。pending を選択済みとして扱わない。
+- 共有仕様 §6.7 の Selection Gate SG-X1〜X5 は 2026-09-16 に全て確定済み（確定値は §6.4〜§6.6 本文）。iOS に効くのは SG-X1（完聴時に `duration` を明示送信）・SG-X5（設定画面の Picker を 8 段へ）。SG-X3 / SG-X4 は iOS の現行どおり。
 - 他モジュールとの契約: S4 のパスワード規則は `docs/adr/101-password-policy-cross-client-unification.md` の **12〜20 文字**（Spec 本文 §3.3 の「8〜20」は backend 決定で差し戻された旧値のため採らない）。`error_message` 4 値の文言写像（ADR-102）は iOS の次サイクル（RO-c）であり本計画の scope 外。
 - `docs/trial-log/` の `player-auto-converge.md`・`transcript-sync-highlight.md` は S3b の再生・View 挙動に関係するため、S3b 着手前に読み棄却済み案を再試行しない。
 
