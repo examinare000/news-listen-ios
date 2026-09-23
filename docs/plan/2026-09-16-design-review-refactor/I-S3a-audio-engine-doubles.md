@@ -1,12 +1,12 @@
-## iOS リファクタ S3a: AudioEngine port と double への移植（S3b 入口条件）
+## iOS リファクタ I-S3a: AudioEngine port と double への移植（I-S3b1 入口条件）
 
 ## 概要
 `PlaybackSession` の 16 遷移を AVFoundation 抜きで XCTest できるようにするため、`AudioEngine` port と test double を先に導入し、`PodcastViewModelTests` のうち AVFoundation 型・`vm.player`・KVO ハンドラを直接扱うテストを double 駆動へ移植する。正本は user 承認済みの Implementation Spec `docs/design/2026-09-16-implementation-spec-playback-domain-model.md`（§2 port 表・§4 CI-T1 の根拠・§6 S3a 行）。本 slice は **production コードの挙動変更を行わない**（テストの土台を作るだけ）。本タスクは**承認済み指示書に従う実装**であり、analyze_order は検証モード（新規設計をしない）。
 
-Spec §8 着手順 3 の入口条件。S2 の merge 後に着手する。
+Spec §8 着手順 3 の入口条件（親 plan の I-S3a）。I-S2 の merge 後に着手する。
 
 ## 前提・着手条件
-- 依存: S2 が merge 済み。
+- 依存: I-S2 が merge 済み。
 - 本 slice は `Podcast/Playback/` 配下の新規capsule（Session / Coordinator 等）を作らない。`AudioEngine` port と double、およびテストの移植のみを行う。
 - `docs/trial-log/player-auto-converge.md` を必ず読む。stale ガード（`endedId` を引数で閉じ込める）・`RequestRecordingSession` の直列化（`OSAllocatedUnfairLock`）など、double 実装時に同種の並行性問題を再現しないための既知の落とし穴が記録されている。再提案しない。
 
@@ -17,7 +17,7 @@ Spec §8 着手順 3 の入口条件。S2 の merge 後に着手する。
 4. **残り 51 関数は不変**: 移植対象外の関数は書き換えない。production コード（`PodcastViewModel.swift`）は本 slice では変更しない。
 
 ## 契約（CI-T → T-T の表）
-本 slice は新しい CI-T を持たない。S3b の CI-T1（PlaybackSession の 16 遷移）が double を通してテストできることの前提を整えるための土台であり、oracle は「68 関数が double 移植前後で green のまま」であること。
+本 slice は新しい CI-T を持たない。I-S3b1 の CI-T1（PlaybackSession の 16 遷移）が double を通してテストできることの前提を整えるための土台であり、oracle は「68 関数が double 移植前後で green のまま」であること。
 
 | 確認事項 | 由来 | 検証 |
 |---|---|---|
@@ -40,16 +40,17 @@ Spec §8 着手順 3 の入口条件。S2 の merge 後に着手する。
 - `PodcastViewModel.swift`（production）に diff が無い。
 - 移植した 17 関数が `AudioEngine` double 経由で駆動され、AVFoundation 型（`AVPlayer` / `AVPlayerItem` / `CMTime`）・`vm.player` を直接参照しない。
 - 残り 51 関数に変更が無い。
-- この 68 green が S3b 着手の入口条件であることを PR 説明に明記する。
+- この 68 green が I-S3b1 着手の入口条件であることを PR 説明に明記する（件数は着手時の実測値を正とする。2026-09-23 時点の `grep -c "func test"` は 76 で、Spec 記載 68 との差は S1 で追加された特性テスト分）。
 
 ## 禁止事項 / scope 外
-- `PlaybackSession` / `PlaybackCoordinator` / `OfflineLibrary` 等の新規 capsule 実装（S3b）は行わない。
+- `PlaybackSession` / `PlaybackCoordinator` / `OfflineLibrary` 等の新規 capsule 実装（I-S3b1）は行わない。
 - production コード（`PodcastViewModel.swift` 本体のロジック）を変更しない。
 - 17 関数以外のテストを書き換えない（51 関数は不変のまま維持する）。
 - AVPlayer 鏡写しの `AudioEngineProtocol`（RO4）は作らない。port は Session が必要な 6 操作＋事象 stream に絞る（Spec §5 rejected_overdesign）。
 
 ## 参照
-- Spec: `docs/design/2026-09-16-implementation-spec-playback-domain-model.md` §2（port 表）・§5（CP1）・§6（S3a 行）
+- Spec: `docs/design/2026-09-16-implementation-spec-playback-domain-model.md` §2（port 表）・§5（CP1）・§6（S3a 行 = I-S3a）
+- 親 docs: `docs/design/ios-design.md` §11.3（I-S3a 行）
 - レビュー: `docs/research-reports/2026-09-16-code-design-review.md` §8（SG-A6/SG-A10/SG-B3, Q8）
 - trial-log: `docs/trial-log/player-auto-converge.md`
 - 検証: `docs/research-reports/2026-09-16-code-design-review/verification-run.md` §7（AVPlayer 参照 2 ファイル）

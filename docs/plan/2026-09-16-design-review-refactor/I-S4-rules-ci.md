@@ -1,13 +1,14 @@
-## iOS リファクタ S4: 業務ルール単一所有（PasswordPolicy）・CI ゲート
+## iOS リファクタ I-S4: 業務ルール単一所有（PasswordPolicy）・CI ゲート
 
 ## 概要
 パスワード規則を 1 policy に集約し、`AccountSettingsView` の業務ロジックを VM へ移し、CI を `make test` 経由へ揃える。正本は user 承認済みの Implementation Spec `docs/design/2026-09-16-implementation-spec-playback-domain-model.md`（§3.3 PasswordPolicy・§4 CI-T16・§6 S4 行）。パスワード値域は Spec 本文の記載ではなく `docs/adr/101-password-policy-cross-client-unification.md` の確定値を正本とする。本タスクは**承認済み指示書に従う実装**であり、analyze_order は検証モード（新規設計をしない）。generate_spec の spec.md は Spec の該当契約（CI-T16）と ADR-101 の契約表の抜粋で足りる。
 
-Spec §8 着手順 4（最終 slice）。S3b の merge 後に着手する。
+Spec §8 着手順 4（親 plan の I-S4）。I-S3b3 の merge 後に着手する。I-S5（主体別キャッシュ）は本 slice の後・B-S5 の後に続く。
 
 ## 前提・着手条件
-- 依存: S3b が merge 済み。
+- 依存: I-S3b3 が merge 済み。
 - **パスワード値域は 12〜20 文字**（`docs/adr/101-password-policy-cross-client-unification.md` 決定）。Spec 本文 §3.3 の「8〜20」は web / iOS レビューの仮決定であり、backend レビュー（SG-PW）が 12〜20 で差し戻した確定前の値のため採らない。境界値テストは 11/12/20/21 とする。
+- 特性テスト `AdminUsersViewModel` 追加は本 slice 冒頭で行う（本 slice 内の baseline）。
 - 文字種規則（4 文字種中 3 種）・ブロックリスト・username 非包含は backend 側の検証であり、iOS の事前検証には**長さ規則のみ**を実装する（ADR-101「web / iOS / android は表示と事前検証だけを 1 policy に持ち、値は backend の契約表から写す」）。文字種等の追加検証は Spec に無い業務条件のため足さない。
 - `docs/trial-log/` を最初に読み、棄却済み案を再試行しない。
 
@@ -33,6 +34,7 @@ Spec §8 着手順 4（最終 slice）。S3b の merge 後に着手する。
 4. `AdminUsersViewModel` を policy 参照に置換し、S4 冒頭で追加した特性テストが green のままであることを確認する。
 5. `ci.yml` を `make test` 呼出へ変更し、`scripts/test.sh` に `SIMULATOR` 動的選択・`CODE_SIGNING_*` 吸収を追加する。CI 上で `make test` が通ることを確認する（ローカルでは `verification-run.md` の注記どおり `make test` が実行できない環境があるため、CI 実行結果で確認する）。
 6. 1 slice = 1 PR。commit は「PasswordPolicy」「AccountSettingsViewModel」「AdminUsersViewModel 置換」「CI ゲート」の単位で分ける。
+7. 記録: `docs/trial-log/` に棄却・方針転換があれば追記。親 docs `design/ios-design.md` §4（パスワード規則）・§11.3（I-S4 行）は本 slice 完了時に現状記述へ書き換える。
 
 ## 完了条件
 - `xcodebuild test -only-testing:NewsListenAppTests` が全 green。
@@ -49,7 +51,8 @@ Spec §8 着手順 4（最終 slice）。S3b の merge 後に着手する。
 - Spec に無い業務条件（パスワード値域以外の新規検証）を足さない。
 
 ## 参照
-- Spec: `docs/design/2026-09-16-implementation-spec-playback-domain-model.md` §3.3・§4（CI-T16）・§6（S4 行）
+- Spec: `docs/design/2026-09-16-implementation-spec-playback-domain-model.md` §3.3・§4（CI-T16）・§6（S4 行 = I-S4）
+- 親 docs: `docs/design/ios-design.md` §4・§11.3（I-S4 行）、`docs/design/shared-playback-spec.md` §6.6・§6.7（SG-X5）
 - ADR: `docs/adr/101-password-policy-cross-client-unification.md`（**12〜20 が正本**）
 - レビュー: `docs/research-reports/2026-09-16-code-design-review.md` §8（SG-B2, Q9）
 - 検証: `docs/research-reports/2026-09-16-code-design-review/verification-run.md` §8（AdminUsersViewModel テスト参照 0）・§9（ci.yml の現行経路）
