@@ -324,7 +324,7 @@ struct AccountSettingsView: View {
             currentPassword = ""
             newPassword = ""
             message = "パスワードを変更しました"
-        } catch let APIError.httpError(code) where code == 400 {
+        } catch ApiFailure.validation {
             message = "現在のパスワードが正しくありません"
         } catch {
             message = "パスワード変更に失敗しました"

@@ -29,6 +29,29 @@ jobs:
         # ユニットテストのビルドに実値は不要。
         run: cp NewsListenApp/Secrets.example.xcconfig NewsListenApp/Secrets.xcconfig
 
+      - name: "Check no HTTP status comparison outside Networking (verifies: CI-T13)"
+        run: |
+          set -euo pipefail
+          SRC=NewsListenApp/NewsListenApp
+          # 前提条件（spec §5 冒頭）: 対象ディレクトリの存在と、陽性対照（実在する型名）を確認する。
+          # どちらかが失敗したら、以下の 0 件の記録は本物の 0 件ではないので即座に fail する。
+          test -d "$SRC"
+          grep -q 'enum APIEndpoint' "$SRC/Networking/APIEndpoint.swift"
+
+          status_hits="$(grep -rn 'statusCode ==\|httpError(' "$SRC" --include='*.swift' | grep -v Networking/ || true)"
+          if [ -n "$status_hits" ]; then
+            echo "::error::Networking/ 外に statusCode ==/httpError( の数値比較が残っている"
+            echo "$status_hits"
+            exit 1
+          fi
+
+          apierror_hits="$(grep -rn 'APIError' "$SRC" --include='*.swift' | grep -v Networking/ || true)"
+          if [ -n "$apierror_hits" ]; then
+            echo "::error::Networking/ 外に APIError の参照が残っている"
+            echo "$apierror_hits"
+            exit 1
+          fi
+
       - name: Run tests
         run: |
           set -o pipefail

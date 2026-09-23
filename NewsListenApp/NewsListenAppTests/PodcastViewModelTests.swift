@@ -234,6 +234,97 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertFalse(vm.isLoading)
     }
 
+    // MARK: - T-T12c-04 / T-T12c-05（verifies: CI-T12c, R4-S1g / R4-S1c）
+    // T-T12c-04: SG-S1-6: 射程外・挙動不変の固定（order.md:66）。文言の良し悪しは主張しない。
+    // T-T12c-05: 現行表示の固定。置換後も期待値を変えない。11 箇所の `ApiFailure` 節の付け忘れを検出する。
+
+    private func makeTransportErrorClient(_ error: Error) -> APIClient {
+        APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(mode: .transportError(error))
+        )
+    }
+
+    func testLoadPodcastsCancelledURLErrorKeepsCurrentDisplay() async throws {
+        let vm = makeViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.errorMessage, URLError(.cancelled).localizedDescription)
+    }
+
+    func testLoadPodcastsRawCancellationErrorKeepsCurrentDisplay() async throws {
+        let vm = makeViewModel(apiClient: makeTransportErrorClient(CancellationError()))
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.errorMessage, CancellationError().localizedDescription)
+    }
+
+    func testDownloadCancelledURLErrorKeepsCurrentDisplay() async throws {
+        let vm = makeViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+
+        await vm.download(podcast: queuePodcast("p1"))
+
+        XCTAssertEqual(vm.errorMessage, URLError(.cancelled).localizedDescription)
+    }
+
+    func testPlayByIdCancelledURLErrorKeepsCurrentDisplay() async throws {
+        let vm = makeViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+
+        await vm.playById("p1")
+
+        XCTAssertEqual(vm.errorMessage, URLError(.cancelled).localizedDescription)
+    }
+
+    func testLoadPodcasts500SetsHTTPErrorMessage() async throws {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 500)
+        )
+        let vm = makeViewModel(apiClient: client)
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
+    func testDownload500SetsHTTPErrorMessage() async throws {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 500)
+        )
+        let vm = makeViewModel(apiClient: client)
+
+        await vm.download(podcast: queuePodcast("p1"))
+
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
+    func testPlayById500SetsHTTPErrorMessage() async throws {
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(data: Data(), statusCode: 500)
+        )
+        let vm = makeViewModel(apiClient: client)
+
+        await vm.playById("p1")
+
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
+    func testLoadPodcastsTransportFailureSetsURLErrorMessage() async throws {
+        let vm = makeViewModel(apiClient: makeTransportErrorClient(URLError(.notConnectedToInternet)))
+
+        await vm.loadPodcasts()
+
+        XCTAssertEqual(vm.errorMessage, URLError(.notConnectedToInternet).localizedDescription)
+    }
+
     // MARK: - issue #53: ロード失敗と「本当に空」の空状態を区別する
 
     func testDisplayStateIsErrorWhenLoadPodcastsFailsWithEmptyList() async throws {

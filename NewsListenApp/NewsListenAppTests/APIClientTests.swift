@@ -87,7 +87,8 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(mockSession.lastRequest?.httpMethod, "DELETE")
     }
 
-    func testUnstarArticleMaps404ToHttpError() async {
+    // T-T12-18（verifies: CI-T12, D3）。unstarArticle は subject .star を宣言する endpoint。
+    func testUnstarArticleMaps404ToNotFoundStarSubject() async {
         let mockSession = MockURLSession(data: Data(), statusCode: 404)
         let client = APIClient(
             baseURL: URL(string: "https://api.example.com")!,
@@ -98,8 +99,8 @@ final class APIClientTests: XCTestCase {
         do {
             try await client.unstarArticle(id: "a1")
             XCTFail("404 should throw")
-        } catch APIError.httpError(let code) {
-            XCTAssertEqual(code, 404)
+        } catch ApiFailure.notFound(let subject) {
+            XCTAssertEqual(subject, .star)
         } catch {
             XCTFail("unexpected error: \(error)")
         }
@@ -153,7 +154,8 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(mockSession.lastRequest?.value(forHTTPHeaderField: "X-API-Key"), "secret-key")
     }
 
-    func testHTTPErrorThrowsAPIError() async throws {
+    // T-T12-09（verifies: CI-T12, D1）。500 → .server(status: 500)。
+    func testHTTPErrorThrowsServerFailure() async throws {
         let mockSession = MockURLSession(data: Data(), statusCode: 500)
         let client = APIClient(
             baseURL: URL(string: "https://api.example.com")!,
@@ -164,8 +166,10 @@ final class APIClientTests: XCTestCase {
         do {
             _ = try await client.fetchFeed()
             XCTFail("HTTP 500 でエラーが送出されるべき")
-        } catch let APIError.httpError(statusCode) {
-            XCTAssertEqual(statusCode, 500)
+        } catch ApiFailure.server(let status) {
+            XCTAssertEqual(status, 500)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
         }
     }
 
@@ -292,6 +296,7 @@ final class APIClientTests: XCTestCase {
         XCTAssertNil(mockSession.lastRequest?.value(forHTTPHeaderField: "Authorization"))
     }
 
+    // T-T12-20（verifies: CI-T12, D1）。downloadAudio の 500 → .server(status: 500)。
     func testDownloadAudioThrowsOnHTTPError() async throws {
         let mockSession = MockURLSession(data: Data(), statusCode: 500)
         let client = APIClient(
@@ -303,12 +308,34 @@ final class APIClientTests: XCTestCase {
         do {
             _ = try await client.downloadAudio(from: URL(string: "https://storage.example.com/audio.mp3")!)
             XCTFail("HTTP 500 でエラーが送出されるべき")
-        } catch let APIError.httpError(statusCode) {
-            XCTAssertEqual(statusCode, 500)
+        } catch ApiFailure.server(let status) {
+            XCTAssertEqual(status, 500)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-20（verifies: CI-T12, D1）。downloadAudio の非 HTTP 応答 → .network(.badServerResponse)（CI-A02）。
+    func testDownloadAudioThrowsNetworkFailureOnNonHTTPResponse() async throws {
+        let mockSession = MockURLSession(mode: .nonHTTPResponse)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        do {
+            _ = try await client.downloadAudio(from: URL(string: "https://storage.example.com/audio.mp3")!)
+            XCTFail("非 HTTP 応答でエラーが送出されるべき")
+        } catch ApiFailure.network(let urlError) {
+            XCTAssertEqual(urlError.code, .badServerResponse)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
         }
     }
 
     // issue #82: 429 は rateLimited(retryAfter:) として Retry-After を添えて送出する。
+    // T-T12-11（verifies: CI-T12, D1）。
     func testStar429ThrowsRateLimitedWithRetryAfter() async {
         let mockSession = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])
         let client = APIClient(
@@ -319,23 +346,251 @@ final class APIClientTests: XCTestCase {
         do {
             try await client.starArticle(id: "a1")
             XCTFail("429 で rateLimited が送出されるべき")
-        } catch APIError.rateLimited(let retryAfter) {
+        } catch ApiFailure.rateLimited(let retryAfter) {
             XCTAssertEqual(retryAfter, 43200)
         } catch {
             XCTFail("unexpected error: \(error)")
         }
     }
 
+    // T-T12-11（verifies: CI-T12, D1）。
     func testStar429WithoutHeaderHasNilRetryAfter() async {
         let mockSession = MockURLSession(data: Data(), statusCode: 429)
         let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
         do {
             try await client.starArticle(id: "a1")
             XCTFail("429 で rateLimited が送出されるべき")
-        } catch APIError.rateLimited(let retryAfter) {
+        } catch ApiFailure.rateLimited(let retryAfter) {
             XCTAssertNil(retryAfter)
         } catch {
             XCTFail("unexpected error: \(error)")
+        }
+    }
+
+    // MARK: - T-T12（verifies: CI-T12）— D1 の写像を網羅する新規テスト（改訂 20 write_tests 1b）
+
+    private func makeApiFailureClient(mode: MockURLSession.Mode) -> APIClient {
+        APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(mode: mode)
+        )
+    }
+
+    // T-T12-01: 非 HTTP 応答は fail-open ではなく .network(.badServerResponse)（CI-A02）。
+    func testFetchFeedNonHTTPResponseMapsToNetworkFailure() async {
+        let client = makeApiFailureClient(mode: .nonHTTPResponse)
+        do {
+            _ = try await client.fetchFeed()
+            XCTFail("非 HTTP 応答でエラーが送出されるべき")
+        } catch ApiFailure.network(let urlError) {
+            XCTAssertEqual(urlError.code, .badServerResponse)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-02: transport の失敗（cancelled 以外）は .network(e) に包まれる。
+    func testFetchFeedTransportFailureMapsToNetwork() async {
+        let client = makeApiFailureClient(mode: .transportError(URLError(.notConnectedToInternet)))
+        do {
+            _ = try await client.fetchFeed()
+            XCTFail("transport の失敗でエラーが送出されるべき")
+        } catch ApiFailure.network(let urlError) {
+            XCTAssertEqual(urlError.code, .notConnectedToInternet)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-06: 403 → .forbidden。
+    func testFetchFeed403MapsToForbidden() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 403)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            _ = try await client.fetchFeed()
+            XCTFail("403 でエラーが送出されるべき")
+        } catch ApiFailure.forbidden {
+            // 期待どおり。
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-07: 409 → .conflict（addSource は R-keep2 の置換対象）。
+    func testAddSource409MapsToConflict() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 409)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            _ = try await client.addSource(name: "n", url: "https://example.com/feed")
+            XCTFail("409 でエラーが送出されるべき")
+        } catch ApiFailure.conflict {
+            // 期待どおり。
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-08: 400 → .validation（changePassword は R-keep2 の置換対象）。
+    func testChangePassword400MapsToValidation() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 400)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            sessionToken: "tok",
+            session: mockSession
+        )
+        do {
+            try await client.changePassword(current: "old", new: "new")
+            XCTFail("400 でエラーが送出されるべき")
+        } catch ApiFailure.validation {
+            // 期待どおり。
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-08: 422 → .unknown(422)（S4 で再判定するまで .validation に含めない）。
+    func testChangePassword422MapsToUnknown() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 422)
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            sessionToken: "tok",
+            session: mockSession
+        )
+        do {
+            try await client.changePassword(current: "old", new: "new")
+            XCTFail("422 でエラーが送出されるべき")
+        } catch ApiFailure.unknown(let status) {
+            XCTAssertEqual(status, 422)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-09: 503 → .server(status: 503)。
+    func testFetchFeed503MapsToServer() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 503)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            _ = try await client.fetchFeed()
+            XCTFail("503 でエラーが送出されるべき")
+        } catch ApiFailure.server(let status) {
+            XCTAssertEqual(status, 503)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-10: その他の 4xx（418）→ .unknown(status:)。
+    func testFetchFeed418MapsToUnknown() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 418)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            _ = try await client.fetchFeed()
+            XCTFail("418 でエラーが送出されるべき")
+        } catch ApiFailure.unknown(let status) {
+            XCTAssertEqual(status, 418)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-12: 2xx + 不正な JSON → .decoding。
+    func testFetchFeedInvalidJSONMapsToDecoding() async {
+        let mockSession = MockURLSession(data: Data("not json".utf8), statusCode: 200)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            _ = try await client.fetchFeed()
+            XCTFail("不正な JSON でエラーが送出されるべき")
+        } catch ApiFailure.decoding {
+            // 期待どおり。
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-13〜15（verifies: CI-T12, D3）。subject 宣言の無い endpoint とは異なり、
+    // 404 が subject を持つ endpoint 群の写像を確かめる（streak / quota / quiz）。
+    func testFetchListeningStreak404MapsToNotFoundStreakSubject() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 404)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            _ = try await client.fetchListeningStreak()
+            XCTFail("404 でエラーが送出されるべき")
+        } catch ApiFailure.notFound(let subject) {
+            XCTAssertEqual(subject, .streak)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    func testFetchGenerationQuota404MapsToNotFoundQuotaSubject() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 404)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            _ = try await client.fetchGenerationQuota()
+            XCTFail("404 でエラーが送出されるべき")
+        } catch ApiFailure.notFound(let subject) {
+            XCTAssertEqual(subject, .quota)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    func testSubmitQuizAnswers404MapsToNotFoundQuizSubject() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 404)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            _ = try await client.submitQuizAnswers(podcastId: "p1", answers: [0])
+            XCTFail("404 でエラーが送出されるべき")
+        } catch ApiFailure.notFound(let subject) {
+            XCTAssertEqual(subject, .quiz)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-19（verifies: CI-T12, D1）。subject を宣言しない endpoint の 404 → .unknown(status: 404)。
+    func testFetchPodcast404MapsToUnknown() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 404)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            _ = try await client.fetchPodcast(id: "p1")
+            XCTFail("404 でエラーが送出されるべき")
+        } catch ApiFailure.unknown(let status) {
+            XCTAssertEqual(status, 404)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    // T-T12-21（verifies: CI-T12, D1）。独自組立の 2 経路（removeSource / unregisterDeviceToken）
+    // も同じ写像を通る。subject を宣言しないので 404 → .unknown(status: 404)。
+    func testRemoveSource404MapsToUnknown() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 404)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            try await client.removeSource(url: "https://example.com/feed")
+            XCTFail("404 でエラーが送出されるべき")
+        } catch ApiFailure.unknown(let status) {
+            XCTAssertEqual(status, 404)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    func testUnregisterDeviceToken404MapsToUnknown() async {
+        let mockSession = MockURLSession(data: Data(), statusCode: 404)
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
+        do {
+            try await client.unregisterDeviceToken("tok")
+            XCTFail("404 でエラーが送出されるべき")
+        } catch ApiFailure.unknown(let status) {
+            XCTAssertEqual(status, 404)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
         }
     }
 
@@ -629,32 +884,97 @@ final class APIClientTests: XCTestCase {
         let query = mockSession.lastRequest?.url?.query ?? ""
         XCTAssertTrue(query.contains("token=abc123token"), "query should carry the token: \(query)")
     }
+
+    // MARK: - T-T12-03/04（verifies: CI-T12, D2 exception）
+    // 置換前後で GREEN を要求する特性テスト。Task キャンセル由来の失敗（`URLError(.cancelled)` /
+    // `CancellationError`）は `ApiFailure` に変換されず、素のまま伝播する（D2）。
+
+    func testTransportCancelledURLErrorPropagatesWithoutConversion() async throws {
+        let mockSession = MockURLSession(mode: .transportError(URLError(.cancelled)))
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        do {
+            _ = try await client.fetchFeed()
+            XCTFail("キャンセルされた URLError は変換されずに伝播すべき")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .cancelled)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
+
+    func testTransportCancellationErrorPropagatesWithoutConversion() async throws {
+        let mockSession = MockURLSession(mode: .transportError(CancellationError()))
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: mockSession
+        )
+
+        do {
+            _ = try await client.fetchFeed()
+            XCTFail("CancellationError は変換されずに伝播すべき")
+        } catch is CancellationError {
+            // 期待どおり: 変換されずに伝播する。
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
+        }
+    }
 }
 
 // MARK: - MockURLSession
 
 // 複数のテストファイル（Feed / Podcast / Settings の ViewModel テスト）から共用する。
+//
+// verifies: CI-T12（D6）。`Mode` は非 HTTP 応答・transport 失敗を CI-T12 の RED（写像前）で
+// 再現するための拡張（改訂 20 write_tests 1a.1）。既存の `init(data:statusCode:headerFields:)` は
+// `.http` に委譲し、既存 15 ファイル 95 呼出の挙動・シグネチャは変えない。
 final class MockURLSession: URLSessionProtocol {
+    enum Mode {
+        case http(statusCode: Int, headerFields: [String: String]?)
+        case nonHTTPResponse
+        case transportError(Error)
+    }
+
     let data: Data
-    let statusCode: Int
-    /// レスポンスヘッダ（issue #82: Retry-After 検証用。既定 nil）。
-    let headerFields: [String: String]?
+    let mode: Mode
     var lastRequest: URLRequest?
 
     init(data: Data, statusCode: Int, headerFields: [String: String]? = nil) {
         self.data = data
-        self.statusCode = statusCode
-        self.headerFields = headerFields
+        self.mode = .http(statusCode: statusCode, headerFields: headerFields)
+    }
+
+    init(data: Data = Data(), mode: Mode) {
+        self.data = data
+        self.mode = mode
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         lastRequest = request
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: statusCode,
-            httpVersion: nil,
-            headerFields: headerFields
-        )!
-        return (data, response)
+        switch mode {
+        case .http(let statusCode, let headerFields):
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: headerFields
+            )!
+            return (data, response)
+        case .nonHTTPResponse:
+            let response = URLResponse(
+                url: request.url!,
+                mimeType: nil,
+                expectedContentLength: 0,
+                textEncodingName: nil
+            )
+            return (data, response)
+        case .transportError(let error):
+            throw error
+        }
     }
 }

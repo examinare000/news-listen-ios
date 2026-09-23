@@ -32,6 +32,29 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertNil(vm.errorMessage)
     }
 
+    // MARK: - T-T12c-05（verifies: CI-T12c, R4-S1c）
+    // 現行表示の固定。置換後も期待値を変えない。11 箇所の `ApiFailure` 節の付け忘れを検出する。
+
+    func testLoadFeed500SetsHTTPErrorMessage() async throws {
+        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.loadFeed()
+
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
+    func testStarThenCommitPending500SetsHTTPErrorMessageAndRestoresArticle() async throws {
+        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let article = sampleArticle(id: "a1")
+        vm.articles = [article]
+
+        await vm.star(article: article)     // 楽観削除 + 保留
+        await vm.commitPending()            // 確定 → 500
+
+        XCTAssertEqual(vm.articles.map { $0.id }, ["a1"])
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
     func testStarStagesAndRemovesArticle() async throws {
         // star は楽観削除 + 保留（確定は commitPending まで遅延）。issue #111。
         let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
@@ -291,6 +314,7 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: 3599), "本日の生成上限に達しました（約1時間後に可能）")
     }
 
+    // T-T13-04（verifies: CI-T13, R-keep2）。
     func testBulkStarSurfaces429LimitMessage() async throws {
         // 一括 Star が 429（生成上限）に当たったら上限メッセージを出す（web とパリティ・review #2）。
         let mock = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])
@@ -305,6 +329,7 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertEqual(vm.errorMessage, "本日の生成上限に達しました（約12時間後に可能）")
     }
 
+    // T-T13-04（verifies: CI-T13, R-keep2）。
     func testStarOn429SetsLimitMessageAndRestoresArticle() async throws {
         // 429 + Retry-After を返すクライアントで star を確定させると、記事が戻り上限メッセージが出る。
         let mock = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])

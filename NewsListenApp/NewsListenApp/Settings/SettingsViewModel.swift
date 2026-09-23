@@ -87,6 +87,8 @@ final class SettingsViewModel: ObservableObject {
         do {
             let response = try await apiClient.fetchSources()
             sources = response.sources
+        } catch let f as ApiFailure {
+            errorMessage = FailureMessages.message(for: f, context: .settings)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -119,6 +121,8 @@ final class SettingsViewModel: ObservableObject {
         do {
             let response = try await apiClient.addSource(name: name, url: url)
             sources = response.sources
+        } catch let f as ApiFailure {
+            errorMessage = FailureMessages.message(for: f, context: .settings)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -135,6 +139,8 @@ final class SettingsViewModel: ObservableObject {
         do {
             let response = try await apiClient.updateSource(oldURL: oldURL, name: name, url: url)
             sources = response.sources
+        } catch let f as ApiFailure {
+            errorMessage = FailureMessages.message(for: f, context: .settings)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -147,6 +153,8 @@ final class SettingsViewModel: ObservableObject {
         do {
             try await apiClient.removeSource(url: url)
             sources.removeAll { $0.url == url }
+        } catch let f as ApiFailure {
+            errorMessage = FailureMessages.message(for: f, context: .settings)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -160,7 +168,7 @@ final class SettingsViewModel: ObservableObject {
         do {
             generationQuota = try await apiClient.fetchGenerationQuota()
             generationQuotaLoadFailed = false
-        } catch APIError.httpError(let statusCode) where statusCode == 404 {
+        } catch ApiFailure.notFound(subject: .quota) {
             // 404 = 旧 backend への graceful degradation。セクション非表示（警告なし）
             generationQuota = nil
             generationQuotaLoadFailed = false

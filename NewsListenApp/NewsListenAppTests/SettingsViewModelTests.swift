@@ -102,6 +102,103 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertFalse(vm.isLoading)
     }
 
+    // MARK: - T-T12c-02（verifies: CI-T12c, R4-S1c）
+    // 現行文言の固定。SG-S1-2 = (b) により置換後も期待値を変えない。
+
+    func testLoadSources500SetsHTTPErrorMessage() async throws {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.loadSources()
+
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
+    // MARK: - T-T12c-04（verifies: CI-T12c, R4-S1g）
+    // SG-S1-6: 射程外・挙動不変の固定（order.md:66）。文言の良し悪しは主張しない。
+
+    private func makeTransportErrorClient(_ error: Error) -> APIClient {
+        APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            apiKey: "key",
+            session: MockURLSession(mode: .transportError(error))
+        )
+    }
+
+    func testLoadSourcesCancelledURLErrorKeepsCurrentDisplay() async throws {
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+
+        await vm.loadSources()
+
+        XCTAssertEqual(vm.errorMessage, URLError(.cancelled).localizedDescription)
+    }
+
+    func testLoadSourcesRawCancellationErrorKeepsCurrentDisplay() async throws {
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(CancellationError()))
+
+        await vm.loadSources()
+
+        XCTAssertEqual(vm.errorMessage, CancellationError().localizedDescription)
+    }
+
+    func testAddSourceCancelledURLErrorKeepsCurrentDisplay() async throws {
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+
+        await vm.addSource(name: "n", url: "https://example.com/feed")
+
+        XCTAssertEqual(vm.errorMessage, URLError(.cancelled).localizedDescription)
+    }
+
+    func testUpdateSourceCancelledURLErrorKeepsCurrentDisplay() async throws {
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+
+        await vm.updateSource(oldURL: "https://example.com/old", name: "n", url: "https://example.com/new")
+
+        XCTAssertEqual(vm.errorMessage, URLError(.cancelled).localizedDescription)
+    }
+
+    func testRemoveSourceCancelledURLErrorKeepsCurrentDisplay() async throws {
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+
+        await vm.removeSource(url: "https://example.com/feed")
+
+        XCTAssertEqual(vm.errorMessage, URLError(.cancelled).localizedDescription)
+    }
+
+    // MARK: - T-T12c-05（verifies: CI-T12c, R4-S1c）
+    // 現行表示の固定。置換後も期待値を変えない。11 箇所の `ApiFailure` 節の付け忘れを検出する。
+
+    func testAddSource500SetsHTTPErrorMessage() async throws {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.addSource(name: "n", url: "https://example.com/feed")
+
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
+    func testUpdateSource500SetsHTTPErrorMessage() async throws {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.updateSource(oldURL: "https://example.com/old", name: "n", url: "https://example.com/new")
+
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
+    func testRemoveSource500SetsHTTPErrorMessage() async throws {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+
+        await vm.removeSource(url: "https://example.com/feed")
+
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
+    func testLoadSourcesTransportFailureSetsURLErrorMessage() async throws {
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.notConnectedToInternet)))
+
+        await vm.loadSources()
+
+        XCTAssertEqual(vm.errorMessage, URLError(.notConnectedToInternet).localizedDescription)
+    }
+
     func testLoadFeaturedSitesFetchesFromAPI() async throws {
         let json = #"""
         {"sites": [
@@ -276,6 +373,7 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertTrue(vm.generationQuotaLoadFailed)
     }
 
+    // T-T13-04（verifies: CI-T13, R-keep2）。
     func testLoadGenerationQuota404GracefulDegradation() async throws {
         // 404 時は graceful degradation: 生成残回数セクションを非表示（failed=false）
         let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 404))

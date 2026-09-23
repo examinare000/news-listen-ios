@@ -67,7 +67,7 @@ final class PasskeyRegistrationViewModel: ObservableObject {
         } catch PasskeyError.canceled {
             // キャンセルは失敗扱いしない。
             isRunning = false
-        } catch let APIError.httpError(statusCode) where statusCode == 409 {
+        } catch ApiFailure.conflict {
             // 既登録クレデンシャルには専用メッセージを表示する（バックエンド仕様通り）。
             errorMessage = "この Passkey はすでに登録されています"
             isRunning = false

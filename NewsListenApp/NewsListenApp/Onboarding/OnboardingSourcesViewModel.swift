@@ -63,7 +63,7 @@ final class OnboardingSourcesViewModel: ObservableObject {
         do {
             _ = try await apiClient.addSource(name: site.name, url: site.url)
             addedIDs.insert(site.id)
-        } catch APIError.httpError(let statusCode) where statusCode == 409 {
+        } catch ApiFailure.conflict {
             // 既に登録済みなら購読済み扱い（ユーザーからは成功と見分けがつかない）。
             addedIDs.insert(site.id)
         } catch {

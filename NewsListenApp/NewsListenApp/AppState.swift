@@ -260,7 +260,7 @@ final class AppState: ObservableObject {
             if let prev = previousStreakDays, newStreak.currentStreakDays > prev {
                 DSFeedback.shared.play(.streakUp)
             }
-        } catch APIError.httpError(let statusCode) where statusCode == 404 {
+        } catch ApiFailure.notFound(subject: .streak) {
             listeningStreak = nil
             listeningStreakLoadFailed = false
         } catch {

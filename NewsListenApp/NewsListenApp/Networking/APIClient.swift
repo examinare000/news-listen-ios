@@ -16,27 +16,30 @@ protocol URLSessionProtocol {
 
 extension URLSession: URLSessionProtocol {}
 
-/// API 通信で発生しうるエラー。
-enum APIError: LocalizedError {
-    /// URL の生成・解釈に失敗した。
-    case invalidURL
-    /// HTTP ステータスが 2xx 以外だった。
-    case httpError(statusCode: Int)
-    /// 生成上限など 429 Too Many Requests（Retry-After 秒・issue #82）。
-    /// 既存の `httpError(404)` 等のパターンを壊さないよう 429 専用の別ケースにする。
-    case rateLimited(retryAfter: Int?)
-    /// レスポンスボディの JSON デコードに失敗した。
-    case decodingError(Error)
+/// 宣言のある 404 が指す対象（意味の無い 404 と区別する。Spec §2.1 D3）。
+///
+/// - `streak` / `quota` / `quiz`: 旧 backend または機能未提供。
+/// - `credential` / `session` / `star`: 冪等削除・冪等失効が既に完了している。
+enum NotFoundSubject: Equatable {
+    case streak, quota, quiz
+    case credential, session, star
+}
 
-    /// ユーザー向けのエラー説明文。
-    var errorDescription: String? {
-        switch self {
-        case .invalidURL: return "Invalid URL"
-        case .httpError(let code): return "HTTP Error \(code)"
-        case .rateLimited: return "リクエストが多すぎます。しばらくしてからお試しください。"
-        case .decodingError(let e): return "Decoding error: \(e.localizedDescription)"
-        }
-    }
+/// API 通信の失敗を表す値（Spec §2.1）。値集合はここに列挙した 10 case のみで、追加しない。
+///
+/// `LocalizedError` には適合させない。適合させると `localizedDescription` 経由で文言を得る経路が
+/// 残り、文言の所有者が `FailureMessages` 1 箇所に定まらなくなる（order 完了条件 5）。
+enum ApiFailure: Error, Equatable {
+    case network(URLError)
+    case unauthorized
+    case forbidden
+    case notFound(subject: NotFoundSubject)
+    case conflict
+    case rateLimited(retryAfter: Int?)
+    case validation
+    case server(status: Int)
+    case decoding
+    case unknown(status: Int)
 }
 
 /// バックエンド API への通信を担うクライアント。
@@ -104,7 +107,7 @@ final class APIClient {
     /// backend は冪等（記事 doc が既に存在しない場合のみ 404）で、生成済み Podcast も削除される。
     /// - Parameter id: 対象記事の ID。
     func unstarArticle(id: String) async throws {
-        try await requestVoid(.unstarArticle(id: id))
+        try await requestVoid(.unstarArticle(id: id), notFoundSubject: .star)
     }
 
     /// 指定 ID の記事を Dismiss する。
@@ -146,6 +149,7 @@ final class APIClient {
         try await request(
             .submitQuizAnswers(podcastId: podcastId),
             body: ["answers": answers],
+            notFoundSubject: .quiz,
             responseType: QuizAnswerResponse.self
         )
     }
@@ -158,9 +162,7 @@ final class APIClient {
     /// - Returns: 音声データ。
     func downloadAudio(from url: URL) async throws -> Data {
         let request = URLRequest(url: url)
-        let (data, response) = try await session.data(for: request)
-        try validateResponse(response)
-        return data
+        return try await performData(request)
     }
 
     // MARK: - Settings
@@ -189,12 +191,12 @@ final class APIClient {
 
     /// Podcast 生成の本日残回数を取得する（issue #164 / ADR-061）。
     func fetchGenerationQuota() async throws -> GenerationQuota {
-        try await request(.generationQuota, responseType: GenerationQuota.self)
+        try await request(.generationQuota, notFoundSubject: .quota, responseType: GenerationQuota.self)
     }
 
     /// 聴取ストリーク（連続聴取日数）を取得する（issue #165）。
     func fetchListeningStreak() async throws -> ListeningStreak {
-        try await request(.listeningStreak, responseType: ListeningStreak.self)
+        try await request(.listeningStreak, notFoundSubject: .streak, responseType: ListeningStreak.self)
     }
 
     // MARK: - Learning engagement
@@ -280,8 +282,7 @@ final class APIClient {
         if let sessionToken {
             req.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
         }
-        let (_, response) = try await session.data(for: req)
-        try validateResponse(response)
+        _ = try await performData(req)
     }
 
     // MARK: - Push（APNs デバイストークン）
@@ -308,8 +309,7 @@ final class APIClient {
         if let sessionToken {
             req.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
         }
-        let (_, response) = try await session.data(for: req)
-        try validateResponse(response)
+        _ = try await performData(req)
     }
 
     // MARK: - Auth（セッション）
@@ -453,7 +453,7 @@ final class APIClient {
     ///
     /// - Parameter id: 削除対象のクレデンシャル ID（base64url 文字列）。
     func deletePasskeyCredential(id: String) async throws {
-        try await requestVoid(.passkeyDeleteCredential(id: id))
+        try await requestVoid(.passkeyDeleteCredential(id: id), notFoundSubject: .credential)
     }
 
     /// 自分の有効セッション（ログイン中デバイス）一覧を取得する（Bearer 要・issue #84）。
@@ -463,7 +463,7 @@ final class APIClient {
 
     /// 指定セッションを個別失効する（Bearer 要・他人/不在は 404・冪等）。
     func revokeSession(id: String) async throws {
-        try await requestVoid(.revokeSession(id: id))
+        try await requestVoid(.revokeSession(id: id), notFoundSubject: .session)
     }
 
     /// 現在以外のセッションを一括失効する（「他のデバイスからログアウト」）。
@@ -485,19 +485,20 @@ final class APIClient {
     /// - Parameters:
     ///   - endpoint: 対象エンドポイント。
     ///   - body: 送信する JSON ボディ（任意）。
+    ///   - notFoundSubject: 404 が意味を持つ endpoint のときだけ渡す（D3）。
     ///   - responseType: デコード先の型。
     private func request<T: Decodable>(
         _ endpoint: APIEndpoint,
         body: Any? = nil,
+        notFoundSubject: NotFoundSubject? = nil,
         responseType: T.Type
     ) async throws -> T {
         let req = try buildRequest(endpoint, body: body)
-        let (data, response) = try await session.data(for: req)
-        try validateResponse(response)
+        let data = try await performData(req, notFoundSubject: notFoundSubject)
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
-            throw APIError.decodingError(error)
+            throw ApiFailure.decoding
         }
     }
 
@@ -505,16 +506,23 @@ final class APIClient {
     /// - Parameters:
     ///   - endpoint: 対象エンドポイント。
     ///   - body: 送信する JSON ボディ（任意）。
-    private func requestVoid(_ endpoint: APIEndpoint, body: [String: Any]? = nil) async throws {
+    ///   - notFoundSubject: 404 が意味を持つ endpoint のときだけ渡す（D3）。
+    private func requestVoid(
+        _ endpoint: APIEndpoint,
+        body: [String: Any]? = nil,
+        notFoundSubject: NotFoundSubject? = nil
+    ) async throws {
         let req = try buildRequest(endpoint, body: body)
-        let (_, response) = try await session.data(for: req)
-        try validateResponse(response)
+        _ = try await performData(req, notFoundSubject: notFoundSubject)
     }
 
     /// エンドポイントと任意のボディから、API キー付きの `URLRequest` を組み立てる。
     /// - Parameters:
     ///   - endpoint: 対象エンドポイント。
     ///   - body: JSON 化して送信するボディ（任意）。
+    ///
+    /// `JSONSerialization` の失敗は `session.data(for:)` より前に起きるプログラミングエラーとして
+    /// 扱い、`ApiFailure` には写像しない（D1 の明示的な例外）。
     private func buildRequest(_ endpoint: APIEndpoint, body: Any?) throws -> URLRequest {
         let url = baseURL.appendingPathComponent(endpoint.path)
         var request = URLRequest(url: url)
@@ -531,17 +539,67 @@ final class APIClient {
         return request
     }
 
-    /// HTTP レスポンスのステータスを検証し、2xx 以外なら ``APIError/httpError(statusCode:)`` を投げる。
-    /// - Parameter response: 検証対象のレスポンス。
-    private func validateResponse(_ response: URLResponse) throws {
-        guard let http = response as? HTTPURLResponse else { return }
-        guard 200..<300 ~= http.statusCode else {
-            if http.statusCode == 429 {
-                // Retry-After（秒）があれば添えて 429 専用エラーを投げる（issue #82）。
-                let retryAfter = (http.value(forHTTPHeaderField: "Retry-After")).flatMap { Int($0) }
-                throw APIError.rateLimited(retryAfter: retryAfter)
+    /// 通信を実行し、transport の失敗を `ApiFailure` へ写像してからレスポンスを検証する（D1・D2）。
+    /// - Parameters:
+    ///   - request: 実行する `URLRequest`。
+    ///   - notFoundSubject: 404 が意味を持つ endpoint のときだけ渡す（D3）。
+    /// - Returns: レスポンスボディ。
+    private func performData(_ request: URLRequest, notFoundSubject: NotFoundSubject? = nil) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch is CancellationError {
+            // Task キャンセル由来の失敗は制御信号のため変換せず伝播する（D2）。
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // 同上。
+            throw urlError
+        } catch let urlError as URLError {
+            throw ApiFailure.network(urlError)
+        } catch {
+            // 本番の URLSession は URLError を投げる。test double 由来の任意の Error の受け皿。
+            throw ApiFailure.network(URLError(.unknown, userInfo: [NSUnderlyingErrorKey: error]))
+        }
+        try validateResponse(response, notFoundSubject: notFoundSubject)
+        return data
+    }
+
+    /// HTTP レスポンスのステータスを検証し、2xx 以外なら ``ApiFailure`` を投げる（D1）。
+    /// - Parameters:
+    ///   - response: 検証対象のレスポンス。
+    ///   - notFoundSubject: 404 が意味を持つ endpoint のときだけ渡す（D3）。宣言が無ければ
+    ///     404 は `.unknown(status: 404)` になる。
+    private func validateResponse(_ response: URLResponse, notFoundSubject: NotFoundSubject? = nil) throws {
+        guard let http = response as? HTTPURLResponse else {
+            // 非 HTTP 応答は fail-open ではなく fail-closed にする（CI-A02）。
+            throw ApiFailure.network(URLError(.badServerResponse))
+        }
+        switch http.statusCode {
+        case 200..<300:
+            return
+        case 401:
+            throw ApiFailure.unauthorized
+        case 403:
+            throw ApiFailure.forbidden
+        case 404:
+            if let notFoundSubject {
+                throw ApiFailure.notFound(subject: notFoundSubject)
             }
-            throw APIError.httpError(statusCode: http.statusCode)
+            throw ApiFailure.unknown(status: 404)
+        case 409:
+            throw ApiFailure.conflict
+        case 429:
+            // Retry-After（秒）があれば添えて 429 専用エラーを投げる（issue #82）。
+            let retryAfter = (http.value(forHTTPHeaderField: "Retry-After")).flatMap { Int($0) }
+            throw ApiFailure.rateLimited(retryAfter: retryAfter)
+        case 400:
+            throw ApiFailure.validation
+        case 500..<600:
+            throw ApiFailure.server(status: http.statusCode)
+        default:
+            // 422 を含む、上記以外の 4xx・1xx・3xx（S4 で再判定するまで .validation に含めない）。
+            throw ApiFailure.unknown(status: http.statusCode)
         }
     }
 }

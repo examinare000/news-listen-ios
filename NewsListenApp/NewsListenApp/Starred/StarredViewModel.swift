@@ -77,6 +77,8 @@ final class StarredViewModel: ObservableObject {
             // （FeedViewModel.loadFeed() と同じ理由・star cancelled alert バグ対応を参照）。
         } catch let error as URLError where error.code == .cancelled {
             // 同上。
+        } catch let f as ApiFailure {
+            errorMessage = FailureMessages.message(for: f, context: .starred)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -105,12 +107,16 @@ final class StarredViewModel: ObservableObject {
         articles.remove(at: index)
         do {
             try await apiClient.unstarArticle(id: article.id)
-        } catch APIError.httpError(404) {
+        } catch ApiFailure.notFound(subject: .star) {
             // 記事 doc が既に存在しない＝サーバ側としては既に望みどおりの状態。復元しない。
         } catch is CancellationError {
             // 呼び出し元 Task がキャンセルされただけで、ユーザーに見せるエラーではない。
         } catch let error as URLError where error.code == .cancelled {
             // 同上。
+        } catch let f as ApiFailure {
+            let restoreIndex = min(index, articles.count)
+            articles.insert(article, at: restoreIndex)
+            errorMessage = FailureMessages.message(for: f, context: .starred)
         } catch {
             let restoreIndex = min(index, articles.count)
             articles.insert(article, at: restoreIndex)

@@ -56,7 +56,7 @@ final class LoginViewModel: ObservableObject {
             )
             onSuccess(response)
             // 成功時は画面遷移するため isSubmitting は false に戻さない（遷移までボタン無効を維持）。
-        } catch let APIError.httpError(statusCode) where statusCode == 401 {
+        } catch ApiFailure.unauthorized {
             errorMessage = "ユーザーIDまたはパスワードが正しくありません"
             isSubmitting = false
         } catch {

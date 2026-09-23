@@ -56,13 +56,16 @@ final class AuthAPIClientTests: XCTestCase {
         XCTAssertEqual(session.lastRequest?.value(forHTTPHeaderField: "X-API-Key"), "api-key")
     }
 
-    func testLogin401ThrowsHTTPError() async throws {
+    // T-T12-05（verifies: CI-T12, D1）。401 → .unauthorized。
+    func testLogin401ThrowsUnauthorized() async throws {
         let (client, _) = makeClient(data: Data(), status: 401)
         do {
             _ = try await client.login(username: "x", password: "y")
-            XCTFail("401 で APIError が送出されるべき")
-        } catch let APIError.httpError(code) {
-            XCTAssertEqual(code, 401)
+            XCTFail("401 で ApiFailure が送出されるべき")
+        } catch ApiFailure.unauthorized {
+            // 期待どおり。
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
         }
     }
 

@@ -196,7 +196,7 @@ struct QuizSheetView: View {
                 notification: .announcement,
                 argument: "\(response.correctCount)問中\(response.total)問正解"
             )
-        } catch APIError.httpError(let statusCode) where statusCode == 404 {
+        } catch ApiFailure.notFound(subject: .quiz) {
             // 旧 backend・提供なしは警告にせず、クイズ自体を graceful-hide する。
             isUnavailable = true
         } catch {

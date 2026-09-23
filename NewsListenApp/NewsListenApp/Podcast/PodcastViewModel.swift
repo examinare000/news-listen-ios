@@ -147,6 +147,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
             let response = try await apiClient.fetchPodcasts()
             podcasts = response.podcasts
             syncDownloadedState()
+        } catch let f as ApiFailure {
+            errorMessage = FailureMessages.message(for: f, context: .podcast)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -207,7 +209,10 @@ final class PodcastViewModel: NSObject, ObservableObject {
             try cacheManager.cache(audioData, for: podcast.id)
             // 成功時のみ downloadedIds に追加。
             downloadedIds.insert(podcast.id)
+        } catch let f as ApiFailure {
+            errorMessage = FailureMessages.message(for: f, context: .podcast)
         } catch {
+            // ApiFailure を経由しないキャッシュ書込の失敗もここに届く（SG-S1-7 = (s1)。射程外）。
             errorMessage = error.localizedDescription
         }
     }
@@ -382,6 +387,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
         do {
             let podcast = try await apiClient.fetchPodcast(id: id)
             await play(podcast: podcast)
+        } catch let f as ApiFailure {
+            errorMessage = FailureMessages.message(for: f, context: .podcast)
         } catch {
             errorMessage = error.localizedDescription
         }

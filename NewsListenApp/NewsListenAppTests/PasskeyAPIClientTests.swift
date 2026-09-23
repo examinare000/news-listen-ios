@@ -172,13 +172,16 @@ final class PasskeyAPIClientTests: XCTestCase {
         XCTAssertEqual(session.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer tok-del")
     }
 
+    // T-T12-16（verifies: CI-T12, D3）。deletePasskeyCredential は subject .credential を宣言する endpoint。
     func testDeleteCredentialHTTPErrorThrows() async throws {
         let (client, _) = makeClient(data: Data(), status: 404)
         do {
             try await client.deletePasskeyCredential(id: "cred-xyz")
             XCTFail("404 でエラーが投げられるべき")
-        } catch let APIError.httpError(code) {
-            XCTAssertEqual(code, 404)
+        } catch ApiFailure.notFound(let subject) {
+            XCTAssertEqual(subject, .credential)
+        } catch {
+            XCTFail("想定外のエラー: \(error)")
         }
     }
 }

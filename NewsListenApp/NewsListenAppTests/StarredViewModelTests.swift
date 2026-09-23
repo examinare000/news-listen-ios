@@ -40,6 +40,29 @@ final class StarredViewModelTests: XCTestCase {
         XCTAssertNil(vm.errorMessage)
     }
 
+    // MARK: - T-T12c-05（verifies: CI-T12c, R4-S1c）
+    // 現行表示の固定。置換後も期待値を変えない。11 箇所の `ApiFailure` 節の付け忘れを検出する。
+
+    func testLoadStarred500SetsHTTPErrorMessage() async throws {
+        let vm = StarredViewModel(apiClient: makeClient(json: "", statusCode: 500).0)
+
+        await vm.loadStarred()
+
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
+    func testUnstar500SetsHTTPErrorMessageAndRestoresArticle() async throws {
+        let (client, _) = makeClient(json: "", statusCode: 500)
+        let vm = StarredViewModel(apiClient: client)
+        let article = makeArticle(id: "a1")
+        vm.articles = [article]
+
+        await vm.unstar(article)
+
+        XCTAssertEqual(vm.articles.map(\.id), ["a1"])
+        XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
+    }
+
     func testLoadStarredSetsErrorMessageOnFailure() async throws {
         let vm = StarredViewModel(apiClient: makeClient(json: "", statusCode: 500).0)
 
@@ -135,6 +158,7 @@ final class StarredViewModelTests: XCTestCase {
         XCTAssertNotNil(vm.errorMessage)
     }
 
+    // T-T13-04（verifies: CI-T13, R-keep2）。
     func testUnstar404IsTreatedAsSuccess() async throws {
         let (client, _) = makeClient(json: "", statusCode: 404)
         let vm = StarredViewModel(apiClient: client)
