@@ -25,6 +25,7 @@ final class AppStateListeningStreakTests: XCTestCase {
         XCTAssertFalse(appState.listeningStreakLoadFailed)
     }
 
+    // T-T13-04（verifies: CI-T13, R-keep2）。
     func testRefreshListeningStreakTreats404AsUnavailableWithoutWarning() async {
         let appState = makeAppState(json: "", statusCode: 404)
 

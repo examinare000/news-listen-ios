@@ -100,6 +100,7 @@ final class PasskeyRegistrationViewModelTests: XCTestCase {
 
     // MARK: - 異常系: 409 Conflict（既登録）
 
+    // T-T13-04（verifies: CI-T13, R-keep2）。
     func testConflict409ShowsDedicatedMessage() async {
         // register/verify が 409 のとき、専用の「既登録」エラーメッセージが出ること。
         let provider = MockPasskeyProvider()
