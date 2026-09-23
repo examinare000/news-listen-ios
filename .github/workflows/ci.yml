@@ -29,7 +29,7 @@ jobs:
         # ユニットテストのビルドに実値は不要。
         run: cp NewsListenApp/Secrets.example.xcconfig NewsListenApp/Secrets.xcconfig
 
-      - name: Check no HTTP status comparison outside Networking (verifies: CI-T13)
+      - name: "Check no HTTP status comparison outside Networking (verifies: CI-T13)"
         run: |
           set -euo pipefail
           SRC=NewsListenApp/NewsListenApp
