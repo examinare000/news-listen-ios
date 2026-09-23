@@ -4,7 +4,7 @@
 再生ドメインの正本を `Podcast/Playback/` に**新規コードとしてだけ**置く。`PlaybackSession`（transport 状態 union）・`PlaybackCoordinator`（use case orchestration・`PlaybackLifecycle` 実装）・`OfflineLibrary`・`PositionReporter` と、Coordinator が判定に使う `Episode` decode を新設し、契約テスト（port double 駆動・表駆動）で固定する。**既存コードからは呼ばない**（production の挙動は変わらない。3 段分割の ①）。入口の差し替えは I-S3b2、旧実装の削除は I-S3b3。正本は user 承認済みの Implementation Spec `docs/design/2026-09-16-implementation-spec-playback-domain-model.md`（§3.1 Playback・§3.2 Catalog・§4 CI-T1〜T8・T10・T11・§5 CP1/CP3/CP4/CP5/CP9）。本タスクは**承認済み指示書に従う実装**であり、analyze_order は検証モード（再設計しない）。generate_spec の spec.md は上記 CI-T の抜粋で足り、新しい契約 ID を作らない。
 
 ## 前提・着手条件
-- 依存: I-S3a が merge 済み（`AudioEngine` port と test double が存在し、`PodcastViewModelTests` 全件 green）。I-S2 の `PlaybackLifecycle` port・`NowPlayingCenter` port・`PreferenceRegistry`・`ApiFailure` が使えること。
+- 依存: **I-S3a の submodule PR が main に merge 済み、かつ親リポ `news-listen` のポインタが進んでいる**（`git -C <親> submodule status` で `ios` に `+` が無い）。I-S3a の成果: `Podcast/Playback/AudioEngine.swift`（port・`EngineEvent` 8 種）と test double、`Podcast/Platform/{AVPlayerEngine,MediaPlayerNowPlaying}`、`PodcastViewModelTests` 全件 green。I-S2 の `PlaybackLifecycle` port・`NowPlayingCenter` port（I-S3a で `update / registerCommands / unregister` まで拡張済み）・`PreferenceRegistry`・`ApiFailure` が使えること。
 - 確定済み Selection Gate（共有仕様 §6.4〜§6.7）を新規コードにそのまま実装する: SG-X1 = 完聴時に `duration` を明示的に 1 回送る（順序: 完聴イベント → `duration` の位置書込 → advance）、SG-X4 = 一時停止中は周期送信しない、SG-X3 = `stopForLogout()` は cleanup 完了を待たない。速度の既定初期化は Preferences の既定速度（共有仕様 §6.6）。
 - 棄却済み案（再提案しない）: 旧 VM を feature flag で温存する段階移行（AVPlayer 2 系統の競合）、port を置かず純関数ガード拡張で済ませる案、`PlaybackQueue` の failable init（`docs/trial-log/mino-design-review-delegation.md`）。stale ガードは `endedId` 引数化の既存方式を踏襲する（`docs/trial-log/player-auto-converge.md`）。
 
@@ -16,12 +16,14 @@
 | `Podcast/Playback/OfflineLibrary.swift` | CP3 | 既存 `AudioCacheManager` を包む。`save / has / url / remove / clearAll / usage / savedIds`（`@Published private(set)`）。`has` / `url` はファイル実体が正本 |
 | `Podcast/Playback/PositionReporter.swift` | CP9 | `attach(session) / flush / listenCompleted(id) / lastSyncFailure`。再生中 15 秒 throttle、`pause / stop / 背景遷移` で即時 1 回、一時停止中は送らない、error / idle では送らない。完聴 → `duration` 書込 1 回 → advance。完聴通知は 1 セッション 1 回。応答の `Podcast` を Catalog 側へ返す。background task は closure port で受ける（`UIApplication` は書かない） |
 | `Models/Episode.swift` | CP5 | `Podcast` DTO → `PlayableEpisode / GeneratingEpisode / FailedEpisode`。未知 status・矛盾 DTO は `FailedEpisode`（fail-closed）。`decode(Podcast) → Episode` / `isPlayable`。Coordinator の Playable 判定に必要なため本 slice に含める（`PodcastRowView` の切替は I-S3b2） |
-| `NewsListenAppTests/`（新規テストファイル） | — | 下表 T-T*。port double（`AudioEngine`（I-S3a）・gateway closure・`FileStore`）を注入し、内部実装を観測しない |
+| `NewsListenAppTests/`（新規テストファイル） | — | 下表 T-T*。port double（`AudioEngine`（I-S3a）・`NowPlayingCenter`（I-S2）・gateway closure・`FileStore`）を注入し、内部実装を観測しない |
+
+`Podcast/Playback/AudioEngine.swift`（I-S3a で新設済みの port 定義）は本 slice の新規 5 本に数えない。`PlaybackSession` はこの既存 port を駆動する（port を作り直さない・別名の protocol を足さない）。Coordinator の既定速度は `PreferenceRegistry` の値を closure（`defaultSpeed: () -> Float`）で受ける（`AppState` 型を `Podcast/Playback/` に書かない）。
 
 gateway 依存は closure（`fetchPodcast / updatePosition / markCompleted / downloadAudio`）で受ける。`APIClient` 型を `Podcast/Playback/` に書かない（`ApiFailure` の値は読んでよい）。
 
 ## 完了条件
-- 新規ファイルが上表の 5 本＋テストであること。`git diff --stat origin/main -- NewsListenApp/NewsListenApp` に既存ファイルの変更が無い（`project.pbxproj` は synchronized group のため diff 0）。
+- 新規ファイルが上表の 5 本＋テストであること。`git diff --stat origin/main -- NewsListenApp/NewsListenApp` に既存ファイルの変更が無い（`project.pbxproj` は synchronized group のため diff 0。`Podcast/Playback/AudioEngine.swift`・`Podcast/Platform/` も変更 0）。
 - 契約テストが green で、`verifies: CI-T*` をテスト名またはコメントに持つ:
 
 | CI | T-T | 行 ID（テスト名に含める） |
@@ -42,7 +44,7 @@ gateway 依存は closure（`fetchPodcast / updatePosition / markCompleted / dow
 
 ## 禁止事項 / scope 外
 - `PodcastViewModel.swift`・`PlaybackQueue.swift`・`PodcastRowView.swift`・`PreviewSupport.swift`・`NewsListenAppApp.swift`・`SettingsViewModel.swift` を変更しない（I-S3b2）。`PlaybackQueue` の dedupe gate も I-S3b2。
-- `Podcast/Platform/`（`AVPlayerEngine` / `MediaPlayerNowPlaying`）を作らない（I-S3b2）。
+- `Podcast/Platform/`（`AVPlayerEngine` / `MediaPlayerNowPlaying`。I-S3a で新設済み）と `Podcast/Playback/AudioEngine.swift` を変更しない。
 - PS-01〜PS-03・PS-05・PS-05b・PS-06・PS-07・PS-08 の行 ID を本 slice のテスト名に付けない（これらは production 入口の挙動変更行として I-S3b2 の準拠テストで判定する。本 slice の T-T6 / T-T8 / T-T11 は CI-T の契約テストとして同じ内容を新規コードに対して検証するが、行 ID の付与は入口切替後に行う）。
 - RO1〜RO7・SG-A7（Spec §5 rejected_overdesign）を作らない。`reorderUpNext` を rename しない。Spec に無い状態・失敗理由を足さない。
 
@@ -53,6 +55,9 @@ gateway 依存は closure（`fetchPodcast / updatePosition / markCompleted / dow
 - `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project NewsListenApp/NewsListenApp.xcodeproj -scheme NewsListenApp -destination 'platform=iOS Simulator,id=<UDID>' -only-testing:NewsListenAppTests` → 全 green（既存件数 ＋ 新規 T-T1〜T-T8・T-T10・T-T11）。
 - 上記 3 本の grep → それぞれ 0 件。
 - `git diff --stat origin/main -- NewsListenApp/NewsListenApp` → 追加 5 ファイルのみ。
+
+## 規模の目安（巻き戻し範囲）
+新規 5 ファイル（Session / Coordinator / OfflineLibrary / PositionReporter / Episode）で約 600〜700 行＋契約テスト。既存ファイルの変更 0 のため revert は追加ファイルの削除だけ。
 
 ## 記録
 - `docs/trial-log/` に棄却・方針転換があれば追記。親 docs `docs/design/shared-playback-spec.md` §4.3 の「RS-01〜RS-07 は iOS 未追随（I-S3b1）」の保留は本 slice 完了で解除対象（router へ返す）。`docs/design/ios-design.md` §11.3 I-S3b1 行の完了記録。
