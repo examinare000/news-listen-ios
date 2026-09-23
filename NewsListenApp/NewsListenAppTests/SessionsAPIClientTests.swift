@@ -46,14 +46,15 @@ final class SessionsAPIClientTests: XCTestCase {
         XCTAssertEqual(session.lastRequest?.httpMethod, "DELETE")
     }
 
-    func testRevokeSessionMaps404ToHttpError() async {
+    // T-T12-17（verifies: CI-T12, D3）。revokeSession は subject .session を宣言する endpoint。
+    func testRevokeSessionMaps404ToNotFoundSessionSubject() async {
         let (client, _) = makeClient(data: Data(), status: 404)
 
         do {
             try await client.revokeSession(id: "nope")
             XCTFail("404 should throw")
-        } catch APIError.httpError(let code) {
-            XCTAssertEqual(code, 404)
+        } catch ApiFailure.notFound(let subject) {
+            XCTAssertEqual(subject, .session)
         } catch {
             XCTFail("unexpected error: \(error)")
         }

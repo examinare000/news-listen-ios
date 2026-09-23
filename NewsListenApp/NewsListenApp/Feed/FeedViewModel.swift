@@ -116,6 +116,8 @@ final class FeedViewModel: ObservableObject {
             // エラーではない（commit() 側と同じ理由・star cancelled alert バグ）。
         } catch let error as URLError where error.code == .cancelled {
             // 同上。
+        } catch let f as ApiFailure {
+            errorMessage = FailureMessages.message(for: f, context: .feed)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -207,7 +209,7 @@ final class FeedViewModel: ObservableObject {
             case .dismiss:
                 try await apiClient.dismissArticle(id: pending.article.id)
             }
-        } catch APIError.rateLimited(let retryAfter) {
+        } catch ApiFailure.rateLimited(let retryAfter) {
             // 生成上限到達（issue #82）。記事を戻し、次回可能時刻を添えて案内する。
             let index = min(pending.index, articles.count)
             articles.insert(pending.article, at: index)
@@ -223,6 +225,10 @@ final class FeedViewModel: ObservableObject {
             // 同上。実 URLSession はキャンセルを CancellationError ではなく URLError(.cancelled)
             // として投げるため、両方のケースを黙殺する。
             return
+        } catch let f as ApiFailure {
+            let index = min(pending.index, articles.count)
+            articles.insert(pending.article, at: index)
+            errorMessage = FailureMessages.message(for: f, context: .feed)
         } catch {
             let index = min(pending.index, articles.count)
             articles.insert(pending.article, at: index)
@@ -302,7 +308,7 @@ final class FeedViewModel: ObservableObject {
                     articles.removeAll { $0.id == id }
                 } else {
                     failureCount += 1
-                    if case APIError.rateLimited(let retryAfter)? = error {
+                    if case ApiFailure.rateLimited(let retryAfter)? = error {
                         limitRetryAfter = retryAfter   // 直近の上限到達を保持
                     }
                 }

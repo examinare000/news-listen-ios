@@ -54,7 +54,7 @@ final class SessionsViewModel: ObservableObject {
         do {
             try await apiClient.revokeSession(id: id)
             sessions.removeAll { $0.id == id }
-        } catch APIError.httpError(404) {
+        } catch ApiFailure.notFound(subject: .session) {
             // サーバ側でも既に失効済み → 冪等として扱う。
             sessions.removeAll { $0.id == id }
         } catch {
