@@ -48,6 +48,8 @@ Spec §8 着手順 2。S1 の merge 後に着手する（`ApiFailure` を `handl
 - `AudioEngine` port（S3a/S3b）は行わない。
 - token provider 注入（RO: SG-A7 default）は作らない。失効遷移で client 再生成する既存方式を維持する。
 - Spec に無い業務条件（新しい `subjectScoped` key・新しい消去対象）を足さない。
+- **主体別の音声キャッシュ（`{cacheDir}/audio/{user_id}/`）を導入しない。** [ADR-104](../../../../docs/adr/104-subject-departure-and-subject-scoped-assets.md) 決定 26 の実施は **I-S5**（backend の `user_id` 公開＝決定 15 に依存する）。本 slice の `SubjectCleanup` は現行の `OfflineLibrary.clearAll()`（端末単位の全削除）をそのまま呼ぶ。
+- 準拠テストは **SL-01〜SL-05 のみ**。SL-06 / SL-07（共有仕様 §4.4）は iOS では保留のままとし、本 slice で green にしない（解除は I-S5）。
 
 ## 参照
 - Spec: `docs/design/2026-09-16-implementation-spec-playback-domain-model.md` §2（composition root）・§3.3・§3.4・§4（CI-T14/T15/T17）・§6（S2）
