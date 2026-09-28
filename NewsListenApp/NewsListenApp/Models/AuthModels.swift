@@ -46,13 +46,3 @@ struct UserListResponse: Codable {
     /// 登録済みユーザー一覧。
     let users: [AuthUser]
 }
-
-/// 認証状態。ルート画面の出し分けに使う。
-enum AuthStatus {
-    /// 接続済みだが /auth/me 解決前。
-    case unknown
-    /// ログイン済み。
-    case authenticated
-    /// 未ログイン。
-    case unauthenticated
-}

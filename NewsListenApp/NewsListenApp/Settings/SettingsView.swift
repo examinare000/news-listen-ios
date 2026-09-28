@@ -106,6 +106,9 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: appState.weeklyGoalEpisodes) { oldValue, newValue in
+                // 前の主体の応答で次の主体の値を書かない（I-S2）。
+                // stamp は最初の await より前（Task { の前）で捕捉する。
+                let stamp = appState.subjectStamp
                 // 新値がサーバーで既に確認済みなら同期をスキップ。
                 // revert 代入が .onChange を再発火してループする無限ループを防ぐ（issue #164）。
                 guard newValue != appState.lastConfirmedWeeklyGoalEpisodes else { return }
@@ -113,11 +116,9 @@ struct SettingsView: View {
                     let saved = await viewModel.syncWeeklyGoal(newValue)
                     if saved {
                         // 同期成功時は確認済み値を更新してループ防止。
-                        appState.confirmWeeklyGoalSync(newValue)
-                    } else {
-                        // 同期失敗時は旧値へロールバック。
-                        appState.weeklyGoalEpisodes = oldValue
-                    }
+                        appState.confirmWeeklyGoalSync(newValue, capturedAt: stamp)
+                    } else if appState.isCurrentSubject(stamp) { appState.weeklyGoalEpisodes = oldValue }
+                    // 同期失敗時は旧値へロールバック（前の主体の revert は書かない: 上の行）。
                 }
             }
 
@@ -372,12 +373,15 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: appState.defaultDifficulty) { oldValue, newValue in
+                // 前の主体の応答で次の主体の値を書かない（I-S2）。
+                // stamp は最初の await より前（Task { の前）で捕捉する。
+                let stamp = appState.subjectStamp
                 // ユーザーが難易度を変更したとき、サーバーへ同期する。
                 // 失敗時は errorBinding のアラートで通知し、UI 値をサーバー確認済みの
                 // 旧値へ戻す（issue #164・無音失敗の解消）。
                 Task {
                     let ok = await viewModel.syncDefaultDifficulty(newValue)
-                    if !ok { appState.defaultDifficulty = oldValue }
+                    if !ok, appState.isCurrentSubject(stamp) { appState.defaultDifficulty = oldValue }
                 }
             }
         }
@@ -392,12 +396,15 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: appState.defaultPlaybackSpeed) { oldValue, newValue in
+                // 前の主体の応答で次の主体の値を書かない（I-S2）。
+                // stamp は最初の await より前（Task { の前）で捕捉する。
+                let stamp = appState.subjectStamp
                 // ユーザーが再生速度を変更したとき、サーバーへ同期する。
                 // 失敗時は errorBinding のアラートで通知し、UI 値をサーバー確認済みの
                 // 旧値へ戻す（issue #164・無音失敗の解消）。
                 Task {
                     let ok = await viewModel.syncDefaultPlaybackSpeed(newValue)
-                    if !ok { appState.defaultPlaybackSpeed = oldValue }
+                    if !ok, appState.isCurrentSubject(stamp) { appState.defaultPlaybackSpeed = oldValue }
                 }
             }
         }

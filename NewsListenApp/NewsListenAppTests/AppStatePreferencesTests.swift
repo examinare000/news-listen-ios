@@ -14,7 +14,11 @@ final class AppStatePreferencesTests: XCTestCase {
             apiKey: "key",
             session: session
         )
-        return AppState(sessionStore: InMemorySessionStore(), apiClientOverride: client)
+        let appState = AppState(sessionStore: InMemorySessionStore(), apiClientOverride: client)
+        // CI-T15.10（未認証の refreshPreferences は no-op）により、authenticated にしないと
+        // 以下のテストが反映を検証できなくなる（F2・SR-03。spec.md §6.1）。
+        appState.completeLogin(LoginResponse(token: "tok-1", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        return appState
     }
 
     func testRefreshPreferencesSetsFailedFlagOnFailure() async {

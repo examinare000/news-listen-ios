@@ -301,11 +301,15 @@ struct AccountSettingsView: View {
     }
 
     /// 表示名をサーバへ保存し、ローカル状態も更新する。
+    ///
+    /// 前の主体の応答が次の主体の payload を書き換えないよう、await の前に stamp を捕捉し
+    /// （最初の await より前・独立した文: I-S2 / G9）、await の後は `capturedAt:` 付きで照合する。
     private func saveProfile() async {
         guard let client = appState.apiClient else { return }
+        let stamp = appState.subjectStamp
         do {
             let updated = try await client.updateProfile(displayName: displayName)
-            appState.currentUser = updated
+            appState.updateCurrentUser(updated, capturedAt: stamp)
             message = "表示名を更新しました"
         } catch {
             message = "表示名の更新に失敗しました"

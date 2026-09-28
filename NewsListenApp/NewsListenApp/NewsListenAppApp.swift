@@ -47,12 +47,12 @@ struct NewsListenAppApp: App {
                         description: Text("Secrets.xcconfig（API_BASE_URL / API_KEY）をビルド時に設定してください")
                     )
                 } else {
-                    switch appState.authStatus {
-                    case .unknown:
+                    switch appState.session {
+                    case .resolving:
                         // 保存済みトークンで /auth/me を解決する間のローディング。
                         ProgressView("認証を確認中…")
                             .task { await appState.refreshAuth() }
-                    case .unauthenticated:
+                    case .anonymous:
                         if let client = appState.apiClient {
                             LoginView(apiClient: client) { appState.completeLogin($0) }
                         } else {
@@ -74,6 +74,15 @@ struct NewsListenAppApp: App {
                                 systemImage: "exclamationmark.triangle",
                                 description: Text("接続先 URL が不正です")
                             )
+                        }
+                    case .unavailable:
+                        // I-S2: 認証解決の失敗（トークンは保持）。再試行導線を出す（UV-1）。
+                        ContentUnavailableView {
+                            Label("認証を確認できません", systemImage: "wifi.exclamationmark")
+                        } description: {
+                            Text("通信状態を確認して再試行してください")
+                        } actions: {
+                            Button("再試行") { appState.retryResolve() }
                         }
                     }
                 }
@@ -160,6 +169,8 @@ struct ContentView: View {
             await appState.refreshOnboardingStatus()
             await appState.refreshListeningStreak()
         }
+        // 主体離脱時の再生停止 port を登録する（I-S2 / CI-T15.9・TP4）。
+        .onAppear { appState.registerPlaybackLifecycle(playerViewModel) }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:

@@ -23,9 +23,10 @@ enum DSFeedbackVocabulary: Hashable {
 final class DSFeedback {
     static let shared = DSFeedback()
 
-    /// AppStorage キーの一元化（Settings 画面と共有）。
-    static let sfxEnabledKey = "sfx_enabled"
-    static let hapticsEnabledKey = "haptics_enabled"
+    /// AppStorage キーの一元化（Settings 画面と共有）。key 文字列の宣言は
+    /// `PreferenceRegistry`（I-S2）が正本で、ここはその別名（D-5）。
+    static let sfxEnabledKey = PreferenceRegistry.sfxEnabledKey
+    static let hapticsEnabledKey = PreferenceRegistry.hapticsEnabledKey
 
     @AppStorage(DSFeedback.sfxEnabledKey) private var sfxEnabled = true
     @AppStorage(DSFeedback.hapticsEnabledKey) private var hapticsEnabled = true
