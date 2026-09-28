@@ -36,12 +36,28 @@ Tech News Podcast アプリの iOS クライアント（SwiftUI / MVVM）。
 
 `Secrets.xcconfig` に値があれば初回設定画面はスキップされ、起動後すぐタブ画面になる。
 
+### Xcode Cloud
+
+`Secrets.xcconfig` は Git 管理外のため、クリーンな clone には含まれない。Xcode Cloud のワークフローの環境変数に以下を設定する。
+
+| 変数 | 設定値 |
+| --- | --- |
+| `API_BASE_URL` | 配布先 API の URL（例: `https://api.example.com`）。`$()` でエスケープせず通常の URL を設定する。 |
+| `API_KEY` | API キー。Secret を有効にする。使用できる文字は英数字と `_ . + / = -`。 |
+| `PASSKEY_RP_ID` | Passkey の RP ID（例: `api.example.com`）。スキーム・パスを含めない。 |
+
+プロジェクトと同階層の `NewsListenApp/ci_scripts/ci_post_clone.sh` がビルド設定の読込前にファイルを生成する。未指定・空値・改行や xcconfig の変数展開を含む値は、変数名だけを報告して失敗する。URL 内の `/` はスクリプトがエスケープする。ローカルの既存 `Secrets.xcconfig` は上書きしない。
+
+GitHub Actions のユニットテストでは引き続きテンプレートを使用する。設定生成の回帰テストは実値を使わず、独立した clone 相当のディレクトリで実行する。
+
 ## テスト
 
 ```sh
 make test
 # または機種指定
 SIMULATOR='iPhone 16' ./scripts/test.sh
+# Xcode Cloud の設定生成・Debug / Release の設定読込
+bash scripts/test-ci-post-clone.sh
 ```
 
 `NewsListenAppTests`（ユニットテスト）をシミュレータでヘッドレス実行する。UI テストは対象外。

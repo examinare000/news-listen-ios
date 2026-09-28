@@ -29,6 +29,9 @@ jobs:
         # ユニットテストのビルドに実値は不要。
         run: cp NewsListenApp/Secrets.example.xcconfig NewsListenApp/Secrets.xcconfig
 
+      - name: Test Xcode Cloud configuration generation
+        run: bash scripts/test-ci-post-clone.sh
+
       - name: "Check no HTTP status comparison outside Networking (verifies: CI-T13)"
         run: |
           set -euo pipefail
