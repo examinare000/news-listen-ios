@@ -35,6 +35,14 @@ final class ScriptedURLSession: URLSessionProtocol, @unchecked Sendable {
         var arrivedKeys: Set<Key> = []
         var sentRequests: [URLRequest] = []
         var cancelledRequests: [(method: String, path: String)] = []
+
+        /// 到着を記録し、`waitUntilRequested` の待ち手を resume する。呼び出し側のロック内で使う。
+        mutating func markArrived(_ key: Key) {
+            arrivedKeys.insert(key)
+            let waiters = arrivalContinuations[key] ?? []
+            arrivalContinuations[key] = []
+            for waiter in waiters { waiter.resume() }
+        }
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: State())
@@ -89,13 +97,16 @@ final class ScriptedURLSession: URLSessionProtocol, @unchecked Sendable {
         let path = request.url?.path ?? ""
         let key = Key(method: method, path: path)
 
+        // 到着通知（`waitUntilRequested` の待ち手を resume）は、`.pending` の場合は保留登録と
+        // 同一ロック区間で行う（下記）。別区間にすると「到着通知 → テストが release →
+        // 保留登録」の順に走ったとき release が保留無しとして捨てられ、continuation が
+        // 永遠に resume されない（lost wakeup。2026-09-30 CI run 36511216822 で 6 時間ハング）。
         let configured: ConfiguredResponse? = lock.withLock { state in
             state.sentRequests.append(request)
-            state.arrivedKeys.insert(key)
-            let waiters = state.arrivalContinuations[key] ?? []
-            state.arrivalContinuations[key] = []
-            for waiter in waiters { waiter.resume() }
-            return state.responses[key]
+            let response = state.responses[key]
+            if case .pending = response { return response }
+            state.markArrived(key)
+            return response
         }
 
         switch configured {
@@ -111,7 +122,11 @@ final class ScriptedURLSession: URLSessionProtocol, @unchecked Sendable {
         case .pending:
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(Data, URLResponse), Error>) in
-                    lock.withLock { $0.pendingContinuations[key, default: []].append(continuation) }
+                    // 保留登録と到着通知を同一ロック区間で行う（上記コメント参照）。
+                    lock.withLock { state in
+                        state.pendingContinuations[key, default: []].append(continuation)
+                        state.markArrived(key)
+                    }
                 }
             } onCancel: {
                 // 同期に記録する: cancel() を呼んだ Task から戻った時点で observer が
