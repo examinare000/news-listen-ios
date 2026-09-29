@@ -15,6 +15,9 @@ permissions:
 jobs:
   ios-test:
     runs-on: macos-15
+    # main の実測は約 10 分。テストのハング（2026-09-30 run 36511216822 は 6 時間の既定上限まで
+    # 止まった）を 30 分で fail に変換し、再実行で回復できるようにする。
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
