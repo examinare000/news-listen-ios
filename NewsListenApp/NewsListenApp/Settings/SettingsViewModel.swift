@@ -66,13 +66,17 @@ final class SettingsViewModel: ObservableObject {
     /// - Parameters:
     ///   - apiClient: API 通信に使うクライアント。未設定時は `nil`。
     ///   - cacheManager: 音声キャッシュの容量取得・全削除に使うマネージャ（既定: `AudioCacheManager()`）。
+    ///
+    /// TP2（owner: user／導入: I-S2 2026-09-28／削除条件: I-S3b2 で `OfflineLibrary` の注入が
+    /// 完了した時点。物理削除は I-S3b3）: `OfflineLibrary` の合成 root 単一インスタンス化は
+    /// I-S3b1/I-S3b2 の対象のため、本 slice では `AudioCacheManager()` の既定引数生成をそのまま残す。
     init(apiClient: APIClient?, cacheManager: AudioCacheManager = AudioCacheManager()) {
         self.apiClientOverride = apiClient
         self.appState = nil
         self.cacheManager = cacheManager
     }
 
-    /// 共有 AppState を正本として使う本番用 initializer。
+    /// 共有 AppState を正本として使う本番用 initializer。TP2（上記 init のコメントを参照）。
     init(appState: AppState, cacheManager: AudioCacheManager = AudioCacheManager()) {
         self.apiClientOverride = nil
         self.appState = appState

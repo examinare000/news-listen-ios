@@ -60,6 +60,9 @@ final class APIClient {
     private let session: URLSessionProtocol
     /// レスポンスボディのデコードに使う JSON デコーダ。
     private let decoder: JSONDecoder
+    /// Authorization 付きリクエストが 401 を受けたときに 1 回呼ばれる observer（I-S2 / CI-T14.8）。
+    /// HTTP status・トークンは渡さない（境界の leakage 検査: spec §4）。
+    private let onUnauthorized: (@MainActor () -> Void)?
 
     /// クライアントを生成する。
     /// - Parameters:
@@ -67,17 +70,20 @@ final class APIClient {
     ///   - apiKey: `X-API-Key` ヘッダに付与する API キー。
     ///   - sessionToken: ユーザー認証用のセッショントークン（未ログイン時は `nil`）。
     ///   - session: 通信に使うセッション。既定は `URLSession.shared`。
+    ///   - onUnauthorized: Authorization 付きリクエストが 401 を受けたときに 1 回呼ばれる observer。
     init(
         baseURL: URL,
         apiKey: String,
         sessionToken: String? = nil,
-        session: URLSessionProtocol = URLSession.shared
+        session: URLSessionProtocol = URLSession.shared,
+        onUnauthorized: (@MainActor () -> Void)? = nil
     ) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.sessionToken = sessionToken
         self.session = session
         self.decoder = JSONDecoder()
+        self.onUnauthorized = onUnauthorized
     }
 
     // MARK: - Feed
@@ -561,16 +567,22 @@ final class APIClient {
             // 本番の URLSession は URLError を投げる。test double 由来の任意の Error の受け皿。
             throw ApiFailure.network(URLError(.unknown, userInfo: [NSUnderlyingErrorKey: error]))
         }
-        try validateResponse(response, notFoundSubject: notFoundSubject)
+        let hasAuthorization = request.value(forHTTPHeaderField: "Authorization") != nil
+        try validateResponse(response, hasAuthorization: hasAuthorization, notFoundSubject: notFoundSubject)
         return data
     }
 
     /// HTTP レスポンスのステータスを検証し、2xx 以外なら ``ApiFailure`` を投げる（D1）。
     /// - Parameters:
     ///   - response: 検証対象のレスポンス。
+    ///   - hasAuthorization: このリクエストが Authorization ヘッダを付けていたか（I-S2 / CI-T14.8）。
     ///   - notFoundSubject: 404 が意味を持つ endpoint のときだけ渡す（D3）。宣言が無ければ
     ///     404 は `.unknown(status: 404)` になる。
-    private func validateResponse(_ response: URLResponse, notFoundSubject: NotFoundSubject? = nil) throws {
+    private func validateResponse(
+        _ response: URLResponse,
+        hasAuthorization: Bool,
+        notFoundSubject: NotFoundSubject? = nil
+    ) throws {
         guard let http = response as? HTTPURLResponse else {
             // 非 HTTP 応答は fail-open ではなく fail-closed にする（CI-A02）。
             throw ApiFailure.network(URLError(.badServerResponse))
@@ -579,6 +591,8 @@ final class APIClient {
         case 200..<300:
             return
         case 401:
+            // Authorization 付きリクエストの 401 だけ observer を 1 回呼ぶ（throw の意味は変えない）。
+            if hasAuthorization { onUnauthorized?() }
             throw ApiFailure.unauthorized
         case 403:
             throw ApiFailure.forbidden

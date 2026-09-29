@@ -1204,6 +1204,55 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(vm.currentPodcast?.id, "b")
         XCTAssertFalse(vm.didFinishCurrentEpisode)
     }
+
+    // MARK: - T-T15-09, T-T15-10（CI-T15.7・I-S2 TP4: PlaybackLifecycle 暫定実装）
+
+    // TP4（owner: user／導入: I-S2 2026-09-28／削除条件: I-S3b2 で PlaybackCoordinator が
+    // PlaybackLifecycle の実装を引き継いだ時点。物理削除は I-S3b3）。
+    // `stopForLogout()` は位置同期を送らずに停止する（C1: `stopPlayback()` の同期部分を呼ばない）。
+
+    // verifies: CI-T15.7
+    func testTT15_09_stopForLogoutResetsPlaybackWithoutSyncingPosition() async throws {
+        let recording = RequestRecordingSession()
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: recording)
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        await vm.addToQueue(queuePodcast("a"))
+        await vm.addToQueue(queuePodcast("b"))
+        vm.seek(to: 12)
+
+        vm.stopForLogout()
+        for _ in 0..<3 { await Task.yield() }
+
+        XCTAssertNil(vm.currentPodcast)
+        XCTAssertTrue(vm.queue.isEmpty)
+        XCTAssertEqual(vm.presentation, .hidden)
+        XCTAssertNil(vm.player)
+        XCTAssertFalse(vm.isPlaying)
+        XCTAssertTrue(
+            recording.requests.filter { $0.url?.path == "/podcasts/a/position" }.isEmpty,
+            "stopForLogout() は再生位置を同期してはならない（C1）"
+        )
+    }
+
+    // verifies: CI-T15.7
+    func testTT15_10_stopForLogoutIsIdempotent() async throws {
+        let recording = RequestRecordingSession()
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: recording)
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        await vm.addToQueue(queuePodcast("a"))
+        vm.stopForLogout()
+        for _ in 0..<3 { await Task.yield() }
+
+        vm.stopForLogout()
+        for _ in 0..<3 { await Task.yield() }
+
+        XCTAssertNil(vm.currentPodcast)
+        XCTAssertTrue(vm.queue.isEmpty)
+        XCTAssertEqual(vm.presentation, .hidden)
+        XCTAssertNil(vm.player)
+        XCTAssertFalse(vm.isPlaying)
+        XCTAssertTrue(recording.requests.filter { $0.url?.path == "/podcasts/a/position" }.isEmpty)
+    }
 }
 
 // MARK: - Mock FileManager & URLSession

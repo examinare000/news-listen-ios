@@ -590,7 +590,12 @@ final class PodcastViewModel: NSObject, ObservableObject {
     func stopPlayback() {
         // 再生位置を最後に同期しておく。
         syncPlaybackPositionIfNeeded()
+        tearDownPlayback()
+    }
 
+    /// `AVPlayer`・タイムオブザーバ・再生状態を解放/リセットする（位置同期は行わない: D-4）。
+    /// `stopPlayback()`（同期あり）と `stopForLogout()`（同期なし・TP4）の共通部分。
+    private func tearDownPlayback() {
         // タイマーを停止。
         syncTimer?.invalidate()
         syncTimer = nil
@@ -857,5 +862,22 @@ final class PodcastViewModel: NSObject, ObservableObject {
                 // 同期失敗時はログしない（ネットワーク一時的な失敗等を避けるため）。
             }
         }
+    }
+}
+
+// MARK: - PlaybackLifecycle（TP4）
+
+extension PodcastViewModel: PlaybackLifecycle {
+    /// TP4（owner: user／導入: I-S2 2026-09-28／削除条件: I-S3b2 で `PlaybackCoordinator` が
+    /// `PlaybackLifecycle` の実装を引き継いだ時点。コードの物理削除は I-S3b3）。
+    ///
+    /// 主体離脱時の再生停止。位置同期は送らない（D-4・C1: `stopPlayback()` の同期部分を呼ばない）。
+    /// 冪等（2 回呼んでも同じ状態・送信 0）。
+    func stopForLogout() {
+        tearDownPlayback()
+        currentPodcast = nil
+        queue = PlaybackQueue()
+        presentation = .hidden
+        didFinishCurrentEpisode = false
     }
 }

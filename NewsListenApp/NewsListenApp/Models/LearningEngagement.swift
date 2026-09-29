@@ -144,7 +144,8 @@ struct AchievementCatalogItem: Identifiable, Equatable {
 
 /// 端末で既に祝福した実績を保持し、初回ロードを含む未表示差分だけを返す。
 struct AchievementCelebrationTracker {
-    static let seenAchievementIDsKey = "seen_achievement_ids"
+    /// key 文字列の宣言は `PreferenceRegistry`（I-S2）が正本で、これはその別名（D-5）。
+    static let seenAchievementIDsKey = PreferenceRegistry.seenAchievementIdsKey
 
     private let userDefaults: UserDefaults
 
