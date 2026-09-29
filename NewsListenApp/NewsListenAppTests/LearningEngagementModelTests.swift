@@ -157,7 +157,7 @@ final class LearningEngagementModelTests: XCTestCase {
         let suiteName = "LearningEngagementModelTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        var tracker = AchievementCelebrationTracker(userDefaults: defaults)
+        let tracker = AchievementCelebrationTracker(userDefaults: defaults)
 
         let first = tracker.consumeNewlyUnlocked([
             Achievement(id: "first_episode_completed", unlockedAt: "2026-07-29"),

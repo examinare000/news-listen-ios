@@ -37,7 +37,7 @@ final class DSFeedback {
 
     /// テスト用：最後に play() された語彙を記録（本番では不使用）。
     /// テスト内でリセット可能にするため internal(set)。
-    internal(set) var lastPlayedVocabulary: DSFeedbackVocabulary?
+    var lastPlayedVocabulary: DSFeedbackVocabulary?
 
     private init() {}
 
