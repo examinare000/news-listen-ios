@@ -24,6 +24,14 @@ final class GrepOracleTests: XCTestCase {
                 .appendingPathComponent("NewsListenApp") // App ターゲットルート
         }()
 
+        /// `NewsListenAppTests/`（テストターゲットのルート。T-G02 がテストファイルを読むために使う）。
+        static let testRoot: URL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+
+        /// 先頭の空白の後が `//`（`///` を含む）の行。O-* と同じ「コメント行」の定義。
+        static func isCommentLine(_ text: String) -> Bool {
+            text.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+        }
+
         static func swiftFiles(excluding excludedBasenames: Set<String> = []) -> [URL] {
             guard let enumerator = FileManager.default.enumerator(at: appRoot, includingPropertiesForKeys: nil) else { return [] }
             var results: [URL] = []
@@ -239,5 +247,99 @@ final class GrepOracleTests: XCTestCase {
         let appStateURL = SourceGrep.appRoot.appendingPathComponent("AppState.swift")
         let o5Hits = SourceGrep.matchingLines(pattern: #"^\s*([^/\s].*)?UserDefaults"#, in: [appStateURL])
         XCTAssertTrue(o5Hits.isEmpty, "AppState.swift が UserDefaults を直接扱っている（registry 経由にすべき）: \(o5Hits)")
+    }
+
+    // MARK: - I-S3a: Platform adapter の導入（T-G01〜T-G05・T-G08。spec §7.7 / SG-1b）
+
+    /// SG-1b で訂正した AV / MP の型参照パターン。`AVPlayer` は型名 `AVPlayerEngine` に一致させない
+    /// （`AVPlayer` の後ろが英字でないか、`AVPlayerItem`、または行末）。
+    private static let platformTypePattern =
+        #"AVPlayer(Item|[^A-Za-z]|$)|AVAudioSession|MPNowPlayingInfoCenter|MPRemoteCommandCenter"#
+
+    private func nonCommentHits(pattern: String, in files: [URL]) -> [(path: String, line: Int, text: String)] {
+        SourceGrep.matchingLines(pattern: pattern, in: files).filter { !SourceGrep.isCommentLine($0.text) }
+    }
+
+    // verifies: CI-G1（T-G01）
+    func testG01_viewModelDoesNotImportAVFoundationOrMediaPlayer() {
+        let vm = SourceGrep.appRoot.appendingPathComponent("Podcast/PodcastViewModel.swift")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vm.path), "走査対象の VM が存在する")
+
+        let hits = SourceGrep.matchingLines(pattern: #"^import (AVFoundation|MediaPlayer)\b"#, in: [vm])
+
+        XCTAssertTrue(hits.isEmpty, "PodcastViewModel は AVFoundation / MediaPlayer を import しない: \(hits)")
+    }
+
+    // verifies: CI-G2（T-G02）
+    func testG02_podcastViewModelTestsDoNotUseAVFoundationTypesOrVmPlayer() {
+        let tests = SourceGrep.testRoot.appendingPathComponent("PodcastViewModelTests.swift")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tests.path), "走査対象のテストファイルが存在する")
+
+        let typeHits = nonCommentHits(pattern: #"AVPlayer|AVPlayerItem|CMTime|vm\.player"#, in: [tests])
+        let importHits = SourceGrep.matchingLines(pattern: #"^import AVFoundation\b"#, in: [tests])
+
+        XCTAssertTrue(typeHits.isEmpty, "AVFoundation 型・vm.player の参照が残っている: \(typeHits)")
+        XCTAssertTrue(importHits.isEmpty, "import AVFoundation が残っている: \(importHits)")
+    }
+
+    // verifies: CI-G3（T-G03）
+    func testG03_platformTypeReferencesExistOnlyInsidePlatformAndTheHelperWithControls() throws {
+        let regex = try NSRegularExpression(pattern: Self.platformTypePattern)
+        func matches(_ text: String) -> Bool {
+            regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+        }
+
+        // ① 正の対照: パターンは AV / MP の型参照に一致する。
+        XCTAssertTrue(matches("player = AVPlayer(playerItem: item)"))
+        XCTAssertTrue(matches("AVPlayerItem(url: url)"))
+        XCTAssertTrue(matches("options: AVAudioSession.InterruptionOptions"))
+        // ② 負の対照: adapter の型名には一致しない（C-3）。
+        XCTAssertFalse(matches("AVPlayerEngine()"))
+        XCTAssertFalse(matches("let e: AVPlayerEngine"))
+
+        // ③ 除外を適用する前の実ソースの結果に、純粋ヘルパと adapter の行が含まれる（走査が効いている確認）。
+        let all = nonCommentHits(pattern: Self.platformTypePattern, in: SourceGrep.swiftFiles())
+        XCTAssertTrue(all.contains { $0.path == "Podcast/NowPlayingInfo.swift" })
+        XCTAssertTrue(all.contains { $0.path == "Podcast/Platform/AVPlayerEngine.swift" })
+
+        // ④ 除外（Platform 配下・NowPlayingInfo.swift）を適用した後は 0 件。
+        let outside = all.filter {
+            !$0.path.hasPrefix("Podcast/Platform/") && $0.path != "Podcast/NowPlayingInfo.swift"
+        }
+        XCTAssertTrue(outside.isEmpty, "Platform の外に AV / MP の型参照がある: \(outside)")
+    }
+
+    // verifies: CI-G4（T-G04）
+    func testG04_avPlayerIsCreatedInExactlyOnePlace() {
+        let hits = nonCommentHits(pattern: #"AVPlayer\("#, in: SourceGrep.swiftFiles())
+
+        XCTAssertEqual(hits.map { $0.path }, ["Podcast/Platform/AVPlayerEngine.swift"], "AVPlayer( の生成は adapter の 1 箇所だけ: \(hits)")
+    }
+
+    // verifies: CI-G5（T-G05）
+    func testG05_playbackDirectoryExistsAndImportsNoPlatformFrameworks() {
+        // ① ディレクトリが無いと走査 0 件で素通りするので、port の存在を先に確かめる（W-3）。
+        let port = SourceGrep.appRoot.appendingPathComponent("Podcast/Playback/AudioEngine.swift")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: port.path), "AudioEngine port が Podcast/Playback/ に存在する")
+
+        // ② Playback/ 配下は Platform / UI のフレームワークを import しない。
+        let playbackFiles = SourceGrep.swiftFiles().filter { SourceGrep.relativePath($0).hasPrefix("Podcast/Playback/") }
+        XCTAssertFalse(playbackFiles.isEmpty)
+        let hits = SourceGrep.matchingLines(pattern: #"^import (AVFoundation|MediaPlayer|UIKit|SwiftUI)\b"#, in: playbackFiles)
+        XCTAssertTrue(hits.isEmpty, "Podcast/Playback/ が Platform / UI を import している: \(hits)")
+    }
+
+    // verifies: CI-G8, CI-R1（T-G08。SG-1(a)）
+    func testG08_mediaPlayerNowPlayingIsCreatedOnlyAtTheDocumentedPlaces() {
+        let hits = nonCommentHits(pattern: #"MediaPlayerNowPlaying\("#, in: SourceGrep.swiftFiles())
+        var counts: [String: Int] = [:]
+        for hit in hits { counts[hit.path, default: 0] += 1 }
+
+        // App の 1 個（合成 root）と、AppState / PodcastViewModel の既定引数（Preview とテスト用）だけ。
+        XCTAssertEqual(counts, [
+            "NewsListenAppApp.swift": 1,
+            "AppState.swift": 1,
+            "Podcast/PodcastViewModel.swift": 1,
+        ], "MediaPlayerNowPlaying( の生成箇所が想定と違う: \(hits)")
     }
 }

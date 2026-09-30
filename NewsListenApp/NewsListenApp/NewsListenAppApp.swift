@@ -15,11 +15,15 @@ import SwiftUI
 /// ローディング → ログイン → タブビューの順にゲートする。
 @main
 struct NewsListenAppApp: App {
-    /// アプリ全体で共有する設定状態。
-    @StateObject private var appState = AppState()
+    /// アプリ全体で共有する設定状態。ロック画面 port は再生 ViewModel と同じ 1 個を共有する。
+    @StateObject private var appState = AppState(nowPlayingCenter: NewsListenAppApp.nowPlayingCenter)
 
     /// MetricKit クラッシュ診断の購読者（issue #83）。購読を維持するため保持する。
     private static let crashReporter = CrashReporter()
+
+    /// 再生エンジンとロック画面 port。プロセスで 1 個ずつ作る（App の init が何回呼ばれても同じインスタンス）。
+    private static let audioEngine = AVPlayerEngine()
+    private static let nowPlayingCenter = MediaPlayerNowPlaying()
 
     /// APNs プッシュ通知（issue #80）の AppDelegate。純 SwiftUI ライフサイクルに接続する。
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -66,7 +70,9 @@ struct NewsListenAppApp: App {
                         if let client = appState.apiClient {
                             ContentView(
                                 apiClient: client,
-                                refreshListeningStreak: { await appState.refreshListeningStreak() }
+                                refreshListeningStreak: { await appState.refreshListeningStreak() },
+                                audioEngine: Self.audioEngine,
+                                nowPlayingCenter: Self.nowPlayingCenter
                             )
                         } else {
                             ContentUnavailableView(
@@ -116,17 +122,23 @@ struct ContentView: View {
     /// - Parameters:
     ///   - apiClient: 再生 ViewModel に注入する API クライアント。
     ///   - refreshListeningStreak: 完聴時に共有ストリークを更新するクロージャ。
+    ///   - audioEngine: 再生エンジン（App がプロセスで 1 個作ったもの）。
+    ///   - nowPlayingCenter: ロック画面 port（同上）。
     /// - Note: `@MainActor` 化した `NetworkMonitor` の既定値生成を分離文脈で行うため、
     ///   ビューの init も `@MainActor` にする（旧 PodcastView.init と同じ理由）。
     @MainActor
     init(
         apiClient: APIClient,
-        refreshListeningStreak: @escaping @MainActor () async -> Void
+        refreshListeningStreak: @escaping @MainActor () async -> Void,
+        audioEngine: any AudioEngine,
+        nowPlayingCenter: NowPlayingCenter
     ) {
         _playerViewModel = StateObject(
             wrappedValue: PodcastViewModel(
                 apiClient: apiClient,
-                refreshListeningStreak: refreshListeningStreak
+                refreshListeningStreak: refreshListeningStreak,
+                engine: audioEngine,
+                nowPlaying: nowPlayingCenter
             )
         )
     }

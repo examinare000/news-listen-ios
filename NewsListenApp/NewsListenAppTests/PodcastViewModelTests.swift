@@ -1,9 +1,8 @@
 import XCTest
-import AVFoundation
 import os
 @testable import NewsListenApp
 
-// PodcastViewModel は @MainActor 分離（AVPlayer 操作を含む）のため、
+// PodcastViewModel は @MainActor 分離のため、
 // テストクラスも @MainActor にして init / メソッド呼び出しの分離コンテキストを揃える。
 @MainActor
 final class PodcastViewModelTests: XCTestCase {
@@ -39,7 +38,9 @@ final class PodcastViewModelTests: XCTestCase {
         apiClient: APIClient,
         cacheManager: AudioCacheManager? = nil,
         networkMonitor: NetworkMonitoring? = nil,
-        refreshListeningStreak: @escaping @MainActor () async -> Void = {}
+        refreshListeningStreak: @escaping @MainActor () async -> Void = {},
+        engine: any AudioEngine = AudioEngineDouble(),
+        nowPlaying: NowPlayingCenterSpy = NowPlayingCenterSpy()
     ) -> PodcastViewModel {
         let cache = cacheManager ?? AudioCacheManager(fileManager: MockFileManager())
         let network = networkMonitor ?? StubNetworkMonitor()
@@ -47,7 +48,9 @@ final class PodcastViewModelTests: XCTestCase {
             apiClient: apiClient,
             cacheManager: cache,
             networkMonitor: network,
-            refreshListeningStreak: refreshListeningStreak
+            refreshListeningStreak: refreshListeningStreak,
+            engine: engine,
+            nowPlaying: nowPlaying
         )
     }
 
@@ -696,7 +699,7 @@ final class PodcastViewModelTests: XCTestCase {
 
     // MARK: - リモートコマンド経路と同じ再生制御メソッドの状態遷移（issue #79）
 
-    private func playingViewModel() async -> PodcastViewModel {
+    private func playingViewModel(engine: any AudioEngine = AudioEngineDouble()) async -> PodcastViewModel {
         let podcast = Podcast(
             id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
             audioUrl: "https://storage.example.com/p1.mp3", title: "",
@@ -710,7 +713,7 @@ final class PodcastViewModelTests: XCTestCase {
             session: MockURLSession(data: Data(), statusCode: 200)
         )
         let cache = AudioCacheManager(fileManager: MockFileManager())
-        let vm = makeViewModel(apiClient: client, cacheManager: cache, networkMonitor: StubNetworkMonitor(isOnline: true))
+        let vm = makeViewModel(apiClient: client, cacheManager: cache, networkMonitor: StubNetworkMonitor(isOnline: true), engine: engine)
         await vm.play(podcast: podcast)
         return vm
     }
@@ -772,103 +775,65 @@ final class PodcastViewModelTests: XCTestCase {
     // MARK: - T7: AVPlayer 状態監視（issue #51: ストリーミング失敗検出とバッファリング表示）
 
     func testHandlePlayerItemStatusChangeFailedSetsErrorMessageAndStopsPlaying() async throws {
-        let vm = await playingViewModel()
+        let engine = AudioEngineDouble()
+        let vm = await playingViewModel(engine: engine)
 
-        vm.handlePlayerItemStatusChange(.failed, errorDescription: "The network connection was lost")
+        await engine.send(.failed(description: "The network connection was lost"))
 
         XCTAssertEqual(vm.errorMessage, "The network connection was lost")
         XCTAssertFalse(vm.isPlaying)
     }
 
     func testHandlePlayerItemStatusChangeFailedUsesDefaultMessageWhenDescriptionMissing() async throws {
-        let vm = await playingViewModel()
+        let engine = AudioEngineDouble()
+        let vm = await playingViewModel(engine: engine)
 
-        vm.handlePlayerItemStatusChange(.failed, errorDescription: nil)
+        await engine.send(.failed(description: nil))
 
         XCTAssertNotNil(vm.errorMessage)
         XCTAssertFalse(vm.isPlaying)
     }
 
     func testHandlePlayerItemStatusChangeIgnoresNonFailedStatus() async throws {
-        let vm = await playingViewModel()
+        let engine = AudioEngineDouble()
+        let vm = await playingViewModel(engine: engine)
 
-        vm.handlePlayerItemStatusChange(.readyToPlay, errorDescription: nil)
+        await engine.send(.ready)
 
         XCTAssertNil(vm.errorMessage)
         XCTAssertTrue(vm.isPlaying)
     }
 
     func testHandleTimeControlStatusChangeWaitingSetsIsBuffering() async throws {
-        let vm = await playingViewModel()
+        let engine = AudioEngineDouble()
+        let vm = await playingViewModel(engine: engine)
         XCTAssertFalse(vm.isBuffering)
 
-        vm.handleTimeControlStatusChange(.waitingToPlayAtSpecifiedRate)
+        await engine.send(.buffering)
 
         XCTAssertTrue(vm.isBuffering)
     }
 
     func testHandleTimeControlStatusChangePlayingClearsIsBuffering() async throws {
-        let vm = await playingViewModel()
-        vm.handleTimeControlStatusChange(.waitingToPlayAtSpecifiedRate)
+        let engine = AudioEngineDouble()
+        let vm = await playingViewModel(engine: engine)
+        await engine.send(.buffering)
         XCTAssertTrue(vm.isBuffering)
 
-        vm.handleTimeControlStatusChange(.playing)
+        await engine.send(.resumed)
 
         XCTAssertFalse(vm.isBuffering)
     }
 
     func testStopPlaybackResetsIsBuffering() async throws {
-        let vm = await playingViewModel()
-        vm.handleTimeControlStatusChange(.waitingToPlayAtSpecifiedRate)
+        let engine = AudioEngineDouble()
+        let vm = await playingViewModel(engine: engine)
+        await engine.send(.buffering)
         XCTAssertTrue(vm.isBuffering)
 
         vm.stopPlayback()
 
         XCTAssertFalse(vm.isBuffering)
-    }
-
-    // MARK: - issue #59: KVO コールバックの stale 実行対策
-
-    func testShouldProcessPlayerItemCallbackTrueWhenMatchesCurrentItem() async throws {
-        let vm = await playingViewModel()
-        let currentItem = try XCTUnwrap(vm.player?.currentItem)
-
-        XCTAssertTrue(vm.shouldProcessPlayerItemCallback(currentItem))
-    }
-
-    func testShouldProcessPlayerItemCallbackFalseForDifferentItem() async throws {
-        let vm = await playingViewModel()
-        let staleItem = AVPlayerItem(url: URL(string: "https://storage.example.com/stale.mp3")!)
-
-        XCTAssertFalse(vm.shouldProcessPlayerItemCallback(staleItem))
-    }
-
-    func testShouldProcessPlayerItemCallbackFalseWhenPlayerNil() {
-        let vm = makeOnlineViewModel()
-        let item = AVPlayerItem(url: URL(string: "https://storage.example.com/none.mp3")!)
-
-        XCTAssertFalse(vm.shouldProcessPlayerItemCallback(item))
-    }
-
-    func testShouldProcessPlayerCallbackTrueWhenMatchesCurrentPlayer() async throws {
-        let vm = await playingViewModel()
-        let currentPlayer = try XCTUnwrap(vm.player)
-
-        XCTAssertTrue(vm.shouldProcessPlayerCallback(currentPlayer))
-    }
-
-    func testShouldProcessPlayerCallbackFalseForDifferentPlayer() async throws {
-        let vm = await playingViewModel()
-        let stalePlayer = AVPlayer()
-
-        XCTAssertFalse(vm.shouldProcessPlayerCallback(stalePlayer))
-    }
-
-    func testShouldProcessPlayerCallbackFalseWhenPlayerNil() {
-        let vm = makeOnlineViewModel()
-        let player = AVPlayer()
-
-        XCTAssertFalse(vm.shouldProcessPlayerCallback(player))
     }
 
     // MARK: - issue #50: stopPlayback 時の再生位置同期が 0 で上書きされる不具合
@@ -960,7 +925,8 @@ final class PodcastViewModelTests: XCTestCase {
             apiKey: "key",
             session: mockSession
         )
-        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        let engine = AudioEngineDouble()
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true), engine: engine)
         await vm.play(podcast: queuePodcast("p1", durationSeconds: 300))
         vm.seek(to: 42)
 
@@ -974,7 +940,7 @@ final class PodcastViewModelTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Double])
         XCTAssertEqual(json["position_seconds"], 42)
         // stopPlayback と異なり再生状態は解放しない（バックグラウンド再生を継続させる）。
-        XCTAssertNotNil(vm.player)
+        XCTAssertTrue(engine.isLoaded)
         XCTAssertEqual(vm.currentTime, 42)
     }
 
@@ -1151,13 +1117,13 @@ final class PodcastViewModelTests: XCTestCase {
             apiKey: "key",
             session: session
         )
-        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        let engine = AudioEngineDouble()
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true), engine: engine)
         await vm.play(podcast: queuePodcast("a"))
-        let endedItem = try XCTUnwrap(vm.player?.currentItem)
 
         vm.currentPodcast = queuePodcast("b")
 
-        NotificationCenter.default.post(name: AVPlayerItem.didPlayToEndTimeNotification, object: endedItem)
+        await engine.send(.ended)
         try await Task.sleep(nanoseconds: 300_000_000)
 
         // a の stale な終了通知が b に誤適用されていないこと。
@@ -1178,11 +1144,11 @@ final class PodcastViewModelTests: XCTestCase {
             apiKey: "key",
             session: session
         )
-        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        let engine = AudioEngineDouble()
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true), engine: engine)
         await vm.addToQueue(queuePodcast("a"))
-        let endedItem = try XCTUnwrap(vm.player?.currentItem)
 
-        NotificationCenter.default.post(name: AVPlayerItem.didPlayToEndTimeNotification, object: endedItem)
+        await engine.send(.ended)
         try await Task.sleep(nanoseconds: 300_000_000)
 
         // キュー終端: 収束フラグが立ち、a の完聴が記録される。
@@ -1215,7 +1181,8 @@ final class PodcastViewModelTests: XCTestCase {
     func testTT15_09_stopForLogoutResetsPlaybackWithoutSyncingPosition() async throws {
         let recording = RequestRecordingSession()
         let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: recording)
-        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        let engine = AudioEngineDouble()
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true), engine: engine)
         await vm.addToQueue(queuePodcast("a"))
         await vm.addToQueue(queuePodcast("b"))
         vm.seek(to: 12)
@@ -1226,7 +1193,7 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertNil(vm.currentPodcast)
         XCTAssertTrue(vm.queue.isEmpty)
         XCTAssertEqual(vm.presentation, .hidden)
-        XCTAssertNil(vm.player)
+        XCTAssertFalse(engine.isLoaded)
         XCTAssertFalse(vm.isPlaying)
         XCTAssertTrue(
             recording.requests.filter { $0.url?.path == "/podcasts/a/position" }.isEmpty,
@@ -1238,7 +1205,8 @@ final class PodcastViewModelTests: XCTestCase {
     func testTT15_10_stopForLogoutIsIdempotent() async throws {
         let recording = RequestRecordingSession()
         let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: recording)
-        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true))
+        let engine = AudioEngineDouble()
+        let vm = makeViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: true), engine: engine)
         await vm.addToQueue(queuePodcast("a"))
         vm.stopForLogout()
         for _ in 0..<3 { await Task.yield() }
@@ -1249,7 +1217,7 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertNil(vm.currentPodcast)
         XCTAssertTrue(vm.queue.isEmpty)
         XCTAssertEqual(vm.presentation, .hidden)
-        XCTAssertNil(vm.player)
+        XCTAssertFalse(engine.isLoaded)
         XCTAssertFalse(vm.isPlaying)
         XCTAssertTrue(recording.requests.filter { $0.url?.path == "/podcasts/a/position" }.isEmpty)
     }
