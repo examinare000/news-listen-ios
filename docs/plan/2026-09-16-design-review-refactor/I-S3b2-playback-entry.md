@@ -77,7 +77,7 @@ I-S3b1 で新設した `Podcast/Playback/` を production の入口につなぐ�
 | —（CI-T1c。SG-C39） | 読み込み待ち（buffering）の間に engine が止まると、一時停止の表示になる | buffering の表示だけ消えて再生中のまま | 準拠テスト |
 | —（CI-T1e。SG-C43） | 開始の直後から総時間が出る。総時間が不明な間に先送りしても 0 へ戻らない。位置は `[0, 総時間]` に丸める | 最初の定期更新まで総時間 0。不明な間の先送りで 0 へ戻る。`seek(to:)` は丸めない | 準拠テスト |
 | —（CI-T5。SG-C4） | オンラインで未キャッシュのエピソードは、再生の直前に URL と再開位置を取り直す。開始（プレイヤーの切替を含む）は、その応答の後になる | 一覧を取得した時点の URL と位置でそのまま始める | 準拠テスト（gateway double の呼出と、double の `loadedURL` を観測）。既存 `testResolvePlaybackURL*` 3 件（`PodcastViewModelTests.swift:401,422,439`）は純関数の forwarder が残るので不変 |
-| —（CI-T8。G12・§6.4） | 位置を送った応答で、一覧の再開位置を更新する。同じ再生の中で、送った値より小さい位置（巻き戻し）は送らない | 応答を捨てる。巻き戻した位置も送る | 準拠テスト |
+| —（CI-T8。G12） | 位置を送った応答で、一覧の再開位置を更新する（巻き戻した位置は、現行どおり送る。SG-C67） | 応答を捨てる | 準拠テスト |
 | —（CI-P17） | 現在のエピソードをキューから外すと、再生が止まる（次の要素が現在になるが、自動では始まらない） | 止まらない（画面からは待機列しか外せないので、画面操作では起きない） | 準拠テスト |
 | —（I-12） | 再生に失敗した後は、ロック画面の再生情報が消える | 残る | 準拠テスト |
 | CI-T9 / T9b | `init`・`setQueue` の重複 id を除く。重複の無い入力の Q-* は不変 | 除かない | T-T9（property）・T-T9b（期待値表）・Q-33 ＋ conformance 32 件不変 |
@@ -99,7 +99,7 @@ I-S3b1 で新設した `Podcast/Playback/` を production の入口につなぐ�
 - 主体離脱の登録先: `grep -n "registerPlaybackLifecycle" NewsListenApp/NewsListenApp/NewsListenAppApp.swift` の引数が `playerViewModel.playbackLifecycle`。
 - 保存庫が 1 個: `grep -rn "AudioCacheManager()" NewsListenApp/NewsListenApp --include='*.swift' | grep -v ":[0-9]*:[[:space:]]*//"` が 5 行（`NewsListenAppApp.swift` の生成 1 行、`Settings/SettingsViewModel.swift` の既定引数 2 行 = TP2、`AppState.swift` の `clearOfflineLibrary` の既定引数 1 行 = Preview とテスト用、`Podcast/Playback/PlaybackCoordinator+Preview.swift` の 1 行 = I-S3b1 の Preview 用）。`Podcast/PodcastViewModel.swift` には無い。`grep -n "clearOfflineLibrary" NewsListenApp/NewsListenApp/NewsListenAppApp.swift` が 1 行。
 - TP3 の owner・導入・削除条件が、コード上のコメントか PR 説明にある。
-- シミュレータの目視（UV3）を PR 説明に記す: (1) logout の後、ロック画面に前の主体の再生情報が残らない。(2) 自動で進んだ先が再生できないとき、止まった表示になる。(3) 一覧を 1 時間放置した後に再生できる。(4) **既定速度を 1.5 にして再生を始めると、実際に 1.5 倍で進む**（I-1 の確認。実機かシミュレータでしか確かめられない）。(5) 再生を始めてすぐに一時停止・再開ができる（事象の届く順序の確認）。(6) 画面をロックしたまま、オンラインで未キャッシュの次のエピソードへ自動で進む（I-16）。
+- シミュレータの目視（UV3）を PR 説明に記す: (1) logout の後、ロック画面に前の主体の再生情報が残らない。(2) 自動で進んだ先が再生できないとき、止まった表示になる。(3) 一覧を 1 時間放置した後に再生できる。(4) **既定速度を 1.5 にして再生を始めると、実際に 1.5 倍で進む**（I-1 の確認。実機かシミュレータでしか確かめられない）。(5) 再生を始めてすぐに一時停止・再開ができる（事象の届く順序の確認）。(6) 画面をロックしたまま、オンラインで未キャッシュの次のエピソードへ自動で進む（I-16）。(7) **記録だけ行う確認**（SG-C70。I-S3c を決める材料）: ロック画面とコントロールセンターに出るボタン（15 秒戻し・30 秒送り）、イヤホンのリモコンの 2 回押しが何に割り当たるか、CarPlay があればその表示。挙動は変えない。
 
 ## 禁止事項 / scope 外
 - `AudioPlayerView`・`MiniPlayerView`・`QueueSheet`（`:22` 以外）・`PodcastView`（`:45,90,135` 以外）の読み替え（TP3 の削除）はしない。forwarder・TP2・TP4 のコード・`didFinishCurrentEpisode`・`downloadedIds` の物理削除はしない（I-S3b3）。

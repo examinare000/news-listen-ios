@@ -55,7 +55,7 @@
 > - **手動で選んだエピソードが開始前に再生できないと分かる場合**（SG-C62。§3.1 Coordinator の `startEpisode`）: キューもセッションも変えず、通知だけを返す（現行の「Offline and not cached」と同じ挙動）。`errored` にするのは、キューが既にそのエピソードを現在にしている場合（`onEnded` 後の advance・再試行）だけ。
 > - **リモートコマンド**（SG-C59。SG-C28 の保留を解消。§3.1 の `stopForLogout()` を置換）: Coordinator は、登録が無ければ再生開始時に登録して token を持つ。`stopForLogout()` は「`session.stop()` → `nowPlaying.clear()` → リモートコマンドの解除 → `queue = PlaybackQueue()`」。Coordinator の破棄時にも token を解除する（二重の解除は無害）。
 > - **Coordinator の公開操作は 19**（SG-C60。§5 CP4 の ops と「17」を置換）: `minimizePlayer` と `expandPlayer` を足す（名前と規則は現行 `PodcastViewModel` と同じ。最小化は非表示のとき何もしない、展開は再生中のものがあるときだけ効く）。表示形態の遷移規則は I-S3b1 の order に表で置く。
-> - **`skipToNext`**（SG-C63）: 共有仕様 §2.12 のとおり（次が再生できれば今を止めて次を再生し、位置を 1 回送り、完聴は送らず、表示形態は変えない。次が再生不可と分かれば何も変えない。待機列が空なら何もしない）。操作は I-S3b1 で作る。ロック画面の「次のトラック」への接続は、I-S3b3 の後の独立した slice（I-S3c）で入れる（待機列が空の間はボタンを無効にする）。
+> - **`skipToNext`**（SG-C63）: 共有仕様 §2.12 のとおり（次が再生できれば今を止めて次を再生し、位置を 1 回送り、完聴は送らず、表示形態は変えない。次が再生不可と分かれば何も変えない。待機列が空なら何もしない）。操作は I-S3b1 で作る。ロック画面の「次のトラック」への接続（I-S3c）は保留（SG-C70。実機での確認の後に決める）。
 > - **error 状態の再生ボタン**（共有仕様 §2.11 から導出）: `togglePlayPause` が `errored` で呼ばれたら再試行（`startEpisode(current)`）を行う。
 > - **完聴時の順序**（SG-C61。§3.1 PositionReporter・CI-T8）: 完聴の記録と総時間の位置書込をこの順で送り始める。次の再生開始は応答を待たない（現行と同じ。画面ロック中の無音でアプリが休止されるのを避ける）。
 > - **総時間の完聴時の扱い**（SG-C54。SG-C43 を補う）: 完聴時に送る値は「engine の値 → DTO の値」の優先順で得た値。不明なら完聴時点の現在位置、それも 0 なら送らない。
@@ -70,7 +70,7 @@
 > - **I-6**（§5 CP4）: Coordinator は閉じられる通知 `notice` を 1 つ持つ。公開する状態は `session`・`presentation`・`queue`・`notice`・`isAdvancing` の 5 つ。`dismissError()` は `notice` を消す（`errored` の状態は変えない）。
 > - **I-7**（§3.1 Coordinator の `startEpisode`・`onEnded` を置換）: 「開始前の判定 → 取り直しの待ち → 世代の確認 → キューと Session を同期で変える」。`onEnded` も取り直しの後で `advance` する。
 > - **I-8**: Coordinator が `fetchFailed` を作る経路は無い（SG-C4 のフォールバック）。PS-01 の理由は iOS では `engineFailed`。
-> - **I-9**（§3.1 PositionReporter・§5 CP9 を置換）: `Timer` を持たない。開始直後には送らない。一時停止への遷移で 1 回。停止の前は Coordinator が `flush()` を呼ぶ。同じ位置・同じ再生の中で小さい位置は送らない。完聴は「完聴の記録 → 位置 → ストリークの更新」の直列で、呼んだ側は待たない。
+> - **I-9**（§3.1 PositionReporter・§5 CP9 を置換）: `Timer` を持たない。開始直後には送らない。一時停止への遷移で 1 回。停止の前は Coordinator が `flush()` を呼ぶ。同じ位置は再送しない。巻き戻した位置も送る（SG-C67）。完聴は「完聴の記録 → 位置 → ストリークの更新」の直列で、呼んだ側は待たない。
 > - **I-10**（§3.1 OfflineLibrary・§5 CP3 を置換）: `save(data, for: id)`・`has`・`url`・`remove`・`clearAll`・`usage`・`refresh(candidateIds:)`・`savedIds` の 8 操作。取得は呼ぶ側に残す。
 > - **I-11**: `NowPlaying` は `Podcast` の同名の規則を写した computed を 5 つ持つ（field には数えない）。
 > - **I-12**: リモートコマンドが効くのと、ロック画面に再生情報を出すのは `loading / playing / buffering / paused` の間。
@@ -81,9 +81,10 @@
 > - **I-17**: Coordinator は Preview 用の DEBUG 専用の入口を 1 つ持つ。
 > - **I-18**（§5 naming_decisions の「`didFinishCurrentEpisode` → `session == .ended`」を置換）: 「聴き終わりました」の表示条件は「`ended` かつ、自動で次へ進む途中でない」。Coordinator が `isAdvancing` を公開し、facade が `isFinished` として導く。
 > - **I-19**: 旧プロパティ `isPlaying` は `loading / playing / buffering`、`isBuffering` は `buffering` だけ。
-> - **I-20**（I-S3c）: `NowPlayingCenter` は「次のトラックを受け付けるか」の切替を足して 6 操作、`RemoteCommand` は 8 種。
+> - **I-20**（I-S3c。**保留** = SG-C70）: `NowPlayingCenter` は「次のトラックを受け付けるか」の切替を足して 6 操作、`RemoteCommand` は 8 種。
 > - **I-21**（上の SG-C40・C44 の表を補う）: `loading` の間の割り込みの開始と出力機器の切断も、`playing` と同じく一時停止にする（辺は既存の `loading → paused`）。
 > - **I-22**: `loading` の間のシークは、再開位置を置き換える形で受ける。`paused` で届いた `ended` は保留して次の `play()` の直後に進め、`buffering` で届いた `ended` は `playing` を経て進める。
+> - **2026-09-30 夜の確認**（監査レポート §5 の SG-C64〜C79）: I-1・I-18・I-21・I-23 は user が確認した（SG-C66・C72・C71・C73）。`partial_failed` は再生不可のまま（SG-C64）。位置同期の新しい規則（記録時刻の新しい方を正とする・オフラインで記録した位置を後から同期する・再開時の確認。SG-C74〜C79・親 docs ADR-109）は、§3.1 の PositionReporter と `resolveResumePosition`、§2 の「backend の契約は変えない」（位置の書込の 1 点）を改めるが、iOS への反映は I-S3b3 の後の別の slice で行う。
 > - **I-23**（I-7 を補う）: 待ちに入る入口は待ちの前に世代を進める（後から始めたものが勝つ）。利用者が起こした開始の待ちが残っている間、自動で次へ進む処理は始めない。
 
 ## 0. Decision frame と function_plan
