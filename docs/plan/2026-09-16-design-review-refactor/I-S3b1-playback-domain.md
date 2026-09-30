@@ -1,72 +1,524 @@
 ## iOS リファクタ I-S3b1: 再生ドメイン層の新設（Session・Coordinator・OfflineLibrary・PositionReporter）
 
 ## 概要
-再生ドメインの正本を `Podcast/Playback/` に**新規コードとしてだけ**置く。`PlaybackSession`（transport 状態 union）・`PlaybackCoordinator`（use case orchestration・`PlaybackLifecycle` 実装）・`OfflineLibrary`・`PositionReporter` と、Coordinator が判定に使う `Episode` decode を新設し、契約テスト（port double 駆動・表駆動）で固定する。**既存コードからは呼ばない**（production の挙動は変わらない。3 段分割の ①）。入口の差し替えは I-S3b2、旧実装の削除は I-S3b3。正本は user 承認済みの Implementation Spec `docs/design/2026-09-16-implementation-spec-playback-domain-model.md`（§3.1 Playback・§3.2 Catalog・§4 CI-T1〜T8・T10・T11・§5 CP1/CP3/CP4/CP5/CP9）。本タスクは**承認済み指示書に従う実装**であり、analyze_order は検証モード（再設計しない）。generate_spec の spec.md は上記 CI-T の抜粋で足り、新しい契約 ID を作らない。
+再生ドメインの正本を `Podcast/Playback/` に**新規コードとしてだけ**置く。`PlaybackSession`（再生状態の union）・`PlaybackCoordinator`（use case の判断。`PlaybackLifecycle` の実装）・`OfflineLibrary`・`PositionReporter` と、Coordinator が判定に使う `Episode` の判別を新設し、port の test double で駆動する契約テストで固定する。**既存コードからは呼ばない**（production の挙動は変わらない。3 段分割の ①）。入口の差し替えは I-S3b2、旧実装の削除は I-S3b3。
+
+正本は Implementation Spec `docs/design/2026-09-16-implementation-spec-playback-domain-model.md`（冒頭の追記 5 つと §3.1・§3.2・§4・§5）、親 docs `design/shared-playback-spec.md` §2.11・§2.12・§6.1・§6.4・§6.6、`adr/105-playback-session-out-of-table-operations-and-shared-rules.md`・`adr/106-ios-audio-engine-port-and-session-contract.md`。本タスクは**承認済み指示書に従う実装**で、analyze_order は検証モード（再設計しない）。spec.md は下の契約表の抜粋で足り、新しい契約 ID を作らない。
+
+本 order は 2026-09-30 の前提点検（親 docs `research-reports/2026-09-30-wave3-order-premise-check/ios.md` の #1〜#27）を受けて全面的に書き直した。型・操作・戻り値・手順は本 order が固定する。実装者が決める余地を残していない箇所で判断が要ると感じたら、実装を止めて報告する。order を書く側が確定済みの決定から導いた宣言には **I-1〜I-19・I-21〜I-23** の番号を付けた（一覧は親 docs 監査レポート §5.0 と Spec 冒頭の追記。I-20 は I-S3c）。書き直しの後、別のレビュー役の再点検（F1〜F21。親 docs `research-reports/2026-09-30-wave3-order-premise-check/ios-recheck.md`）を受け、その指摘も反映してある。
 
 ## 前提・着手条件
-- 依存: **I-S3a の submodule PR が main に merge 済み、かつ親リポ `news-listen` のポインタが進んでいる**（`git -C <親> submodule status` で `ios` に `+` が無い）。I-S3a の成果: `Podcast/Playback/AudioEngine.swift`（port 7 操作（`stop` を含む。SG-C22。`load(url:)` は `String?` を返す。SG-C34）・`EngineEvent` **10 種**（SG-C31〜C33。Spec 冒頭の「I-S3a 実装時の裁定」追記）・事象 stream は load ごと（SG-C36））と test double（「読み込み済みか」を状態として持つ。SG-C26）、`Podcast/Platform/{AVPlayerEngine,MediaPlayerNowPlaying}`、`PodcastViewModelTests` 全件 green。I-S2 の `PlaybackLifecycle` port・`NowPlayingCenter` port（I-S3a で `update / registerCommands / unregister` まで拡張済み）・`PreferenceRegistry`・`ApiFailure` が使えること。
-- 確定済み Selection Gate（共有仕様 §6.4〜§6.7）を新規コードにそのまま実装する: SG-X1 = 完聴時に `duration` を明示的に 1 回送る（順序: 完聴イベント → `duration` の位置書込 → advance）、SG-X4 = 一時停止中は周期送信しない、SG-X3 = `stopForLogout()` は cleanup 完了を待たない。速度の既定初期化は Preferences の既定速度（共有仕様 §6.6）。
-- 棄却済み案（再提案しない）: 旧 VM を feature flag で温存する段階移行（AVPlayer 2 系統の競合）、port を置かず純関数ガード拡張で済ませる案、`PlaybackQueue` の failable init（`docs/trial-log/mino-design-review-delegation.md`）。stale ガードは `endedId` 引数化の既存方式を踏襲する（`docs/trial-log/player-auto-converge.md`）。
+- 依存: **I-S3a の ios PR が main に merge 済み（PR #95）、かつ親リポ `news-listen` のポインタが進んでいる**（親で `git submodule status` の `ios` 行に `+` が無い）。
+- I-S3a / I-S2 の成果で使うもの:
+  - `Podcast/Playback/AudioEngine.swift`: `AudioEngine` port **7 操作**（`load(url:) -> String?` / `play` / `pause` / `seek(to:)` / `setRate` / `stop` / `events`）と `EngineEvent` **10 種**。事象 stream は load ごとに作り直される。
+  - `Podcast/Platform/NowPlayingCenter.swift`: `NowPlayingCenter` port **5 操作**（`update` / `updateElapsed` / `clear` / `registerCommands` → token / `unregister`）、`RemoteCommand` 7 種、`RemoteCommandResult` 3 種。
+  - `Podcast/PlaybackLifecycle.swift`・`Podcast/PlaybackQueue.swift`・`Podcast/PlayerPresentation.swift`・`Podcast/PlaybackConstants.swift`・`Podcast/NowPlayingInfo.swift`（`NowPlayingInfo.make(podcast:elapsed:duration:rate:isPlaying:)`）・`Networking/AudioCacheManager.swift`・`ApiFailure`。
+  - test double: `NewsListenAppTests/AudioEngineDouble.swift`（`AudioEngineDouble`・`EngineChannel`）、`NewsListenAppTests/AppStateTestSupport.swift` の `NowPlayingCenterSpy`、`AudioCacheManagerTests.MockFileManager`。
+- コマンドの実行場所: 以下の検査コマンドはすべて **`ios/`（submodule のルート）** で実行する。takt の worktree ルート（親リポ）で実行すると、grep は「ファイルなし」、`git diff` は常に空になり、0 件に見える。最初に `git cat-file -e origin/main:NewsListenApp/NewsListenApp/Podcast/PodcastViewModel.swift`（rc=0）で場所を確かめる。
+- `docs/trial-log/`（ios・親）を最初に読む。とくに `player-auto-converge.md`・`mino-design-review-delegation.md`・親 docs `trial-log/i-s3a-order-defects-and-port-gaps.md`。
+- 棄却済み（再提案しない）: 旧 VM を feature flag で温存する段階移行、port を置かない案、`PlaybackQueue` の failable init、停止・失敗を遷移表へ足す案（SG-C24・SG-C52）、開始の操作に「再生できない」を渡す案、Coordinator が失敗状態を別に持つ案、`ready` を待ってから再生する案（SG-C58）。
 
-## 対象（ios サブモジュールのみ。すべて新規。既存ファイルの変更は 0）
-| 新規ファイル | capsule | 内容 |
+## 確定済みの決定（再提案しない。本文は親 docs 監査レポート §5）
+| 決定 | 内容 |
+|---|---|
+| SG-C24 | `stop` は遷移表の外のリセット。分母 16 に数えない |
+| SG-C39・C40・C44 | engine 由来の一時停止は Session が自分で遷移する。割り込みの再開の判断は Coordinator |
+| SG-C41・C42 | `load` の警告は状態を変えず、開始の結果として 1 回外へ出す。文言は OS の説明文のまま |
+| SG-C43・C54 | 総時間は「engine の値（0 より大きい）→ DTO の値（0 より大きい）→ 不明」。不明な間は位置を上限で丸めない |
+| SG-C52 | 取得前・開始前の失敗は、遷移表の外の操作 `fail` で `errored` に入れる |
+| SG-C58 | 再生開始は `ready` を待たずに続けて行う。`ready` は状態を進めるためだけに使う（呼ぶ順序は I-1） |
+| SG-C59 | リモートコマンドは再生開始時に登録し、`stopForLogout()` と Coordinator の破棄の両方で解除する |
+| SG-C60 | Coordinator の公開操作は **19**（`minimizePlayer`・`expandPlayer` を含む） |
+| SG-C61 | 完聴の記録と総時間の位置書込はこの順で送り始め、次の再生開始は応答を待たない |
+| SG-C62 | 手動で選んだエピソードが開始前に再生できないと分かる場合は、キューもセッションも変えず、通知だけを出す |
+| SG-C63 | `skipToNext` は共有仕様 §2.12 のとおり |
+| SG-C4（2026-09-16） | オンラインで未キャッシュなら再生の直前に `fetchPodcast` で取り直し、失敗したら保持している URL で始める |
+| SG-X1・X4・C16 | 完聴時は総時間を 1 回送る。一時停止中は周期送信しない。主体離脱では位置を送らない |
+
+## 対象（ios サブモジュールのみ）
+**新規（production 6 本）**
+
+| ファイル | capsule | 中身 |
 |---|---|---|
-| `Podcast/Playback/PlaybackSession.swift` | CP1 | Spec §3.1 の 7 状態 union と 16 遷移。`position ∈ [0, duration]` の clamp。`AudioEngine` port を駆動し `stateChanged / positionChanged / ended(episodeId)` と**割り込みの開始 / 終了**（SG-C44）を emit。engine 由来の一時停止（`paused` 事象・`outputDeviceLost`・割り込みの開始）は Session が自分で `paused` へ遷移する（SG-C39・C40・C44。契機の表は Spec 冒頭の「I-S3b1 着手前の裁定」追記）。`start` は `load` の警告を結果として返す（SG-C41）。総時間は DTO で初期化し engine の値で置き換える（SG-C43）。公開操作 `start / play / pause / seek / seekRelative / setSpeed / stop / state`。`stop` は遷移表の外のリセット（どの状態からでも `idle` へ。分母 16 に数えない。`AudioEngine.stop` を呼ぶ。`idle` での `stop` は何もしない。Spec 冒頭の 2026-09-30 追記・SG-C24） |
-| `Podcast/Playback/PlaybackCoordinator.swift` | CP4 | 公開 **17 操作**（2026-09-23 SG-C10 で 15 → 17。ios-design §11.2・共有仕様 §6.8「id からの再生開始」行）: `startEpisode(_:expandsPlayer:)`（`queue.jump` → 失敗なら `playNext` → `jump`、`Episode` decode、`resolvePlaybackSource`、network なら `fetchPodcast` 再取得・失敗は保持 URL、`resolveResumePosition`、`session.start(speed: 既定速度)`）、**`startEpisode(id:)`**（`Episode` を持たない入口 = 通知ディープリンク用。`fetchPodcast(id)` closure で DTO を解決してから上の `startEpisode(_:expandsPlayer: true)` へ。解決失敗（`ApiFailure`）は queue / session を変えずに throw し、呼出側（facade）が現行 `playById` と同じ文言 `FailureMessages.message(for:context: .podcast)` を facade の `errorMessage` に書く = 観測挙動不変。`errored` にはしない: INV-P1 の対象外のエピソードだから）、**`replayCurrent()`**（`queue.current` があれば `startEpisode(current, expandsPlayer: false)` → 成功時 `seek(to: 0)`。無ければ no-op。現行 `replayCurrentEpisode` と同じ挙動）、`onEnded(endedId:)`（stale ガード → `listenCompleted` → `advance` → 次を `startEpisode`。失敗は停止し `errored`）、`removeFromQueue / retry / togglePlayPause / seek / setSpeed / addToQueue / playNext / moveUpNext / skipToNext / nowPlaying() / upNext() / presentation / dismissError / stopForLogout`。`onEnded` は engine 事象の受け口で公開 17 操作に数えない。`PlaybackLifecycle` に準拠。純関数 `resolvePlaybackSource(hasCached:isOnline:) → cached \| network \| unavailable` と `resolveResumePosition(serverSeconds:durationSeconds:)` は本ファイルの `static func`（別ファイルを増やさない）。**`nowPlaying() -> NowPlaying?`** の戻り値型 `NowPlaying`（`Identifiable`、`id = episodeId`）も本ファイルに置く: field は Android と同型の共通 7 **episodeId / displayTitle / japaneseIntroText / segments / vocabulary / quiz / difficulty**（2026-09-23 SG-C11。共有仕様 §6.8 nowPlaying 行・Android Spec §3 の 7 field と同名）＋ iOS 固有 2 **`sourceArticles: [PodcastSourceArticle]?` / `sourceKind: String?`**（2026-09-23 SG-C14。ADR-095 の出典・ライセンス表示用。`Podcast` の同名 field をそのまま写す）。`Podcast` DTO・`durationSeconds`・再生位置・transport 状態は含めない（transport は `session` が正本。View は facade が転写した `session` を読む。下記「状態の公開」）。`session == .idle` のとき nil。`displayTitle` は既存 `Podcast.displayTitle` の 3 段フォールバックと同値。**状態の公開（2026-09-24 導出）**: Coordinator は `ObservableObject`（`import Combine`。依存方向 grep の禁止対象外）とし、`@Published private(set) var session: PlaybackState`（CP1 `PlaybackSession.state` の転写。Spec §5 CP1 `stateChanged(PlaybackState)` と同じ union 値。`PlaybackSession` オブジェクト自体は公開しない）・`@Published private(set) var presentation: PlayerPresentation`（Spec §5 CP4 の 17 操作に含まれる値。所有者は Coordinator）・`@Published private(set) var queue: PlaybackQueue`（`nowPlaying()` / `upNext()` の再描画契機。I-S3b2 の TP3 `queue` / `currentPodcast` の読出口）の 3 つを read-only で公開する。公開操作は 17 のまま（状態の公開は操作に数えない）。View は Coordinator を直接持たず、facade（I-S3b2）が同名の `@Published` に転写する |
-| `Podcast/Playback/PlaybackCoordinator+Preview.swift` | CP4（DEBUG） | `#if DEBUG` … `#endif` で全体を囲む `extension PlaybackCoordinator { static func preview(session: PlaybackState, queue: PlaybackQueue) -> PlaybackCoordinator }`。engine / NowPlayingCenter / gateway closure は同ファイル内の private no-op 実装を注入し、`session` / `queue` を与えた値で初期化する。`DesignSystem/PreviewSupport.swift` の `vm.currentPodcast = …` 等の直書き置換（I-S3b2 対象 7）が capsule を変更せずに済むための入口。`SwiftUI` を import しない（依存方向 grep はこのファイルにも掛かる） |
-| `Podcast/Playback/OfflineLibrary.swift` | CP3 | 既存 `AudioCacheManager` を包む。`save / has / url / remove / clearAll / usage / savedIds`（`@Published private(set)`）。`has` / `url` はファイル実体が正本 |
-| `Podcast/Playback/PositionReporter.swift` | CP9 | `attach(session) / flush / listenCompleted(id) / lastSyncFailure`。再生中 15 秒 throttle、`pause / stop / 背景遷移` で即時 1 回、一時停止中は送らない、error / idle では送らない。完聴 → `duration` 書込 1 回 → advance。完聴通知は 1 セッション 1 回。応答の `Podcast` を Catalog 側へ返す。background task は closure port で受ける（`UIApplication` は書かない） |
-| `Models/Episode.swift` | CP5 | `Podcast` DTO → `PlayableEpisode / GeneratingEpisode / FailedEpisode`。未知 status・矛盾 DTO は `FailedEpisode`（fail-closed）。`decode(Podcast) → Episode` / `isPlayable`。Coordinator の Playable 判定に必要なため本 slice に含める（`PodcastRowView` の切替は I-S3b2） |
-| `NewsListenAppTests/`（新規テストファイル） | — | 下表 T-T*。port double（`AudioEngine`（I-S3a）・`NowPlayingCenter`（I-S2）・gateway closure・`FileStore`）を注入し、内部実装を観測しない |
+| `Models/Episode.swift` | CP5 | `Episode`・`PlayableEpisode`・`GeneratingEpisode`・`FailedEpisode`・`Episode.decode(_:)` |
+| `Podcast/Playback/PlaybackSession.swift` | CP1 | `PlaybackState`・`PlaybackErrorReason`・`SessionEvent`・`PlaybackSession` |
+| `Podcast/Playback/PlaybackCoordinator.swift` | CP4 | `PlaybackCoordinator`・`NowPlaying`・`PlaybackNotice`・純関数 2 つ |
+| `Podcast/Playback/PlaybackCoordinator+Preview.swift` | CP4（DEBUG） | `PlaybackCoordinator.previewParts(session:queue:)` |
+| `Podcast/Playback/OfflineLibrary.swift` | CP3 | `OfflineLibrary` |
+| `Podcast/Playback/PositionReporter.swift` | CP9 | `PositionReporter` |
 
-`Podcast/Playback/AudioEngine.swift`（I-S3a で新設済みの port 定義）は本 slice の新規 6 本（capsule 5 ＋ DEBUG ファクトリ 1）に数えない。`PlaybackSession` はこの既存 port を駆動する（port を作り直さない・別名の protocol を足さない）。Coordinator の既定速度は `PreferenceRegistry` の値を closure（`defaultSpeed: () -> Float`）で受ける（`AppState` 型を `Podcast/Playback/` に書かない）。
+**変更（test だけ）**: `NewsListenAppTests/AudioEngineDouble.swift`（下の「test double」）と `NewsListenAppTests/AudioEngineDoubleTests.swift`（Given の追加と新規 2 件）。
 
-gateway 依存は closure（`fetchPodcast / updatePosition / markCompleted / downloadAudio`）で受ける。`APIClient` 型を `Podcast/Playback/` に書かない（`ApiFailure` の値は読んでよい）。
+**新規（test）**: 契約テストのファイル（名前は自由。例 `PlaybackSessionTests.swift`・`PlaybackCoordinatorTests.swift`・`PositionReporterTests.swift`・`OfflineLibraryTests.swift`・`EpisodeDecodeTests.swift`）。
+
+**既存の production ファイルは 1 行も変えない**（`Podcast/Playback/AudioEngine.swift`・`Podcast/Platform/` を含む）。`project.pbxproj` は synchronized group なので変更は出ない。
+
+## 宣言（型・操作・戻り値。ここに無い公開メンバーを足さない）
+
+### `Models/Episode.swift`
+```swift
+struct PlayableEpisode: Equatable {
+    let id: String; let title: String; let audioUrl: String; let durationSeconds: Int
+    let difficulty: String; let createdAt: String; let serverPosition: Double
+    let segments: [TranscriptSegment]?; let vocabulary: [VocabularyEntry]?; let quiz: [QuizQuestion]?
+    let sourceArticles: [PodcastSourceArticle]?; let sourceKind: String?
+}
+struct GeneratingEpisode: Equatable { let id: String; let title: String; let difficulty: String; let createdAt: String }
+struct FailedEpisode: Equatable { let id: String; let title: String; let errorMessage: String }
+enum Episode: Equatable {
+    case playable(PlayableEpisode), generating(GeneratingEpisode), failed(FailedEpisode)
+    static func decode(_ podcast: Podcast) -> Episode
+    var isPlayable: Bool { get }
+}
+```
+- `title` は `Podcast.displayTitle`、`serverPosition` は `playbackPositionSeconds`。`FailedEpisode.errorMessage` は `podcast.errorMessage ?? "inconsistent"`。
+- 判別の規則は下の T-T11 の表（20 通り）がそのまま仕様。
+
+### `Podcast/Playback/PlaybackSession.swift`
+```swift
+enum PlaybackErrorReason: Equatable {
+    case offlineUncached, invalidSource, engineFailed(description: String?), fetchFailed(ApiFailure)
+}
+enum PlaybackState: Equatable {
+    case idle
+    case loading(episode: PlayableEpisode, resumePosition: Double, speed: Float)
+    case playing(episode: PlayableEpisode, position: Double, duration: Double, speed: Float)
+    case buffering(episode: PlayableEpisode, position: Double, duration: Double, speed: Float)
+    case paused(episode: PlayableEpisode, position: Double, duration: Double, speed: Float)
+    case ended(episode: PlayableEpisode, duration: Double)
+    case errored(episodeId: String, position: Double, reason: PlaybackErrorReason)
+}
+extension PlaybackState {            // 読み取り用の派生値（操作に数えない）
+    var episodeId: String? { get }   // idle だけ nil
+    var position: Double { get }     // loading は resumePosition、ended は duration、idle は 0
+    var duration: Double { get }     // loading は Double(durationSeconds)、idle・errored は 0
+    var speed: Float? { get }        // loading・playing・buffering・paused だけ値を持つ
+    var isEnded: Bool { get }
+}
+enum SessionEvent: Equatable {
+    case stateChanged(PlaybackState)
+    case positionChanged(seconds: Double, duration: Double)
+    case ended(episodeId: String)
+    case interruption(InterruptionPhase)
+}
+enum InterruptionPhase: Equatable { case began(wasPlaying: Bool), ended(shouldResume: Bool) }
+
+@MainActor final class PlaybackSession {
+    init(engine: any AudioEngine)
+    private(set) var state: PlaybackState            // 初期値 .idle
+    func observe(_ handler: @escaping (SessionEvent) -> Void)
+    @discardableResult
+    func start(episode: PlayableEpisode, url: URL, resumePosition: Double, speed: Float) -> String?
+    func play()
+    func pause()
+    func seek(to seconds: Double)
+    func seekRelative(_ delta: Double)
+    func setSpeed(_ speed: Float)
+    func stop()
+    func fail(episodeId: String, reason: PlaybackErrorReason)
+}
+```
+- 公開操作は `start / play / pause / seek / seekRelative / setSpeed / stop / fail / state` の 9 個。`observe` は通知の受け口で、操作に数えない（I-5）。
+- 通知は 4 種（Spec の「CP1 の emits は 4 つ」）。`observe` で登録した handler を、**登録した順に、その場で同期に**呼ぶ。解除の操作は持たない（Session・Coordinator・Reporter は同じ寿命）。Coordinator と Reporter は、`observe` に渡す handler と自分が作る Task の中で、自分を**弱参照**で捕捉する（Session が handler を持ち、Coordinator が Session を持つので、強参照だと循環して `deinit` が走らない）。Session の購読 Task も Session を弱参照で捕捉する。
+- `stateChanged` は `state` の値が変わるたびに 1 回出す。ただし engine の `timeUpdate` による位置・総時間の更新では `stateChanged` を出さず、`positionChanged` だけを出す（`state` の値は更新する）。
+- `errored` は id だけを持つ（I-4。再試行は Coordinator が `queue.current` から行うので、エピソード全体は要らない）。
+
+**engine が読み込み済みなのは `loading / playing / buffering / paused` の間だけ**（I-4）。`ended`・`errored` に入るときと `stop` のとき、Session は「事象の購読 Task を cancel → `engine.stop()`」の順で読み込みを外す。
+
+**`start` の手順**（I-1。どの状態から呼んでもよい）
+1. 現在の状態が `loading / playing / buffering` なら、先に `stop` と同じ後始末をする（`stateChanged(.idle)` を 1 回出す）。`paused` からは、前の読み込みの購読 Task を cancel するだけで、`idle` の通知は出さない（`engine.load` が前の読み込みを外す）。保留中の失敗は消す。
+2. `speed` が `PlaybackConstants.speeds` に無ければ 1.0 として扱う。
+3. `let warning = engine.load(url: url)`。**直後に同期で** `let stream = engine.events` を取り、この読み込みの購読 Task を作る（Task の本体で `engine.events` を読み直さない。終了したエピソードの id はここで捕捉する）。
+4. `resumePosition > 0` なら `engine.seek(to: resumePosition)`。
+5. `engine.play()`。
+6. `engine.setRate(speed)`。
+7. 状態を `.loading(episode, resumePosition, speed)` にして `stateChanged` を出す。
+8. `warning` を返す（`nil` なら警告なし）。
+
+- **5 → 6 の順序を入れ替えない**。`AVPlayer.play()` は速度を 1.0 に戻す（2026-09-30 に macOS の AVFoundation で実測: `rate = 1.5` → `play()` の直後に `rate == 1.0`。`play()` → `rate = 1.5` では 1.5 のまま）。現行 `PodcastViewModel.play` は「速度 → 再生」の順で呼んでおり、1.0 以外の速度が新しいエピソードの開始時に効いていない。SG-C58 の本文（読み込み → 速度 → seek → 再生）はこの順序だけを改める。
+- `engine.play()` を呼ぶのは `start` の中の 1 回だけ。実 adapter はこの呼出で読み込みごとの監視を登録する。`ready` を待ってから呼ぶと、実機では `ready` が届かない。
+- 購読 Task は、取り出した事象を適用する直前に `Task.isCancelled` を確かめる（cancel 済みなら捨てる）。
+- 再開位置を `ready` の後に掛け直さない（I-15。Spec §4 CI-T3 の「`ready` 後に再適用」は SG-C58 により iOS では行わない）。
+
+**操作 × 状態**（「—」は何もしない）
+
+| 操作 | idle | loading | playing | buffering | paused | ended | errored |
+|---|---|---|---|---|---|---|---|
+| `play()` | — | — | — | — | `engine.setRate(speed)` → `playing`。保留中の失敗があれば続けて `errored` | — | — |
+| `pause()` | — | `engine.pause()` → `paused`（位置 = `resumePosition`、総時間 = DTO の値） | `engine.pause()` → `paused` | `engine.pause()` → `paused` | — | — | — |
+| `seek` / `seekRelative` | — | 丸めた位置へ `engine.seek` し、`resumePosition` を置き換える（`loading` のまま。I-22） | 丸めた位置へ `engine.seek` し、位置を更新 | 同左 | 同左 | — | — |
+| `setSpeed(s)` | — | 速度を更新し `engine.setRate(s)` | 同左 | 同左 | 速度だけ更新（engine は呼ばない） | — | — |
+| `stop()` | — | 後始末 → `idle` | 同左 | 同左 | 同左 | → `idle` | → `idle` |
+| `fail(id, reason)` | `errored` | 後始末 → `errored` | 同左 | 同左 | 同左 | → `errored` | → `errored`（値を置き換える） |
+| `start(…)` | 上の手順 | 上の手順 | 上の手順 | 上の手順 | 上の手順 | 上の手順 | 上の手順 |
+
+- `setSpeed` は `PlaybackConstants.speeds` に無い値を無視する。
+- `seek` の丸め: 総時間が 0 より大きければ `[0, 総時間]`、不明（0）なら下限 0 だけ（SG-C43）。`loading` の総時間は `Double(durationSeconds)`、`seekRelative` の基準は `resumePosition`。現行は読み込み中もシークが効くので、それを保つ。
+- `errored` での `play()` は何もしない。再試行は Coordinator の `retry()` が `start` を呼ぶ。
+- `fail` の `errored` は `position: 0`。`reason` に `engineFailed` を渡さない（engine の事象からだけ生まれる）。
+- 再開に `engine.play()` を使わない（速度が 1.0 に戻る）。現行 `togglePlayPause` と同じく `setRate` で再開する。
+
+**engine の事象 × 状態**（I-3。「—」は何もしない。表に無い組合せは起こさない）
+
+| 事象 | idle | loading | playing | buffering | paused | ended | errored |
+|---|---|---|---|---|---|---|---|
+| `ready` | — | → `paused` → `playing`（`stateChanged` を 2 回。engine は呼ばない） | — | — | — | — | — |
+| `resumed` | — | `ready` と同じ | — | → `playing` | — | — | — |
+| `buffering` | — | — | → `buffering` | — | — | — | — |
+| `paused` | — | — | —（SG-C39） | → `paused` | — | — | — |
+| `ended` | — | `ready` と同じに進めてから、`playing` の欄 | 後始末 → `ended` → `SessionEvent.ended(episodeId)` | → `playing` に進めてから、`playing` の欄 | 終了を保留する（状態は変えない） | — | — |
+| `failed(d)` | — | 後始末 → `errored(engineFailed(d))` | 同左 | 同左 | 失敗を保留する（状態は変えない） | — | — |
+| `timeUpdate(s, d)` | — | — | 位置 = `s`、`d > 0` なら総時間 = `d`。`positionChanged` | 同左 | 同左 | — | — |
+| `interrupted` | — | `engine.pause()` → `paused`。`interruption(.began(wasPlaying: true))`（I-21） | `engine.pause()` → `paused`。`interruption(.began(wasPlaying: true))` | 同左 | `interruption(.began(wasPlaying: false))` | — | — |
+| `interruptionEnded(r)` | — | `interruption(.ended(shouldResume: r))` | 同左 | 同左 | 同左 | 同左 | 同左 |
+| `outputDeviceLost` | — | `engine.pause()` → `paused`（I-21） | `engine.pause()` → `paused` | 同左 | — | — | — |
+
+- `ready` で `playing` になるときの位置は `resumePosition`、総時間は `Double(durationSeconds)`。
+- `errored(engineFailed)` の位置は、直前の状態の位置（`loading` なら `resumePosition`）。
+- **`paused` で届いた `failed` と `ended`** は捨てずに保留し、次の `play()` で `playing` に入った直後に `errored(engineFailed)` または `ended` へ進める（辺は既存の `paused → playing`・`playing → errored`・`playing → ended`）。分母 16 に `paused → errored`・`paused → ended`・`buffering → ended` は無く、足さない。捨てると、読み込み中に一時停止して読み込みが失敗したあと、再生を押しても無音のまま再生中の表示になる。終端と一時停止が重なったときに `ended` を捨てると、次へ進まなくなる（実 adapter の `ended` は KVO の事象と別の経路で届き、順序が入れ替わり得る）。保留は `start`・`stop`・`fail` で消す。両方が保留されていれば `failed` を先に扱う。
+- **`loading` の `interrupted`・`outputDeviceLost`**（I-21）は `playing` と同じに扱う（辺は既存の `loading → paused`）。SG-C40・C44 の表は `playing`・`buffering` だけを挙げているが、現行は再生を始めた直後から再生中として扱っており、読み込み中の割り込みでも一時停止する。何もしないと、OS が音を止めたまま `ready` で再生中の表示になる。
+- `paused` の `resumed`・`buffering`、`playing` の `paused` は、操作より前に engine が出した事象が遅れて届く場合があるので、状態を動かさない。
+- Session は割り込みの終了で自分から再開しない（SG-C44）。
+
+**分母 16 の辺と、それを起こす操作・事象**（T-T1 はこの表のとおりに駆動する）
+
+| # | 辺 | 起こすもの |
+|---|---|---|
+| 1 | idle → loading | `start` |
+| 2 | loading → paused | engine `ready`（直後に 4 が続く）。`loading` での `pause()`・`interrupted`・`outputDeviceLost` も同じ辺 |
+| 3 | loading → errored | engine `failed` |
+| 4 | paused → playing | `play()` |
+| 5 | paused → paused（seek） | `seek` / `seekRelative` |
+| 6 | paused → loading | `start` |
+| 7 | playing → paused | `pause()`（engine 由来は CI-T1c） |
+| 8 | playing → buffering | engine `buffering` |
+| 9 | buffering → playing | engine `resumed` |
+| 10 | buffering → paused | `pause()`（engine 由来は CI-T1c） |
+| 11 | playing → ended | engine `ended` |
+| 12 | playing → errored | engine `failed` |
+| 13 | buffering → errored | engine `failed` |
+| 14 | ended → loading | `start`（次のエピソード） |
+| 15 | errored → loading（再試行） | `start`（同じエピソード） |
+| 16 | errored → loading（別の開始） | `start`（別のエピソード） |
+
+表の外: `stop`（どこからでも `idle`）、`fail`（どこからでも `errored`）、`loading / playing / buffering` からの `start`（`idle` を挟む）。
+
+### `Podcast/Playback/PositionReporter.swift`
+```swift
+@MainActor final class PositionReporter: ObservableObject {
+    @Published private(set) var lastSyncFailure: ApiFailure?
+    init(updatePosition: @escaping (_ id: String, _ seconds: Double) async throws -> Podcast,
+         markCompleted: @escaping (_ id: String) async throws -> Void,
+         onPositionSaved: @escaping (Podcast) -> Void,
+         onCompletionRecorded: @escaping () async -> Void,
+         beginBackgroundTask: @escaping () -> (() -> Void),
+         now: @escaping () -> Date = Date.init)
+    func attach(_ session: PlaybackSession)
+    func flush()
+    func listenCompleted(id: String)
+}
+```
+規則（I-9。`Timer` を持たない。周期は `positionChanged` と注入した時計で数える）
+
+| 契機 | 動作 |
+|---|---|
+| `attach` | `session.observe` に自分を登録する。Coordinator が生成時に 1 回呼ぶ |
+| `stateChanged(.loading)` | 新しい再生の基準に戻す（送信済みの位置なし・完聴未送信・現在位置 = `resumePosition`） |
+| `paused` から `playing` に入った（開始直後の `ready` を含む） | 周期の起点を `now()` にする（**開始直後には送らない**）。`buffering` から戻ったときは起点を変えない |
+| `playing` 中の `positionChanged` | 現在位置を更新する。`now()` が起点から 15 秒以上なら 1 回送り、起点を `now()` にする |
+| `playing` / `buffering` → `paused` | その位置を 1 回送る（利用者の一時停止も engine 由来も同じ） |
+| `loading` → `paused` | 送らない |
+| `paused`・`buffering` 中の `positionChanged` | 現在位置だけ更新する（送らない） |
+| `ended`・`errored`・`idle` に入った | 送らない。周期も止まる |
+| `flush()` | 状態が `playing / buffering / paused` のときだけ、現在位置を 1 回送る。ほかの状態では何もしない |
+| `listenCompleted(id)` | 下の「完聴」 |
+
+- **同じ位置は再送しない**（直近に送った値と等しければ送らない）。**同じ再生の中で、直近に送った値より小さい位置は送らない**（共有仕様 §6.4 の単調非減少。基準は次の `loading` で戻る）。
+- 停止の前に位置を送るのは Coordinator の役目（`session.stop()` や別のエピソードの `start` の前に `flush()` を呼ぶ）。Reporter は `idle` への遷移を見て送らない。`stopForLogout()` は `flush()` を呼ばないので、主体離脱では何も送らない（SG-C16）。
+- 送信は待たない（`Task` で送る）。位置の書込が成功したら、応答の `Podcast` を `onPositionSaved` へ渡す。`lastSyncFailure` は**最後に終わった送信の結果**を表す（位置の書込・完聴の記録のどちらも、成功で `nil`、`ApiFailure` での失敗でその値。ほかの error は無視する）。
+- **完聴**（SG-C61・SG-C54・SG-X1）: `listenCompleted(id)` は同期の関数で、すぐ戻る。同じ再生の中で 2 回目以降は何もしない（`loading` で戻るので、同じエピソードをもう一度聴けばまた送る）。1 本の `Task` の中で次を順に行う: `beginBackgroundTask()` → `markCompleted(id)` → 位置の書込 → `onCompletionRecorded()` → 終了の closure。`markCompleted` が失敗しても続きを行う。位置の書込に使う値は「`ended` の状態が持つ総時間（0 より大きい）→ 完聴した時点の現在位置（0 より大きい）」の順で、どちらも 0 なら位置の書込を飛ばす。**id と書込に使う値は `listenCompleted` を呼ばれた時点で確定し、Task の中では Reporter の状態を読まない**（次のエピソードがキャッシュ済みだと、Task が動く前に次の `loading` が来て基準が戻る。現行 VM が位置を Task の前に控えているのと同じ理由）。
+- `Podcast/Playback/` に `UIApplication` を書かない。background task は `beginBackgroundTask`（終了の closure を返す）で受ける。
+
+### `Podcast/Playback/OfflineLibrary.swift`
+```swift
+@MainActor final class OfflineLibrary: ObservableObject {
+    @Published private(set) var savedIds: Set<String>      // 初期値は空
+    nonisolated init(cacheManager: AudioCacheManager)   // 既定引数や static let から作れるようにする（AVPlayerEngine と同じ）
+    func save(_ data: Data, for id: String) throws
+    func has(_ id: String) -> Bool
+    func url(_ id: String) -> URL?
+    func remove(_ id: String) throws
+    func clearAll() throws
+    func usage() -> Int64
+    func refresh(candidateIds: [String])
+}
+```
+- `has` / `url` はファイルの実体が正本（`cacheManager.isCached`）。`url` は無ければ `nil`。
+- `save` は渡された音声データを保存して `savedIds` に足す。**取得（`fetchPodcast` → URL の検査 → `downloadAudio`）は呼ぶ側に残す**（I-10。保存庫は App が 1 個持ち、ログインのたびに作り直される `APIClient` をまたいで生きるので、gateway を持てない）。二重実行の抑止もしない（呼ぶ側の `downloadingIds` が行う）。
+- `remove` は削除して `savedIds` から外す。`clearAll` は全削除して `savedIds` を空にする。どちらも失敗したら、`savedIds` を実体に合わせ直して（`savedIds.filter(has)`）から error を投げる。
+- `refresh(candidateIds:)` は `savedIds = Set(candidateIds.filter(has))`（I-10。`AudioCacheManager` に id を列挙する操作が無く、本 slice では足せない。現行 `syncDownloadedState()` と同じ作り方）。Spec §5 CP3 の 7 操作にこれを足した 8 操作になる。
+- `usage` は `cacheManager.cacheSize()`。
+
+### `Podcast/Playback/PlaybackCoordinator.swift`
+```swift
+struct NowPlaying: Identifiable, Equatable {
+    let episodeId: String; var id: String { episodeId }
+    let displayTitle: String; let japaneseIntroText: String
+    let segments: [TranscriptSegment]?; let vocabulary: [VocabularyEntry]?; let quiz: [QuizQuestion]?
+    let difficulty: String
+    let sourceArticles: [PodcastSourceArticle]?; let sourceKind: String?
+    var hasTranscript: Bool { get }; var hasVocabulary: Bool { get }; var hasQuiz: Bool { get }
+    var hasSourceArticles: Bool { get }; var showsCcBySaLicense: Bool { get }
+}
+enum PlaybackNotice: Equatable { case failure(PlaybackErrorReason), loadWarning(String) }
+enum PlaybackSource: Equatable { case cached, network, unavailable }
+
+@MainActor final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
+    @Published private(set) var session: PlaybackState
+    @Published private(set) var presentation: PlayerPresentation      // 初期値 .hidden
+    @Published private(set) var queue: PlaybackQueue
+    @Published private(set) var notice: PlaybackNotice?
+    @Published private(set) var isAdvancing: Bool                     // 初期値 false
+    init(engine: any AudioEngine, nowPlayingCenter: NowPlayingCenter, library: OfflineLibrary,
+         reporter: PositionReporter,
+         fetchPodcast: @escaping (String) async throws -> Podcast,
+         isOnline: @escaping () -> Bool,
+         defaultSpeed: @escaping () -> Float,
+         beginBackgroundTask: @escaping () -> (() -> Void))
+
+    // 公開 19 操作（presentation は上の値）
+    func startEpisode(_ podcast: Podcast, expandsPlayer: Bool = true) async
+    func startEpisode(id: String) async throws
+    func replayCurrent() async
+    func retry() async
+    func togglePlayPause()
+    func seek(to seconds: Double)
+    func setSpeed(_ speed: Float)
+    func addToQueue(_ podcast: Podcast) async
+    func playNext(_ podcast: Podcast) async
+    func removeFromQueue(id: String)
+    func moveUpNext(fromOffsets source: IndexSet, toOffset destination: Int)
+    func skipToNext() async
+    func nowPlaying() -> NowPlaying?
+    func upNext() -> [Podcast]
+    func dismissError()
+    func stopForLogout()
+    func minimizePlayer()
+    func expandPlayer()
+
+    // 操作に数えないもの
+    func onEnded(endedId: String) async
+    static func resolvePlaybackSource(hasCached: Bool, isOnline: Bool) -> PlaybackSource
+    static func resolveResumePosition(serverSeconds: Double, durationSeconds: Double) -> Double
+}
+```
+- 19 操作の数え方: `startEpisode(_:expandsPlayer:)`・`startEpisode(id:)`・`replayCurrent`・`retry`・`togglePlayPause`・`seek`・`setSpeed`・`addToQueue`・`playNext`・`removeFromQueue`・`moveUpNext`・`skipToNext`・`nowPlaying()`・`upNext()`・`presentation`・`dismissError`・`stopForLogout`（ここまで 17。SG-C10）＋ `minimizePlayer`・`expandPlayer`（SG-C60）。
+- Coordinator は生成時に `PlaybackSession(engine:)` を作り、**`reporter.attach(session)` を先に呼んでから**自分を `session.observe` に登録する。`PlaybackSession` のオブジェクトは外へ出さない。`session`（`@Published`）は `PlaybackSession.state` の写しで、`stateChanged` と `positionChanged` を受けるたびに更新する。
+- `@Published` は上の 5 つだけ（`notice` は I-6、`isAdvancing` は I-18）。`isAdvancing` は「自動で次へ進む途中の待ち」の間だけ true（`onEnded` の 6 で true、待ちが終わったら false。`stopForLogout()` でも false）。ロック画面 port を持つプロパティの名前は `nowPlayingCenter` にする（操作 `nowPlaying()` と同じ名前にしない）。
+- `fetchPodcast` は `ApiFailure` のほか、Task の cancel による error（`CancellationError`・`URLError(.cancelled)`）も投げ得る。`Podcast/Playback/` に `APIClient` と `.unauthorized` を書かない（失効の検知は gateway 側の役目。`GrepOracleTests` の O-1 が `.unauthorized` の置き場所を検査している）。
+- Coordinator が Session の状態を写した値が `session`。テストは Session のオブジェクトに触れないので、T-T7a の「写しが正しい」は、各操作の後の `coordinator.session` が期待する状態であることで確かめる。
+- `nowPlaying()` は、`session` が `idle` のとき `nil`。それ以外は `queue.current` の DTO から作る（`displayTitle` は `Podcast.displayTitle`。5 つの computed は `Podcast` の同名の規則をそのまま写す。field は共通 7 ＋ iOS 固有 2 のまま。I-11）。
+- 純関数 2 つは共有仕様 §6.1・§6.4 のとおり。`resolveResumePosition` は RS-01〜RS-07 の表がそのまま仕様。
+
+**通知 `notice`**（I-6）: 利用者に 1 回見せる知らせを 1 つ持つ。次のときに置く。
+- 手動の開始が、開始前に再生できないと分かった → `.failure(理由)`（SG-C62）
+- Session が `errored` に入った → `.failure(理由)`
+- `start` が警告を返した → `.loadWarning(説明文)`（SG-C41）
+
+消すのは `dismissError()` と、開始が確定したとき（下の「開始の確定」の最初）。`errored` の状態そのものは `dismissError()` で変えない（失敗したエピソードが現在のまま残り、再生ボタンが再試行になる）。
+
+**開始の流れ**（I-7。**状態を変えるのは、待ちが終わって世代を確かめた後だけ**）
+
+Coordinator は世代番号（整数）を持つ（I-7・I-23）。
+- **待ちに入る入口は、待ちの前に世代を 1 進めて、その値を控える**（手動の開始・`startEpisode(id:)`・`replayCurrent`・`retry`・`skipToNext`・自動の `onEnded`）。待ちの後で世代が控えた値と違っていたら、その開始は捨てる（何も変えない）。後から始めた入口が勝つ。
+- 「開始の確定」「`session.stop()`」「`session.fail()`」「`stopForLogout()`」でも 1 進める（待っている開始を捨てさせる）。
+- **利用者の操作を自動より優先する**（I-23）: 利用者が起こした入口（`onEnded` 以外）の待ちが 1 つでも残っている間、`onEnded` は完聴を送るだけで、次へ進む処理を始めない（残っている利用者の開始が確定する）。`onEnded` の待ちの間に利用者の入口が始まれば、世代が進むので `onEnded` の側が捨てられる。
+- `fetchPodcast` が cancel による error を投げたら、その開始は捨てる（何も変えない）。
+
+`startEpisode(_ podcast:, expandsPlayer:)`（手動の入口）
+1. `Episode.decode(podcast)` が再生可能でない、または `URL(string: podcast.audioUrl)` が `nil` なら、`notice = .failure(.invalidSource)` として戻る。キューも Session も変えない（以下、この 1 と 2 を「開始前の判定」と呼ぶ）。
+2. `resolvePlaybackSource(hasCached: library.has(id), isOnline: isOnline())` が `unavailable` なら `notice = .failure(.offlineUncached)` として戻る。何も変えない。
+3. 世代を 1 進めて控え、「再生元の用意」を行う。
+4. 世代が変わっていたら戻る。
+5. キュー: `queue.jump(to: id)` が false なら `queue.playNext(podcast)` → `queue.jump(to: id)`。
+6. 「開始の確定」。
+
+「再生元の用意」
+- `cached`: URL は `library.url(id)`、再開位置の元は `podcast.playbackPositionSeconds`。待たない。
+- `network`: `fetchPodcast(id)` を 1 回呼ぶ。成功して、`Episode.decode` が再生可能で `audioUrl` が `URL` になるなら、取り直した DTO を使う。失敗（cancel 以外の error）またはそうでなければ、保持している `podcast` を使う（SG-C4。保持している側の `audioUrl` は「開始前の判定」で `URL` になることを確かめてある）。
+- `session.start` に渡す `episode`・URL・再開位置の元・総時間は、**同じ 1 つの DTO**（取り直したものか、保持しているもの）から作る。
+
+「開始の確定」（待たずに続けて行う）
+1. 世代を 1 進め、`notice = nil`、`isAdvancing = false`、割り込みの記憶を消す。
+2. `reporter.flush()`（前の再生の位置を送る。送る状態でなければ何も起きない）。
+3. `session.start(episode:url:resumePosition:speed:)`。`resumePosition` は `resolveResumePosition(serverSeconds:durationSeconds:)`、`speed` は `defaultSpeed()`。警告が返ったら `notice = .loadWarning(警告)`。
+4. 表示形態: `expandsPlayer` が true なら `.expanded`。false なら `.hidden` のときだけ `.mini`。
+5. リモートコマンドの登録が無ければ登録して token を持つ（SG-C59）。
+
+ほかの入口
+
+| 操作 | 内容 |
+|---|---|
+| `startEpisode(id:)` | 世代を進めて控え、`fetchPodcast(id)`。失敗は、受けた error をそのまま投げて戻る（キュー・Session・`notice` を変えない。cancel による error も同じ）。世代が変わっていたら戻る。成功したら `startEpisode(_:expandsPlayer: true)` と同じ流れに入る。**解決した DTO を「再生元の用意」の再取得の結果として使い、`fetchPodcast` は 1 回しか呼ばない**（I-14） |
+| `replayCurrent()` | `nowPlaying()` が `nil` なら何もしない。`queue.current` を手動の入口と同じ流れで始める（開始前に再生できないと分かれば `notice` だけ。`ended` の表示は残る）。キューは変えない。**再開位置は 0**（`start` の後で seek しない。I-14）。表示形態は `expandsPlayer: false` の規則 |
+| `retry()` | `session` が `errored` で `queue.current` があるときだけ動く。「開始前の判定」に落ちたら `session.fail(id, 理由)` を呼び、**Coordinator が `notice = .failure(理由)` を自分で置く**（`errored` の値が前と同じだと `stateChanged` が出ないため）。それ以外は世代を進めて控え、「再生元の用意」→ 世代の確認 → 「開始の確定」（`expandsPlayer: false`） |
+| `togglePlayPause()` | `loading / playing / buffering` → `session.pause()`。`paused` → `session.play()`。`errored` → `Task { await retry() }`。`idle`・`ended` → 何もしない |
+| `seek(to:)`・`setSpeed` | Session の同名の操作を呼ぶ |
+| `addToQueue(p)`・`playNext(p)` | 先に「何も再生していないか」（`session == .idle`）を控える。`queue.add(p)` / `queue.playNext(p)`。控えが true なら `startEpisode(p)` と同じ流れ（キューに足したことは、開始できなくても残る） |
+| `removeFromQueue(id)` | `id` が `queue.current` のもので `session` が `idle` でなければ、`reporter.flush()` → `queue.remove(id:)` → `session.stop()`。次の要素が `queue.current` になるが、自動では再生しない（CI-P17）。それ以外は `queue.remove(id:)` だけ。表示形態は変えない |
+| `moveUpNext` | `queue.reorderUpNext(fromOffsets:toOffset:)` |
+| `skipToNext()` | 共有仕様 §2.12。利用者の操作として扱う。`queue.upNext.first` が無ければ何もしない。それが「開始前の判定」に落ちたら `notice` だけ（キューも Session も変えない）。それ以外は世代を進めて控え、「再生元の用意」→ 世代の確認 → 待機列の先頭が用意したものと同じなら `queue.advance()` →「開始の確定」（`expandsPlayer: false`）。先頭が変わっていたら何もしない。完聴は送らない |
+| `dismissError()` | `notice = nil` |
+| `minimizePlayer()` | `presentation` が `.hidden` なら何もしない。それ以外は `.mini` |
+| `expandPlayer()` | `nowPlaying()` が `nil` なら何もしない。それ以外は `.expanded` |
+| `stopForLogout()` | 世代を進める → `session.stop()` → `nowPlayingCenter.clear()` → token を解除して手放す → `queue = PlaybackQueue()` → `presentation = .hidden` → `notice = nil` → `isAdvancing = false` → 割り込みの記憶を消す。**`reporter.flush()` を呼ばない**。2 回呼んでも同じ |
+
+`onEnded(endedId:)`（Session の `ended` を受けたら、Coordinator は `Task { await onEnded(endedId:) }` で呼ぶ。購読 Task の cancel に巻き込まれない形にする）
+1. `endedId != queue.current?.id` なら何もしない（古い通知）。
+2. `reporter.listenCompleted(id: endedId)`（待たない）。
+3. 利用者が起こした入口の待ちが残っていれば、ここで終わる（I-23）。
+4. `queue.upNext.first` が無ければ、`nowPlayingCenter.clear()` を呼んで終わる（`ended` の状態を残す。キューは進めない）。
+5. 次が「開始前の判定」に落ちたら、`queue.advance()` → `session.fail(次の id, 理由)`（共有仕様 §2.11。先にキューを進めるので、失敗したエピソードが現在になり、INV-P1 が保たれる。次へは進まない）。
+6. それ以外は、世代を 1 進めて控え、`isAdvancing = true` にし、`beginBackgroundTask()` で囲んで「再生元の用意」を行う（I-16。画面ロック中は音が止まるとアプリが休止され得る）。待ちが終わったら `isAdvancing = false`。
+7. 世代が変わっていたら戻る。待機列の先頭が用意したものと違っていたら、4 からやり直す（完聴は送り直さない）。
+8. `queue.advance()` →「開始の確定」（`expandsPlayer: false`）。
+
+- 待ちが入るのは `network` のときだけ。`cached` と `unavailable` は待たずに終わる。
+- 待ちの間はキューも Session も前のままなので、INV-P1 は途中でも崩れない。
+- `fetchFailed` を Coordinator が作る経路は無い（SG-C4 のフォールバックのため。I-8）。共有仕様 PS-01 の「取得が失敗」は、iOS では「取り直しが失敗し、保持している URL の読み込みも engine が失敗した」場合で、理由は `engineFailed` になる。
+
+**Session の通知を受けたときの動作**
+
+| 通知 | Coordinator の動作 |
+|---|---|
+| `stateChanged(s)` | `session = s`。`s` が `loading / playing / buffering / paused` なら `nowPlayingCenter.update(NowPlayingInfo.make(podcast: queue.current, elapsed: s.position, duration: s.duration, rate: s.speed, isPlaying: s が loading・playing・buffering))`。`queue.current` が `nil` のときと、`idle`・`errored` のときは `nowPlayingCenter.clear()`。`ended` では呼ばない（`onEnded` が決める）。`errored` に入ったら `notice = .failure(理由)` |
+| `positionChanged(秒, 総時間)` | `session` を写し直し、`nowPlayingCenter.updateElapsed(秒, duration: 総時間)` |
+| `ended(id)` | `Task { await onEnded(endedId: id) }` |
+| `interruption(.began(w))` | `w` を覚える |
+| `interruption(.ended(r))` | `r` が true で、覚えた値が true で、`session` が `paused` なら `session.play()`。覚えた値を消す |
+
+**リモートコマンド**（I-12。handler は Coordinator を弱参照で持ち、無ければ `.commandFailed`）
+
+「操作できる」= `session` が `loading / playing / buffering / paused`。
+
+| コマンド | 操作できるとき | できないとき |
+|---|---|---|
+| `play` | `paused` なら `session.play()`。`.success` | `.noSuchContent` |
+| `pause` | `paused` でなければ `session.pause()`。`.success` | `.noSuchContent` |
+| `togglePlayPause` | `togglePlayPause()`。`.success` | `.noSuchContent` |
+| `skipBackward` | `session.seekRelative(-PlaybackConstants.skipBackwardSeconds)`。`.success` | `.noSuchContent` |
+| `skipForward` | `session.seekRelative(PlaybackConstants.skipForwardSeconds)`。`.success` | `.noSuchContent` |
+| `changePosition(秒)` | `seek(to: 秒)`。`.success` | `.commandFailed` |
+| `changeRate(速度)` | `setSpeed(速度)`。`.success` | `.noSuchContent` |
+
+Coordinator の `deinit` でも token を解除する（`stopForLogout()` の後なら token は既に無い。二重の解除は無害）。
+
+### `Podcast/Playback/PlaybackCoordinator+Preview.swift`
+ファイル全体を `#if DEBUG` … `#endif` で囲む。`extension PlaybackCoordinator { static func previewParts(session: PlaybackState, queue: PlaybackQueue) -> (coordinator: PlaybackCoordinator, reporter: PositionReporter, library: OfflineLibrary) }`。engine・ロック画面 port・gateway の closure は、同じファイルの中の private な「何もしない」実装を渡す。保存庫は `OfflineLibrary(cacheManager: AudioCacheManager())` をこのファイルの 1 箇所で作り、Reporter も「何もしない」closure で作る（I-S3b2 の `PreviewSupport` は、facade の生成に要る 3 つをここから受け取り、自分では作らない）。`import` は `Foundation` と `Combine` だけ。
+
+写しの値を直接置くために、`PlaybackCoordinator.swift` の側に DEBUG 専用の入口を 1 つだけ持つ（I-17。現行 `previewMarkFinished()` と同じ扱い）。
+```swift
+#if DEBUG
+extension PlaybackCoordinator {
+    /// Preview 専用。写しの値を直接置く（Session は動かさない）。
+    func previewSet(session: PlaybackState, queue: PlaybackQueue)
+}
+#endif
+```
+
+## test double（`NewsListenAppTests/AudioEngineDouble.swift` の変更。I-2）
+現行の double は `play / pause / seek / setRate` が何もしないので、Session が engine を正しく動かしたかを観測できず、開始の順序を誤った実装がテストを通る。実 adapter と同じ振る舞いにする。
+
+| 追加するもの | 振る舞い |
+|---|---|
+| `private(set) var loadedURL: URL?` | `load` で設定、`stop` で `nil` |
+| `private(set) var hasStartedPlayback: Bool` | `load`・`stop` で false、`play()` で true |
+| `private(set) var rate: Float` | `load`・`stop`・`pause()` で 0。**`play()` で 1.0**（実 adapter と同じく速度を戻す）。`setRate(r)` で `r` |
+| `private(set) var lastSeekSeconds: Double?` | `load`・`stop` で `nil`、`seek(to:)` で設定 |
+| `send(_:)`（engine 側の入口） | `hasStartedPlayback` が false の間に、読み込みごとの事象（`ready / buffering / resumed / paused / ended / failed / timeUpdate`）を送ろうとしたら `XCTFail` して送らない。`interrupted / interruptionEnded / outputDeviceLost` は読み込み済みならいつでも送れる |
+
+- 読み込み済みでないとき、`play / pause / seek / setRate` は状態を変えない（port の契約どおり）。
+- 呼出回数は公開しない（SG-C26）。`EngineChannel` の `deliver / send / yield` は変えない（古い読み込みへの注入に使う）。
+- `AudioEngineDoubleTests` の既存 5 件のうち、`engine.send` を `play()` なしで呼んでいる件（D02・D04）は Given に `engine.play()` を足す。Then は変えない。新規 2 件を足す: 「`play()` の前の読み込みごとの事象は届かない（`XCTExpectFailure`）」「`rate`・`lastSeekSeconds`・`loadedURL` が操作に従う（`play()` は 1.0 に戻す）」。
+- `PodcastViewModelTests`（72）・`PodcastViewModelPortTests`（13）は、VM が `load` の後に必ず `engine.play()` を呼ぶので、変更なしで green のはず。green にならなければ、テストを直さずに止めて報告する。
+
+## 契約（RED テスト。テスト名またはコメントに `verifies: CI-T*` を持つ）
+oracle は公開操作・状態・double の状態・gateway double の呼出列に限る。engine double の呼出回数は assert しない。
+
+| CI | テスト | 行 ID |
+|---|---|---|
+| CI-T1 | **T-T1**: 上の 16 辺を表のとおりに駆動し `state` を観測（分母 16）。`ready` では `stateChanged` が `paused` → `playing` の順に 2 回出る。表の外の例（`idle` で engine の事象、`ended` で `play()`、`errored` で `play()`、`paused` で `resumed`）で状態が変わらない。古い読み込みの channel へ `yield` した事象で状態が変わらない | — |
+| CI-T1 | **T-T1g**（engine を正しく動かしたか）: `start` の後、double が `loadedURL == url`・`hasStartedPlayback`・`rate == 開始の速度`・`lastSeekSeconds == 再開位置`（再開位置 0 なら `nil`）。`pause()` の後 `rate == 0`。`paused` からの `play()` の後 `rate == 速度`。`seek` の後 `lastSeekSeconds` が丸めた値。`ended`・`errored` に入った後 `isLoaded == false` | — |
+| CI-T2 | **T-T2**: `failed` → `errored(engineFailed(説明))`。`play()` を続けて呼んでも 1 状態に収束。`paused` で届いた `failed` は状態を変えず、次の `play()` で `playing` → `errored` の順に出る。`paused` で届いた `ended` は次の `play()` で `playing` → `ended` の順に出て `SessionEvent.ended` が 1 回出る。`buffering` で届いた `ended` は `playing` → `ended` の順に出る | — |
+| CI-T1b | **T-T1b**: `idle` 以外の 6 状態で `stop` → `idle` かつ `isLoaded == false`。`idle` での `stop` は double の状態も通知も変えない | — |
+| CI-T1c | **T-T1c**: engine 由来の一時停止の表駆動（`paused` 事象は `buffering` のときだけ。`outputDeviceLost` と `interrupted` は `loading`・`playing`・`buffering` のとき）。`loading` での `seek` は `resumePosition` を置き換え、double の `lastSeekSeconds` がその値になる。`interrupted` は `began(wasPlaying:)` を 1 回、`interruptionEnded` は `ended(shouldResume:)` を 1 回出す。Session は自分から再開しない | — |
+| CI-T1d | **T-T1d**: `nextLoadWarning` を置いた `start` は警告をそのまま返し、状態は `loading`。置かなければ `nil` | — |
+| CI-T1e | **T-T1e**: 総時間は `durationSeconds` で始まり、`timeUpdate` の総時間が 0 より大きければ置き換わる（0 では置き換わらない）。どちらも 0 の間は `seek` を上限で丸めない。分かっている間は `[0, 総時間]` | — |
+| CI-T1f | **T-T1f**: 7 状態それぞれから `fail(id, 理由)` → `errored(episodeId: id, position: 0, reason:)`。理由は `offlineUncached`・`invalidSource`・`fetchFailed` の 3 つ。`idle` 以外からは `isLoaded == false`。`fail` の後の `start` で `loading` へ進める | — |
+| CI-T3 | **T-T3**: `resolveResumePosition` の表駆動 | **RS-01〜RS-07**（テスト名に含める） |
+| CI-T4 | **T-T4**: 開始のたびに速度が `defaultSpeed()` の値になる（既定 1.5 → 開始 → `setSpeed(2.0)` → 次を開始 → 1.5）。double の `rate` も同じ値。`defaultSpeed` の closure は読むだけ | — |
+| CI-T5 | **T-T5**: `unavailable` は `fetchPodcast` 0 回・何も変わらず・`notice == .failure(.offlineUncached)`。`network` は `fetchPodcast` 1 回で、取り直した `audioUrl` が `loadedURL`。取り直しの失敗では保持している URL が `loadedURL`。`cached` は `fetchPodcast` 0 回で `loadedURL == library.url(id)`。`startEpisode(id:)` も `fetchPodcast` 1 回 | — |
+| CI-T6 | **T-T6**: `[a, b]` で a を再生中に `ended`。(0) b が再生可能でない、または `audioUrl` が `URL` にならない → `queue.current == b`・`errored(invalidSource)`。(1) b がオフラインで未キャッシュ → `queue.current == b`・`errored(offlineUncached)`・`fetchPodcast` 0 回・`isLoaded == false`。(2) b の読み込みで engine が `failed` → `queue.current == b`・`errored(engineFailed)`・c へ進まない。(3) その後の `retry()`（と `togglePlayPause()`）で b が「再生元の用意」からやり直して始まる。`retry()` がまた「開始前の判定」に落ちたときは、`dismissError()` の後でも `notice` が入り直す。(4) `errored` の間は時計を進めても位置の送信が 0 | — |
+| CI-T7 | **T-T7a**: 公開 **19** 操作それぞれの後に INV-P1（`session.episodeId == queue.current?.id`。`idle` は対象外）と、`coordinator.session` がその操作の後に期待する状態であること。`startEpisode(id:)` は解決成功と解決失敗（キュー・`session`・`notice` 不変で throw）の両方。`replayCurrent()` は現在あり（再開位置 0 で始まる・表示形態不変）と、なし（何もしない）と、オフライン未キャッシュ（`ended` のまま・`notice`）。`nowPlaying()` の 9 field と 5 つの computed が `queue.current` から導かれ、`idle` で `nil` | **PS-04** |
+| CI-T7 | **T-T7c**（表示形態）: 初期は `hidden`。`startEpisode(expandsPlayer: true)` → `expanded`。`hidden` から `expandsPlayer: false` の開始 → `mini`。`mini` / `expanded` から `expandsPlayer: false` の開始 → 不変。開始前に再生不可・解決失敗 → 不変。`minimizePlayer` は `hidden` で不変・それ以外で `mini`。`expandPlayer` は `nowPlaying()` が `nil` で不変。待機列が尽きた `ended` で不変。`stopForLogout` → `hidden` | — |
+| CI-T7 | **T-T7d**（ロック画面）: コマンド 7 種 × （操作できる／できない）の戻り値が上の表どおり。開始で `NowPlayingCenterSpy.currentInfo` が入り、`positionChanged` で `lastElapsedUpdate` が更新され、`idle`・`errored`・待機列が尽きた `ended` で `currentInfo == nil`。開始を 2 回しても `activeRegistrationCount == 1`。`stopForLogout` の後 0。別の Coordinator（同じ spy）を破棄しても、生きている Coordinator の登録は残る | — |
+| CI-T7 | **T-T7e**（待ちの間の割り込み）: `fetchPodcast` を保留できる double で、(1) A の開始を保留 → B（キャッシュ済み）を開始 → A を解放 → `queue.current == B`・`session` は B。(2) 保留中は `queue`・`session` が前のまま。(3) 保留中に `stopForLogout` → 解放しても何も始まらない（`isLoaded == false`・キュー空）。(4) 自動で次へ進む途中の保留中に待機列の先頭を削除 → 解放後は新しい先頭が始まる。(5) 手動 B（未キャッシュ）を保留 → a が `ended` → B を解放 → B が始まる（自動は始まらない）。(6) 自動 C を保留 → 手動 B（未キャッシュ）を保留 → C を先に解放 → 何も始まらない → B を解放 → B が始まる。(7) `isAdvancing` は自動の保留中だけ true。(8) 保留中の `fetchPodcast` が `CancellationError` を投げる → 何も変わらない | — |
+| CI-T7 | **T-T7f**（`stopForLogout`）: 再生中に呼ぶ → 位置の送信 0・`isLoaded == false`・キュー空・`hidden`・`currentInfo == nil`・`notice == nil`。2 回呼んでも同じ | — |
+| CI-T7 | **T-T7g**（そのほかの操作）: `skipToNext` は、次が再生できる → 位置を 1 回送って次が始まり、`markCompleted` 0 回・表示形態不変。次が開始前に再生不可 → `notice` だけ。待機列が空 → 何も変わらない。`removeFromQueue`（現在）→ 位置を 1 回送り `idle`・次の要素が `queue.current`・自動では始まらない。`addToQueue` / `playNext` は `idle` のとき開始し、`idle` でなければキューだけ変わる。`togglePlayPause` は状態ごとに表どおり。割り込みは「再生中に開始 → 終了（再開してよい）」で再開し、「一時停止中に開始」では再開しない。`dismissError` は `notice` を消し `errored` を変えない | — |
+| CI-T8 | **T-T8**: 上の Reporter の規則の表を 1 行ずつ。時計を注入して、(a) `playing` に入って 15 秒未満は 0 回・15 秒で 1 回、(b) 一時停止への遷移で 1 回・一時停止中は時計を進めても 0 回、(c) `flush()` は `playing / buffering / paused` で 1 回・同じ位置の 2 回目は 0・ほかの状態で 0、(d) 送った値より小さい位置は 0、(e) 完聴の呼出列が `markCompleted(id)` → `updatePosition(id, 総時間)` → `onCompletionRecorded` で、同じ再生の 2 回目は増えず、次の `loading` の後はまた送る。`listenCompleted(a)` の直後（Task が動く前）に次のエピソード b の `loading` が来ても、書込は `updatePosition(a, a の総時間)`、(f) 総時間 0 なら完聴時点の位置、それも 0 なら位置の書込なし（`markCompleted` は送る）、(g) `markCompleted` が失敗しても位置の書込は行われる。`lastSyncFailure` は最後に終わった送信の結果（失敗で値・成功で `nil`）、(h) 位置の応答が `onPositionSaved` に 1 回渡る、(i) `markCompleted` を保留しても `listenCompleted` はすぐ戻る、(j) `beginBackgroundTask` の開始と終了が 1 回ずつ | — |
+| CI-T10 | **T-T10**: `AudioCacheManager(fileManager: MockFileManager())` を包み、`save` の後 `has` true・`savedIds` に含む。`clearAll` の後 `has` false・`savedIds` 空。`remove` の後も同じ。`refresh(candidateIds:)` は実体のある id だけ。`url` は無ければ `nil`。削除が失敗する double（`AppStateTestSupport.swift` の `FailingRemoveFileManager`。`MockFileManager` は `final` で継承できない）では `savedIds` が実体と一致したまま error | — |
+| CI-T11 | **T-T11**: 下の 20 通り | — |
+
+**T-T11 の期待（status 5 × audioUrl 2 × errorMessage 2 = 20。これが `Episode.decode` の仕様）**
+
+| status | audioUrl | errorMessage | 期待 |
+|---|---|---|---|
+| `completed` | 非空 | nil | `playable` |
+| `completed` | 非空 | 非 nil | `failed`（message = DTO の値） |
+| `completed` | 空 | nil | `failed`（`"inconsistent"`） |
+| `completed` | 空 | 非 nil | `failed`（DTO の値） |
+| `processing` | 空・非空 | nil・非 nil（4 通り） | `generating` |
+| `failed` | 空・非空 | nil・非 nil（4 通り） | `failed`（DTO の値、nil なら `"inconsistent"`） |
+| `partial_failed` | 空・非空 | nil・非 nil（4 通り） | `failed`（同上） |
+| 未知（例 `"queued"`） | 空・非空 | nil・非 nil（4 通り） | `failed`（同上） |
+
+内訳は `playable` 1・`generating` 4・`failed` 15。
 
 ## 完了条件
-- 新規ファイルが上表の 6 本（capsule 5 ＋ `PlaybackCoordinator+Preview.swift`）＋テストであること。`git diff --stat origin/main -- NewsListenApp/NewsListenApp` に既存ファイルの変更が無い（`project.pbxproj` は synchronized group のため diff 0。`Podcast/Playback/AudioEngine.swift`・`Podcast/Platform/` も変更 0）。
-- 契約テストが green で、`verifies: CI-T*` をテスト名またはコメントに持つ:
-
-| CI | T-T | 行 ID（テスト名に含める） |
-|---|---|---|
-| CI-T1 / CI-T2 | T-T1（16 遷移を double 事象で駆動。分母 16）・T-T2（`failed` → `errored(engine_failed)`、重複 `play()` 収束） | — |
-| CI-T1c（Spec 冒頭の「I-S3b1 着手前の裁定」追記。SG-C39・C40・C44） | T-T1c: engine 由来の一時停止を double 事象で駆動し `state` を観測する表駆動。`paused` 事象は `buffering` のときだけ `paused` へ（`playing`・`paused` ほかでは状態不変）。`outputDeviceLost` と割り込みの開始は `playing`・`buffering` のとき `paused` へ（ほかでは状態不変）。いずれも既存の辺（`playing → paused`・`buffering → paused`）で、分母 16 には足さない。割り込みは、開始（再生中だったか）と終了（再開してよいか）が外へ 1 回ずつ出ること、Session 自身は再開しないことも観測する | — |
-| CI-T1d（同上。SG-C41・C42） | T-T1d: `load` が警告を返したとき `start` の結果に警告（説明文そのまま）が 1 回載り、状態は `loading` のまま進む（`errored` にならない）。警告なしのときは結果に載らない | — |
-| CI-T1e（同上。SG-C43） | T-T1e: 総時間は `durationSeconds` で初期化し、`timeUpdate` の `duration` が 0 より大きければ置き換える（0 では置き換えない）。DTO と engine がどちらも 0 の間は `seek` / `seekRelative` を上限で丸めず下限 0 だけ守る。総時間が分かっている間は `[0, duration]` に丸める | — |
-| CI-T1b（Spec 冒頭の 2026-09-30 追記。SG-C24） | T-T1b: `idle` 以外の 6 状態それぞれで `stop` → `state == idle` かつ engine double が読み込み済みでない。`idle` での `stop` は engine double の状態を変えない。呼出回数は assert しない（SG-C26） | — |
-| CI-T3 | T-T3: `resolveResumePosition` の表駆動 | **RS-01〜RS-07**（共有仕様 §4.3 の 7 行すべて） |
-| CI-T4 | T-T4: `start` で既定速度に初期化、以後保持。既定速度は書かない | — |
-| CI-T5 | T-T5: `unavailable` は gateway 呼出 0・`errored(offline_uncached)`、`network` は `fetchPodcast` 1 回、失敗は保持 URL | — |
-| CI-T6 | T-T6: advance 後の失敗で `queue.current` = 失敗エピソード・`errored`・`retry()` 再実行・Timer 停止 | — |
-| CI-T7 | T-T7a: 全 **17** 公開操作の後に INV-P1（`session.episode.id == queue.current?.id`）。`startEpisode(id:)` は解決成功（`queue.current` が同エピソード）と解決失敗（queue / session 不変・throw）の両方、`replayCurrent()` は `queue.current` あり（先頭から再開・`expandsPlayer: false`）／なし（no-op）の両方を含める。`nowPlaying()` の 9 field（共通 7 ＋ iOS 固有 2）が `queue.current` の DTO から導かれ、`idle` で nil になることも同テストで固定 | **PS-04** |
-| CI-T8 | T-T8: gateway double の呼出列（completed → position(duration) → advance）、完聴 1 回、一時停止中 0 回、`lastSyncFailure` | — |
-| CI-T10 | T-T10: `FileStore` double で `clearAll` 後の `has` false・`savedIds` 空 | — |
-| CI-T11 | T-T11: status 4＋未知 × audioUrl 2 × errorMessage 2 = 20 通り | — |
-
-- 既存テスト全件 green（`xcodebuild test -only-testing:NewsListenAppTests`）。
-- 依存方向: `grep -rn "^import \(AVFoundation\|MediaPlayer\|UIKit\|SwiftUI\)" NewsListenApp/NewsListenApp/Podcast/Playback/` が 0 件、`grep -rn "APIClient" NewsListenApp/NewsListenApp/Podcast/Playback/` が 0 件（コメント行を含めて 0）。
-- 状態の公開: `grep -c "@Published private(set) var \(session\|presentation\|queue\)" NewsListenApp/NewsListenApp/Podcast/Playback/PlaybackCoordinator.swift` → 3、`grep -c "@Published" 同ファイル` → 3（これ以外の `@Published` を Coordinator に足さない）。T-T7a で 17 操作それぞれの後に `coordinator.session` が `PlaybackSession.state` と同値であることも断言する（転写の契約）。
-- 既存コードから呼ばない: `grep -rn "PlaybackCoordinator\|PlaybackSession\|OfflineLibrary\|PositionReporter" NewsListenApp/NewsListenApp --include='*.swift' | grep -v "^NewsListenApp/NewsListenApp/Podcast/Playback/"` が **コメント行（`//`）を除き 0 件**（I-S2 が TP2 / TP4 の削除条件をコメントに書いている行は除外）。`Episode` decode も同様に `Models/Episode.swift` 以外の production から参照 0 件。
+1. 契約テストが上の表のとおり green。既存テストが全件 green。
+2. 既存の production を変えていない: `git diff --diff-filter=M --name-only origin/main -- NewsListenApp/NewsListenApp` が **0 行**（2026-09-30 実測 0）。
+3. 追加した production が 6 本だけ: `git diff --diff-filter=A --name-only origin/main -- NewsListenApp/NewsListenApp` が **ちょうど 6 行**（対象の表の 6 本）。**コミットした後に実行する**（`git diff origin/main` は追跡していない新規ファイルを出さないので、コミット前は 0 行になる）。
+4. 依存方向: `grep -rn "^import \(AVFoundation\|MediaPlayer\|UIKit\|SwiftUI\)" NewsListenApp/NewsListenApp/Podcast/Playback/` が 0 件。`grep -rn "APIClient" NewsListenApp/NewsListenApp/Podcast/Playback/` が 0 件（コメントを含めて）。`grep -rn "\.unauthorized" NewsListenApp/NewsListenApp/Podcast/Playback/` が 0 件。`grep -rn "UIApplication\.\|Timer\.\|Timer(" NewsListenApp/NewsListenApp/Podcast/Playback/` が 0 件（いずれも 2026-09-30 実測 0）。
+5. 既存コードから呼んでいない: `grep -rnw "PlaybackCoordinator\|PlaybackSession\|PlaybackState\|PlaybackNotice\|OfflineLibrary\|PositionReporter\|NowPlaying" NewsListenApp/NewsListenApp --include='*.swift' | grep -v "^NewsListenApp/NewsListenApp/Podcast/Playback/" | grep -v ":[0-9]*:[[:space:]]*//"` が 0 件。
+   - **`-w`（単語一致）を外さない**。外すと `OfflineLibrary` が既存の識別子 `clearOfflineLibrary`（`AppState.swift`・`Auth/SubjectCleanup.swift` の 6 行）に、`NowPlaying` が `NowPlayingCenter`・`NowPlayingInfo` に部分一致する。2026-09-30 実測: `-w` ありで 0 件、`-w` なしの `OfflineLibrary` は 6 件。
+   - 正の対照: 末尾のコメント除外を外すと、I-S2 が書いた TP2・TP4 のコメント 4 行（`Settings/SettingsViewModel.swift:70,71`・`Podcast/PlaybackLifecycle.swift:7`・`Podcast/PodcastViewModel.swift:686`）が出る。
+6. `Episode` も同じ: `grep -rnw "Episode\|PlayableEpisode\|GeneratingEpisode\|FailedEpisode" NewsListenApp/NewsListenApp --include='*.swift' | grep -v "^NewsListenApp/NewsListenApp/Models/Episode.swift\|^NewsListenApp/NewsListenApp/Podcast/Playback/" | grep -v ":[0-9]*:[[:space:]]*//"` が 0 件（2026-09-30 実測 0。`-w` なしだと `replayCurrentEpisode` などに一致する）。
+7. 状態の公開: `grep -c "@Published private(set) var \(session\|presentation\|queue\|notice\|isAdvancing\)" NewsListenApp/NewsListenApp/Podcast/Playback/PlaybackCoordinator.swift` → 5、`grep -c "@Published" 同ファイル` → 5。
+8. Preview: `grep -n "^import" NewsListenApp/NewsListenApp/Podcast/Playback/PlaybackCoordinator+Preview.swift` が `Foundation` と `Combine` だけ。`grep -c "#if DEBUG" 同ファイル` → 1。`grep -c "#if DEBUG" NewsListenApp/NewsListenApp/Podcast/Playback/PlaybackCoordinator.swift` → 1。`grep -rn "AudioCacheManager()" NewsListenApp/NewsListenApp/Podcast/Playback/` が 1 行（Preview の保存庫）。
 
 ## 禁止事項 / scope 外
-- `PodcastViewModel.swift`・`PlaybackQueue.swift`・`PodcastRowView.swift`・`PreviewSupport.swift`・`NewsListenAppApp.swift`・`SettingsViewModel.swift` を変更しない（I-S3b2）。`PlaybackQueue` の dedupe gate も I-S3b2。
-- `Podcast/Platform/`（`AVPlayerEngine` / `MediaPlayerNowPlaying`。I-S3a で新設済み）と `Podcast/Playback/AudioEngine.swift` を変更しない。
-- PS-01〜PS-03・PS-05・PS-05b・PS-06・PS-07・PS-08 の行 ID を本 slice のテスト名に付けない（これらは production 入口の挙動変更行として I-S3b2 の準拠テストで判定する。本 slice の T-T6 / T-T8 / T-T11 は CI-T の契約テストとして同じ内容を新規コードに対して検証するが、行 ID の付与は入口切替後に行う）。
-- RO1〜RO7・SG-A7（Spec §5 rejected_overdesign）を作らない。`reorderUpNext` を rename しない。Spec に無い状態・失敗理由を足さない。`NowPlaying` に上の共通 7 ＋ iOS 固有 2 以外を足さない（`Podcast` DTO を field に持たない。SG-C11 / SG-C14）。公開操作を 17 より増やさない。
+- 既存の production ファイルを変えない（`PodcastViewModel.swift`・`PlaybackQueue.swift`・`PodcastRowView.swift`・`PreviewSupport.swift`・`NewsListenAppApp.swift`・`SettingsViewModel.swift`・`AppState.swift`・`Podcast/Platform/`・`Podcast/Playback/AudioEngine.swift`）。入口の差し替えと `PlaybackQueue` の重複除去は I-S3b2。
+- PS-01〜PS-03・PS-05・PS-05b・PS-06・PS-07・PS-08 の行 ID を本 slice のテスト名に付けない（入口を差し替える I-S3b2 の準拠テストが付ける）。本 slice が付ける行 ID は RS-01〜RS-07 と PS-04 だけ。
+- 分母 16 を変えない。`stop`・`fail` を遷移表に足さない。Spec に無い状態・失敗理由を足さない。
+- 公開操作を 19 より増やさない。`NowPlaying` の field を共通 7 ＋ iOS 固有 2 から増やさない（computed 5 つは field に数えない）。`Podcast` DTO を `NowPlaying` の field に持たない。
+- `skipToNext` をロック画面の「次のトラック」につながない（I-S3c）。
+- RO1〜RO7・SG-A7（Spec §5 rejected_overdesign）を作らない。`reorderUpNext` を rename しない。`AudioCacheManager` を protocol にしない。
+- 仕様にない業務条件を足さない。
 
-## 特性テスト（baseline）
-既存テスト全件（production 不変のため全件が特性テスト）。とくに `PlaybackQueueTests`（12）・`PlaybackQueueConformanceTests`（32）・`AudioCacheManagerTests`（13）・`PodcastViewModelTests`（I-S3a 完了時点の件数）・`TranscriptTimingTests`（13）が着手前後で同数 green。
+## 特性テスト（baseline。着手前に green を記録する。2026-09-30 実測の件数）
+`PodcastViewModelTests`（72）・`PodcastViewModelPortTests`（13）・`AudioEngineDoubleTests`（5）・`AVPlayerEngineTests`（6）・`AVPlayerEngineLifecycleTests`（7）・`MediaPlayerNowPlayingTests`（3）・`GrepOracleTests`（10）・`PlaybackQueueTests`（12）・`PlaybackQueueConformanceTests`（32）・`AudioCacheManagerTests`（13）・`NowPlayingInfoTests`（13）・`TranscriptTimingTests`（13）・`SettingsViewModelTests`（36）。着手後は `AudioEngineDoubleTests` が 7 になり、ほかは同数で green。
 
 ## 検証
-- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project NewsListenApp/NewsListenApp.xcodeproj -scheme NewsListenApp -destination 'platform=iOS Simulator,id=<UDID>' -only-testing:NewsListenAppTests` → 全 green（既存件数 ＋ 新規 T-T1〜T-T8・T-T10・T-T11）。
-- 上記 3 本の grep → それぞれ 0 件。
-- `git diff --stat origin/main -- NewsListenApp/NewsListenApp` → 追加 6 ファイルのみ。
-- `grep -n "^import" NewsListenApp/NewsListenApp/Podcast/Playback/PlaybackCoordinator+Preview.swift` が `Foundation` / `Combine` 以外 0 件、`grep -c "#if DEBUG" 同ファイル` が 1。
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project NewsListenApp/NewsListenApp.xcodeproj -scheme NewsListenApp -destination 'platform=iOS Simulator,id=<UDID>' -only-testing:NewsListenAppTests` → 全 green（既存 ＋ 新規 T-T1・T1b〜T1g・T2〜T8・T7a〜T7g・T10・T11）。
+- 完了条件 2〜8 のコマンドを `ios/` で実行し、結果を PR 説明に貼る。
+- 実機・シミュレータでの再生の確認は本 slice では行えない（production から呼ばれない）。開始の順序（速度が効く）と、事象の届く順序の確認は I-S3b2 の目視項目に入れてある。
 
-## 規模（見込み行数。2026-09-24 実測基点: 現行 `PodcastViewModel.swift` 861 行のうち Coordinator / Session / PositionReporter へ写す判断部分 ≈ 300 行、`AudioCacheManager` 包装 ≈ 60 行）
-- production: 新規 6 ファイル ≈ 700〜800 行（Session ≈ 200・Coordinator ≈ 280・OfflineLibrary ≈ 80・PositionReporter ≈ 120・Episode ≈ 60・Preview ファクトリ ≈ 40）。既存ファイルの変更 0。
-- test: 新規 ≈ 600〜700 行（T-T1 16 遷移・T-T3 7 行・T-T7a 17 操作・T-T11 20 通りの表駆動が主。double は I-S3a / I-S2 のものを再利用）。
-- 合計 ≈ 1,300〜1,500 行だが分割しない。理由: production は 1,000 行未満で、巻き戻しは追加ファイルの削除だけ（既存コード不変）。test は契約の表駆動で、行数が多くても判定対象（CI-T）は変わらない。
+## 規模（見込み。2026-09-30 実測の基点: `PodcastViewModel.swift` 698 行・`AudioEngineDouble.swift` 285 行）
+- production ≈ 900 行: Session ≈ 260・Coordinator ≈ 380・Reporter ≈ 110・OfflineLibrary ≈ 60・Episode ≈ 60・Preview ≈ 40。
+- test ≈ 1,100 行: Session（T-T1 系）≈ 350・Coordinator（T-T4〜T7）≈ 450・Reporter ≈ 150・Library ≈ 60・Episode ≈ 50・double の変更 ≈ 40。
+- 合計 ≈ 2,000 行だが分割しない。production は 1,000 行未満で、巻き戻しは追加ファイルの削除と double の差分だけ（既存の production は不変）。
 
 ## 記録
-- `docs/trial-log/` に棄却・方針転換があれば追記。親 docs `docs/design/shared-playback-spec.md` §4.3 の「RS-01〜RS-07 は iOS 未追随（I-S3b1）」の保留は本 slice 完了で解除対象（router へ返す）。`docs/design/ios-design.md` §11.3 I-S3b1 行の完了記録。
+- `docs/trial-log/` に棄却・方針転換があれば追記する。
+- 親 docs へ返すもの: 共有仕様 §4.3 の RS-01〜RS-07 の iOS の保留（解除条件 = 本 slice の完了）を解除できる。`design/ios-design.md` §11.3 の I-S3b1 行の完了。
+- 実装中に本 order の表と食い違う事実（とくに実 adapter の事象の順序）が見つかったら、実装を合わせずに止めて報告する。

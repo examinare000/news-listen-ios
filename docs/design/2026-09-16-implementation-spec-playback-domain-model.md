@@ -47,6 +47,44 @@
 > - **文言**（SG-C42）: 警告は OS の説明文をそのまま運び、facade がそのまま表示する（`engine_failed(description)` と同じ扱い）。§5 leakage guard の「`localizedDescription` の英語文言」は「説明文を解釈・加工せず、理由値の中身として運ぶだけにする」と読む。再生エラー文言の日本語化は構造変更の完了後に独立した slice として扱う（親 plan の保留）。
 > - **総時間**（SG-C43）: `PlayableEpisode.durationSeconds` で初期化し、`timeUpdate` の `duration` が 0 より大きければ置き換える。DTO と engine がどちらも 0 の間は「不明」とし、位置を上限で丸めず下限 0 だけ守る（§3.1 の不変条件 `position ∈ [0, duration]` は総時間が分かっている間に適用する）。
 > - 契約: **CI-T1c**（engine 由来の一時停止と割り込みの通知）・**CI-T1d**（警告）・**CI-T1e**（総時間と丸め）。検証は I-S3b1 の T-T1c〜T-T1e。
+>
+> **追記（2026-09-30・wave 3 の前提点検による上書き）**: I-S3b1 の指示書を I-S3a の実装と照合し、user 判断で確定した（親 docs 監査レポート §5 の SG-C50・C52・C54・C58〜C63、共有仕様 §2.4・§2.11・§2.12・§6.4・§6.6、親 docs `adr/106-ios-audio-engine-port-and-session-contract.md`・`adr/105-playback-session-out-of-table-operations-and-shared-rules.md`、`design/ios-design.md` §11.4）。本書の次の記述を上書きする。
+> - **再生開始の手順**（SG-C58。§3.1 の `loading` 行「engine `ready` → `paused` → 即 `play()`」を置換）: `start` は「`load` → `setRate(speed)` → `seek(resume)`（resume が 0 より大きいとき）→ `play()`」を続けて行う（**engine を呼ぶ順序は下の追記の I-1 で改めた**）。`ready` は状態を進めるためだけに使い、engine への再生指示は繰り返さない。理由: 実 adapter は読み込みごとの監視（`ready` / `buffering` / `resumed` / `paused` / `ended` / `timeUpdate`）を、その読み込みの最初の `play()` で登録する（古い発火を捨てるための設計）。`ready` を待ってから `play()` すると、実機では `ready` が届かず再生が始まらない。
+> - **test double の振る舞い**（SG-C58）: engine の double は実 adapter と同じく、`play()` が呼ばれるまで読み込みごとの事象を届けない。`pause` / `setRate` / `seek` の結果も状態として持つ（呼出回数は公開しない。SG-C26）。状態ごとに各事象をどう扱うかの全表は I-S3b1 の order に置く。
+> - **取得前・開始前の失敗**（SG-C52。§3.1 の `errored` 行「取得前の失敗は `episodeRef: {id}`」を実現する入口）: `PlaybackSession` に遷移表の外の操作「失敗にする」を足す。どの状態からでも、id だけの参照と理由（`offline_uncached` / `invalid_source` / `fetch_failed`）を渡して `errored` に入れる。分母 16 には数えない。契約 **CI-T1f**。
+> - **手動で選んだエピソードが開始前に再生できないと分かる場合**（SG-C62。§3.1 Coordinator の `startEpisode`）: キューもセッションも変えず、通知だけを返す（現行の「Offline and not cached」と同じ挙動）。`errored` にするのは、キューが既にそのエピソードを現在にしている場合（`onEnded` 後の advance・再試行）だけ。
+> - **リモートコマンド**（SG-C59。SG-C28 の保留を解消。§3.1 の `stopForLogout()` を置換）: Coordinator は、登録が無ければ再生開始時に登録して token を持つ。`stopForLogout()` は「`session.stop()` → `nowPlaying.clear()` → リモートコマンドの解除 → `queue = PlaybackQueue()`」。Coordinator の破棄時にも token を解除する（二重の解除は無害）。
+> - **Coordinator の公開操作は 19**（SG-C60。§5 CP4 の ops と「17」を置換）: `minimizePlayer` と `expandPlayer` を足す（名前と規則は現行 `PodcastViewModel` と同じ。最小化は非表示のとき何もしない、展開は再生中のものがあるときだけ効く）。表示形態の遷移規則は I-S3b1 の order に表で置く。
+> - **`skipToNext`**（SG-C63）: 共有仕様 §2.12 のとおり（次が再生できれば今を止めて次を再生し、位置を 1 回送り、完聴は送らず、表示形態は変えない。次が再生不可と分かれば何も変えない。待機列が空なら何もしない）。操作は I-S3b1 で作る。ロック画面の「次のトラック」への接続は、I-S3b3 の後の独立した slice（I-S3c）で入れる（待機列が空の間はボタンを無効にする）。
+> - **error 状態の再生ボタン**（共有仕様 §2.11 から導出）: `togglePlayPause` が `errored` で呼ばれたら再試行（`startEpisode(current)`）を行う。
+> - **完聴時の順序**（SG-C61。§3.1 PositionReporter・CI-T8）: 完聴の記録と総時間の位置書込をこの順で送り始める。次の再生開始は応答を待たない（現行と同じ。画面ロック中の無音でアプリが休止されるのを避ける）。
+> - **総時間の完聴時の扱い**（SG-C54。SG-C43 を補う）: 完聴時に送る値は「engine の値 → DTO の値」の優先順で得た値。不明なら完聴時点の現在位置、それも 0 なら送らない。
+> - **`setQueue` の重複 id**（SG-C50。§3.1 PlaybackQueue の dedupe を具体化）: 開始位置は元の入力で clamp して id を決め、先勝ちで重複を除いた後のその id の位置を現在にする（共有仕様 Q-33。I-S3b2）。
+>
+> **追記（2026-09-30・I-S3b1 の書き直しで導いた宣言）**: 上の決定から、order を書く側が導いて固定した細部（親 docs 監査レポート §5.0 の **I-1〜I-23**。根拠は同表）。型・操作・手順の全文は I-S3b1 の order にある。本書の次の記述を上書きする。
+> - **I-1**（上の SG-C58 の順序を改める）: `start` が engine を呼ぶ順序は「`load` → `seek(resume)`（resume が 0 より大きいとき）→ `play()` → `setRate(speed)`」。`AVPlayer.play()` は速度を 1.0 に戻す（2026-09-30 に macOS の AVFoundation で実測）。再開は `setRate` で行い、`play()` を呼ぶのは開始の 1 回だけ。
+> - **I-2**: engine の test double は `play()` の前の読み込みごとの事象を失敗にし、`rate`・`lastSeekSeconds`・`loadedURL` を状態として持つ（`play()` は `rate` を 1.0 に戻す）。
+> - **I-3**: 状態 × 事象の全表（I-S3b1 の order）。`loading` での `pause()` は辺 `loading → paused`。`resumed` は `loading` でも `ready` と同じ。`paused` で届いた `failed` は保留し、次の `play()` の直後に `errored` へ進める。
+> - **I-4**（§3.1 の `errored` 行を置換）: `errored` は id・位置・理由だけを持つ。engine が読み込み済みなのは `loading / playing / buffering / paused` の間だけ。
+> - **I-5**: CP1 の通知は 4 種（状態・位置・終了・割り込み）。登録順に同期で呼ぶ。Reporter を先に登録する。
+> - **I-6**（§5 CP4）: Coordinator は閉じられる通知 `notice` を 1 つ持つ。公開する状態は `session`・`presentation`・`queue`・`notice`・`isAdvancing` の 5 つ。`dismissError()` は `notice` を消す（`errored` の状態は変えない）。
+> - **I-7**（§3.1 Coordinator の `startEpisode`・`onEnded` を置換）: 「開始前の判定 → 取り直しの待ち → 世代の確認 → キューと Session を同期で変える」。`onEnded` も取り直しの後で `advance` する。
+> - **I-8**: Coordinator が `fetchFailed` を作る経路は無い（SG-C4 のフォールバック）。PS-01 の理由は iOS では `engineFailed`。
+> - **I-9**（§3.1 PositionReporter・§5 CP9 を置換）: `Timer` を持たない。開始直後には送らない。一時停止への遷移で 1 回。停止の前は Coordinator が `flush()` を呼ぶ。同じ位置・同じ再生の中で小さい位置は送らない。完聴は「完聴の記録 → 位置 → ストリークの更新」の直列で、呼んだ側は待たない。
+> - **I-10**（§3.1 OfflineLibrary・§5 CP3 を置換）: `save(data, for: id)`・`has`・`url`・`remove`・`clearAll`・`usage`・`refresh(candidateIds:)`・`savedIds` の 8 操作。取得は呼ぶ側に残す。
+> - **I-11**: `NowPlaying` は `Podcast` の同名の規則を写した computed を 5 つ持つ（field には数えない）。
+> - **I-12**: リモートコマンドが効くのと、ロック画面に再生情報を出すのは `loading / playing / buffering / paused` の間。
+> - **I-13**: 表示形態は、開始が確定したときだけ変わる。
+> - **I-14**: `replayCurrent` は再開位置 0 で開始する。`startEpisode(id:)` の取得は 1 回。
+> - **I-15**（§4 CI-T3 の「`ready` 後に再適用」を置換）: 再開位置を `ready` の後に掛け直さない。
+> - **I-16**: 自動で次へ進むときの取り直しは background task で囲む。
+> - **I-17**: Coordinator は Preview 用の DEBUG 専用の入口を 1 つ持つ。
+> - **I-18**（§5 naming_decisions の「`didFinishCurrentEpisode` → `session == .ended`」を置換）: 「聴き終わりました」の表示条件は「`ended` かつ、自動で次へ進む途中でない」。Coordinator が `isAdvancing` を公開し、facade が `isFinished` として導く。
+> - **I-19**: 旧プロパティ `isPlaying` は `loading / playing / buffering`、`isBuffering` は `buffering` だけ。
+> - **I-20**（I-S3c）: `NowPlayingCenter` は「次のトラックを受け付けるか」の切替を足して 6 操作、`RemoteCommand` は 8 種。
+> - **I-21**（上の SG-C40・C44 の表を補う）: `loading` の間の割り込みの開始と出力機器の切断も、`playing` と同じく一時停止にする（辺は既存の `loading → paused`）。
+> - **I-22**: `loading` の間のシークは、再開位置を置き換える形で受ける。`paused` で届いた `ended` は保留して次の `play()` の直後に進め、`buffering` で届いた `ended` は `playing` を経て進める。
+> - **I-23**（I-7 を補う）: 待ちに入る入口は待ちの前に世代を進める（後から始めたものが勝つ）。利用者が起こした開始の待ちが残っている間、自動で次へ進む処理は始めない。
 
 ## 0. Decision frame と function_plan
 
