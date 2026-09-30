@@ -4,7 +4,7 @@
 再生ドメインの正本を `Podcast/Playback/` に**新規コードとしてだけ**置く。`PlaybackSession`（transport 状態 union）・`PlaybackCoordinator`（use case orchestration・`PlaybackLifecycle` 実装）・`OfflineLibrary`・`PositionReporter` と、Coordinator が判定に使う `Episode` decode を新設し、契約テスト（port double 駆動・表駆動）で固定する。**既存コードからは呼ばない**（production の挙動は変わらない。3 段分割の ①）。入口の差し替えは I-S3b2、旧実装の削除は I-S3b3。正本は user 承認済みの Implementation Spec `docs/design/2026-09-16-implementation-spec-playback-domain-model.md`（§3.1 Playback・§3.2 Catalog・§4 CI-T1〜T8・T10・T11・§5 CP1/CP3/CP4/CP5/CP9）。本タスクは**承認済み指示書に従う実装**であり、analyze_order は検証モード（再設計しない）。generate_spec の spec.md は上記 CI-T の抜粋で足り、新しい契約 ID を作らない。
 
 ## 前提・着手条件
-- 依存: **I-S3a の submodule PR が main に merge 済み、かつ親リポ `news-listen` のポインタが進んでいる**（`git -C <親> submodule status` で `ios` に `+` が無い）。I-S3a の成果: `Podcast/Playback/AudioEngine.swift`（port 7 操作（`stop` を含む。SG-C22）・`EngineEvent` 8 種）と test double（「読み込み済みか」を状態として持つ。SG-C26）、`Podcast/Platform/{AVPlayerEngine,MediaPlayerNowPlaying}`、`PodcastViewModelTests` 全件 green。I-S2 の `PlaybackLifecycle` port・`NowPlayingCenter` port（I-S3a で `update / registerCommands / unregister` まで拡張済み）・`PreferenceRegistry`・`ApiFailure` が使えること。
+- 依存: **I-S3a の submodule PR が main に merge 済み、かつ親リポ `news-listen` のポインタが進んでいる**（`git -C <親> submodule status` で `ios` に `+` が無い）。I-S3a の成果: `Podcast/Playback/AudioEngine.swift`（port 7 操作（`stop` を含む。SG-C22。`load(url:)` は `String?` を返す。SG-C34）・`EngineEvent` **10 種**（SG-C31〜C33。Spec 冒頭の「I-S3a 実装時の裁定」追記）・事象 stream は load ごと（SG-C36））と test double（「読み込み済みか」を状態として持つ。SG-C26）、`Podcast/Platform/{AVPlayerEngine,MediaPlayerNowPlaying}`、`PodcastViewModelTests` 全件 green。I-S2 の `PlaybackLifecycle` port・`NowPlayingCenter` port（I-S3a で `update / registerCommands / unregister` まで拡張済み）・`PreferenceRegistry`・`ApiFailure` が使えること。
 - 確定済み Selection Gate（共有仕様 §6.4〜§6.7）を新規コードにそのまま実装する: SG-X1 = 完聴時に `duration` を明示的に 1 回送る（順序: 完聴イベント → `duration` の位置書込 → advance）、SG-X4 = 一時停止中は周期送信しない、SG-X3 = `stopForLogout()` は cleanup 完了を待たない。速度の既定初期化は Preferences の既定速度（共有仕様 §6.6）。
 - 棄却済み案（再提案しない）: 旧 VM を feature flag で温存する段階移行（AVPlayer 2 系統の競合）、port を置かず純関数ガード拡張で済ませる案、`PlaybackQueue` の failable init（`docs/trial-log/mino-design-review-delegation.md`）。stale ガードは `endedId` 引数化の既存方式を踏襲する（`docs/trial-log/player-auto-converge.md`）。
 
@@ -30,6 +30,7 @@ gateway 依存は closure（`fetchPodcast / updatePosition / markCompleted / dow
 | CI | T-T | 行 ID（テスト名に含める） |
 |---|---|---|
 | CI-T1 / CI-T2 | T-T1（16 遷移を double 事象で駆動。分母 16）・T-T2（`failed` → `errored(engine_failed)`、重複 `play()` 収束） | — |
+| **着手前に user が決める項目（2026-09-30。未決。決まるまで投入しない）** | I-S3a で足した事象と戻り値を Session がどう扱うか: (1) `paused` を遷移なし（buffering 表示の解除だけ）とするか、`playing → paused` の遷移に使うか。(2) `outputDeviceLost` を `pause` と同じ遷移にするか。(3) `load` が返す説明（`String?`）を Session のどこへ出すか。(4) `timeUpdate` の `duration` で `playing` の duration を更新するか。いずれも 16 遷移の分母に影響しうる | — |
 | CI-T1b（Spec 冒頭の 2026-09-30 追記。SG-C24） | T-T1b: `idle` 以外の 6 状態それぞれで `stop` → `state == idle` かつ engine double が読み込み済みでない。`idle` での `stop` は engine double の状態を変えない。呼出回数は assert しない（SG-C26） | — |
 | CI-T3 | T-T3: `resolveResumePosition` の表駆動 | **RS-01〜RS-07**（共有仕様 §4.3 の 7 行すべて） |
 | CI-T4 | T-T4: `start` で既定速度に初期化、以後保持。既定速度は書かない | — |

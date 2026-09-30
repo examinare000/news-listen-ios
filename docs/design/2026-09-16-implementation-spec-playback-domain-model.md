@@ -22,6 +22,15 @@
 > - SG-C21・SG-C26: 主体離脱時の再生停止のテストは、利用者に見える状態に加えて engine double が「読み込み済みでない」ことを観測する。呼出回数は問わない。
 > - SG-C27: `NowPlayingCenter` adapter は App が 1 個作り、`AppState` と再生側の両方へ渡す（§2 composition root 表どおり。`AppState` の既定引数は Preview とテスト用）。
 > - SG-C28: リモートコマンドの解除の契機は現行どおり登録者の破棄時。主体離脱の後始末へ移すかは I-S3b1 / I-S3b2 で判断する。
+>
+> **追記（2026-09-30・I-S3a 実装時の裁定による上書き）**: I-S3a の実装で、本書と order の port の形では現行の挙動を写しきれない箇所が見つかり、user 判断で確定した（親 docs 監査レポート §5 の SG-C29〜C38）。方針は「現行の観測可能な挙動を優先し、port の拡張は加法的なものに限る」。本書の次の記述を上書きする。
+> - `EngineEvent` は **10 種**（§5 CP1 note の 8 種を置換）: `ready / buffering / resumed / paused / ended / failed(description: String?) / timeUpdate(seconds:duration:) / interrupted / interruptionEnded(shouldResume:) / outputDeviceLost`。`paused` は一時停止時の buffering 解除のため（SG-C32）、`outputDeviceLost` は出力機器の切断による一時停止のため（SG-C33）、`timeUpdate` の `duration` は再生中の総時間を伝えるため（SG-C31）。
+> - `AudioEngine.load(url:)` は致命的でない失敗（AudioSession の設定失敗）の説明を `String?` で同期的に返す（SG-C34）。操作数は 7 のまま。
+> - 事象 stream は **load ごとに作り直す**（SG-C36）。`stop` で finish し、購読側は load ごとに購読して停止時に cancel する。旧 load の事象は cancel 済みの判定で捨てる。payload に世代番号は付けない。
+> - `NowPlayingCenter` は **5 操作**（§5 CP10 の ops を置換）: `update(info) / updateElapsed(elapsed, duration) / clear / registerCommands(handler) -> RemoteCommandRegistration / unregister(registration)`。`updateElapsed` は経過時間だけの軽量更新（SG-C35）。登録は token を返し、解除は token 単位で行う（SG-C37）。共有 adapter（SG-C27）で引数なしの解除を使うと、前の登録者の破棄が次の登録者の登録まで消すため。SG-C28 の「登録者の破棄時に解除」はこの token で行う。
+> - `PodcastViewModel.init` の `engine:` / `nowPlaying:` は既定値に本番 adapter を持つ（Preview とテスト用。SG-C29）。`MediaPlayerNowPlaying(` の生成は production で 3 箇所（App・`AppState` の既定引数・VM の既定引数）、`AVPlayer(` の生成は 1 箇所のまま。App 経由の経路は 1 個を共有する。
+> - 割り込み後の再有効化は adapter 内部のフラグで行う（SG-C38）。受け入れる差: 一時停止中に割り込みが入って終わり、その後に利用者が自分で再開したとき、`setActive(true)` が 1 回余分に走る。
+> - 「Platform の外に AVFoundation / MediaPlayer が無い」の判定は `GrepOracleTests` で行う（SG-C30）。パターンは型名 `AVPlayerEngine` に一致しない形にし、`Podcast/NowPlayingInfo.swift` を除外する。
 
 ## 0. Decision frame と function_plan
 
