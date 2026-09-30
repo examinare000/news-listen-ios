@@ -13,15 +13,58 @@ import XCTest
 
 // MARK: - Ports の spy（CI-T15.2, 15.6, 15.9）
 
-/// `NowPlayingCenter.clear()` の呼出回数を記録する spy。
+/// `NowPlayingCenter` の spy。`clear()` の呼出回数（I-S2）に加えて、I-S3a で増えた操作の結果を
+/// 状態として保持する（`currentInfo` / `lastElapsedUpdate` / 発行した token と handler の組）。
+/// 呼出回数ではなく、観測できる状態でテストする。
 final class NowPlayingCenterSpy: NowPlayingCenter {
     private(set) var clearCallCount = 0
     /// `clear()` が呼ばれた時点の追加観測用フック（例: token/session のスナップショット）。
     var onClear: (() -> Void)?
 
+    /// ロック画面の辞書（`update` で設定し、`clear` で nil）。
+    private(set) var currentInfo: [String: Any]?
+    /// 直近の `updateElapsed` の引数。
+    private(set) var lastElapsedUpdate: (elapsed: Double, duration: Double)?
+    /// `registerCommands` が発行した token と handler の組（発行順）。
+    private(set) var registrations: [(token: RemoteCommandRegistration, handler: @MainActor (RemoteCommand) -> RemoteCommandResult)] = []
+
+    /// 解除されていない（`isCancelled == false` の）token の数。
+    var activeRegistrationCount: Int { registrations.filter { !$0.token.isCancelled }.count }
+
+    func update(_ info: [String: Any]) {
+        currentInfo = info
+    }
+
+    func updateElapsed(_ elapsed: Double, duration: Double) {
+        lastElapsedUpdate = (elapsed, duration)
+    }
+
     func clear() {
         clearCallCount += 1
+        currentInfo = nil
         onClear?()
+    }
+
+    func registerCommands(
+        _ handler: @escaping @MainActor (RemoteCommand) -> RemoteCommandResult
+    ) -> RemoteCommandRegistration {
+        let token = RemoteCommandRegistration(removal: {})
+        registrations.append((token, handler))
+        return token
+    }
+
+    func unregister(_ registration: RemoteCommandRegistration) {
+        registration.cancel()
+    }
+
+    /// 有効な登録の handler へコマンドを渡す（ロック画面のコマンドを模す）。有効な登録が無ければ失敗させる。
+    @MainActor
+    func invoke(_ command: RemoteCommand, file: StaticString = #filePath, line: UInt = #line) -> RemoteCommandResult {
+        guard let active = registrations.last(where: { !$0.token.isCancelled }) else {
+            XCTFail("有効なリモートコマンド登録が無い", file: file, line: line)
+            return .commandFailed
+        }
+        return active.handler(command)
     }
 }
 
