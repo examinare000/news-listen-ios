@@ -31,6 +31,22 @@
 > - `PodcastViewModel.init` の `engine:` / `nowPlaying:` は既定値に本番 adapter を持つ（Preview とテスト用。SG-C29）。`MediaPlayerNowPlaying(` の生成は production で 3 箇所（App・`AppState` の既定引数・VM の既定引数）、`AVPlayer(` の生成は 1 箇所のまま。App 経由の経路は 1 個を共有する。
 > - 割り込み後の再有効化は adapter 内部のフラグで行う（SG-C38）。受け入れる差: 一時停止中に割り込みが入って終わり、その後に利用者が自分で再開したとき、`setActive(true)` が 1 回余分に走る。
 > - 「Platform の外に AVFoundation / MediaPlayer が無い」の判定は `GrepOracleTests` で行う（SG-C30）。パターンは型名 `AVPlayerEngine` に一致しない形にし、`Podcast/NowPlayingInfo.swift` を除外する。
+>
+> **追記（2026-09-30・I-S3b1 着手前の裁定による上書き）**: I-S3a で足した事象と戻り値を `PlaybackSession` がどう扱うかを user 判断で確定した（親 docs 監査レポート §5 の SG-C39〜C44）。§3.1 の遷移表の分母 16 は変えない。既存の辺 `playing → paused`・`buffering → paused` に engine 由来の契機が加わる。
+> - **engine 由来の一時停止は Session が自分で遷移する**。契機と遷移は次の表（表に無い状態では何もしない）。
+>
+>   | 契機 | `playing` | `buffering` |
+>   |---|---|---|
+>   | engine `paused`（SG-C39） | 何もしない | → `paused` |
+>   | `outputDeviceLost`（SG-C40） | → `paused` | → `paused` |
+>   | 割り込みの開始（SG-C44） | → `paused` | → `paused` |
+>
+>   `buffering` 中の engine `paused` は現行と表示が変わる（現行は buffering 表示だけ消えて再生中のまま）。I-S3b2 の変更行に載せる。位置同期は「一時停止で即時 1 回」の規則に乗る。
+> - **割り込みの分担**（SG-C44。§3.1 の「割り込みは `paused` への遷移として表し、`wasPlayingBeforeInterruption` は Coordinator の内部値」を具体化）: Session は一時停止の遷移を行い、割り込みの開始（再生中だったか）と終了（再開してよいか）を外へ知らせる（CP1 の emits は 4 つ）。Coordinator が記憶を持ち、再開するなら `session.play()` を呼ぶ。Session 自身は再開しない。
+> - **`load` の警告**（SG-C41）: Session の状態は変えず、`start` の結果として 1 回だけ外へ出す。facade が `errorMessage` に書く（id からの再生開始の解決失敗と同じ経路）。`errored` にしない。
+> - **文言**（SG-C42）: 警告は OS の説明文をそのまま運び、facade がそのまま表示する（`engine_failed(description)` と同じ扱い）。§5 leakage guard の「`localizedDescription` の英語文言」は「説明文を解釈・加工せず、理由値の中身として運ぶだけにする」と読む。再生エラー文言の日本語化は構造変更の完了後に独立した slice として扱う（親 plan の保留）。
+> - **総時間**（SG-C43）: `PlayableEpisode.durationSeconds` で初期化し、`timeUpdate` の `duration` が 0 より大きければ置き換える。DTO と engine がどちらも 0 の間は「不明」とし、位置を上限で丸めず下限 0 だけ守る（§3.1 の不変条件 `position ∈ [0, duration]` は総時間が分かっている間に適用する）。
+> - 契約: **CI-T1c**（engine 由来の一時停止と割り込みの通知）・**CI-T1d**（警告）・**CI-T1e**（総時間と丸め）。検証は I-S3b1 の T-T1c〜T-T1e。
 
 ## 0. Decision frame と function_plan
 
