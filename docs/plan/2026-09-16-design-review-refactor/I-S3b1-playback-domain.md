@@ -31,7 +31,13 @@
 | SG-C60 | Coordinator の公開操作は **19**（`minimizePlayer`・`expandPlayer` を含む） |
 | SG-C61 | 完聴の記録と総時間の位置書込はこの順で送り始め、次の再生開始は応答を待たない |
 | SG-C62 | 手動で選んだエピソードが開始前に再生できないと分かる場合は、キューもセッションも変えず、通知だけを出す |
-| SG-C63 | `skipToNext` は共有仕様 §2.12 のとおり |
+| SG-C63・C70 | `skipToNext` は共有仕様 §2.12 のとおり。本 slice で作るが、どこにもつながない（リモートコマンドへの接続 = I-S3c は保留） |
+| SG-C66 | engine を呼ぶ順序は「読み込み → seek → 再生 → 速度」（I-1 を user が確認） |
+| SG-C67 | 巻き戻した位置もサーバーへ送る（値の大小で送信を止めない） |
+| SG-C71 | 読み込み中の割り込みの開始・出力機器の切断も一時停止にする（I-21 を user が確認） |
+| SG-C72 | 聴き終えた後に待機列へ足しても「聴き終わりました」を残す（I-18 を user が確認） |
+| SG-C73 | 利用者の開始と自動で次へ進む開始が重なったら、利用者の開始を採る（I-23 を user が確認） |
+| SG-C64 | `partial_failed` は再生不可（T-T11 の表のとおり。backend も B-S6 以降は返さない） |
 | SG-C4（2026-09-16） | オンラインで未キャッシュなら再生の直前に `fetchPodcast` で取り直し、失敗したら保持している URL で始める |
 | SG-X1・X4・C16 | 完聴時は総時間を 1 回送る。一時停止中は周期送信しない。主体離脱では位置を送らない |
 
@@ -233,7 +239,7 @@ enum InterruptionPhase: Equatable { case began(wasPlaying: Bool), ended(shouldRe
 | `flush()` | 状態が `playing / buffering / paused` のときだけ、現在位置を 1 回送る。ほかの状態では何もしない |
 | `listenCompleted(id)` | 下の「完聴」 |
 
-- **同じ位置は再送しない**（直近に送った値と等しければ送らない）。**同じ再生の中で、直近に送った値より小さい位置は送らない**（共有仕様 §6.4 の単調非減少。基準は次の `loading` で戻る）。
+- **同じ位置は再送しない**（直近に送った値と等しければ送らない）。値の大小では止めない: **巻き戻した位置も送る**（SG-C67）。記録時刻を付けて送る形・オフラインで送れなかった位置を後で送る形・再開時の確認（親 docs ADR-109）は、本 slice には入れない（backend の B-S7 と、I-S3b3 の後に起こす位置同期の slice で入れる）。
 - 停止の前に位置を送るのは Coordinator の役目（`session.stop()` や別のエピソードの `start` の前に `flush()` を呼ぶ）。Reporter は `idle` への遷移を見て送らない。`stopForLogout()` は `flush()` を呼ばないので、主体離脱では何も送らない（SG-C16）。
 - 送信は待たない（`Task` で送る）。位置の書込が成功したら、応答の `Podcast` を `onPositionSaved` へ渡す。`lastSyncFailure` は**最後に終わった送信の結果**を表す（位置の書込・完聴の記録のどちらも、成功で `nil`、`ApiFailure` での失敗でその値。ほかの error は無視する）。
 - **完聴**（SG-C61・SG-C54・SG-X1）: `listenCompleted(id)` は同期の関数で、すぐ戻る。同じ再生の中で 2 回目以降は何もしない（`loading` で戻るので、同じエピソードをもう一度聴けばまた送る）。1 本の `Task` の中で次を順に行う: `beginBackgroundTask()` → `markCompleted(id)` → 位置の書込 → `onCompletionRecorded()` → 終了の closure。`markCompleted` が失敗しても続きを行う。位置の書込に使う値は「`ended` の状態が持つ総時間（0 より大きい）→ 完聴した時点の現在位置（0 より大きい）」の順で、どちらも 0 なら位置の書込を飛ばす。**id と書込に使う値は `listenCompleted` を呼ばれた時点で確定し、Task の中では Reporter の状態を読まない**（次のエピソードがキャッシュ済みだと、Task が動く前に次の `loading` が来て基準が戻る。現行 VM が位置を Task の前に控えているのと同じ理由）。
@@ -465,7 +471,7 @@ oracle は公開操作・状態・double の状態・gateway double の呼出列
 | CI-T7 | **T-T7e**（待ちの間の割り込み）: `fetchPodcast` を保留できる double で、(1) A の開始を保留 → B（キャッシュ済み）を開始 → A を解放 → `queue.current == B`・`session` は B。(2) 保留中は `queue`・`session` が前のまま。(3) 保留中に `stopForLogout` → 解放しても何も始まらない（`isLoaded == false`・キュー空）。(4) 自動で次へ進む途中の保留中に待機列の先頭を削除 → 解放後は新しい先頭が始まる。(5) 手動 B（未キャッシュ）を保留 → a が `ended` → B を解放 → B が始まる（自動は始まらない）。(6) 自動 C を保留 → 手動 B（未キャッシュ）を保留 → C を先に解放 → 何も始まらない → B を解放 → B が始まる。(7) `isAdvancing` は自動の保留中だけ true。(8) 保留中の `fetchPodcast` が `CancellationError` を投げる → 何も変わらない | — |
 | CI-T7 | **T-T7f**（`stopForLogout`）: 再生中に呼ぶ → 位置の送信 0・`isLoaded == false`・キュー空・`hidden`・`currentInfo == nil`・`notice == nil`。2 回呼んでも同じ | — |
 | CI-T7 | **T-T7g**（そのほかの操作）: `skipToNext` は、次が再生できる → 位置を 1 回送って次が始まり、`markCompleted` 0 回・表示形態不変。次が開始前に再生不可 → `notice` だけ。待機列が空 → 何も変わらない。`removeFromQueue`（現在）→ 位置を 1 回送り `idle`・次の要素が `queue.current`・自動では始まらない。`addToQueue` / `playNext` は `idle` のとき開始し、`idle` でなければキューだけ変わる。`togglePlayPause` は状態ごとに表どおり。割り込みは「再生中に開始 → 終了（再開してよい）」で再開し、「一時停止中に開始」では再開しない。`dismissError` は `notice` を消し `errored` を変えない | — |
-| CI-T8 | **T-T8**: 上の Reporter の規則の表を 1 行ずつ。時計を注入して、(a) `playing` に入って 15 秒未満は 0 回・15 秒で 1 回、(b) 一時停止への遷移で 1 回・一時停止中は時計を進めても 0 回、(c) `flush()` は `playing / buffering / paused` で 1 回・同じ位置の 2 回目は 0・ほかの状態で 0、(d) 送った値より小さい位置は 0、(e) 完聴の呼出列が `markCompleted(id)` → `updatePosition(id, 総時間)` → `onCompletionRecorded` で、同じ再生の 2 回目は増えず、次の `loading` の後はまた送る。`listenCompleted(a)` の直後（Task が動く前）に次のエピソード b の `loading` が来ても、書込は `updatePosition(a, a の総時間)`、(f) 総時間 0 なら完聴時点の位置、それも 0 なら位置の書込なし（`markCompleted` は送る）、(g) `markCompleted` が失敗しても位置の書込は行われる。`lastSyncFailure` は最後に終わった送信の結果（失敗で値・成功で `nil`）、(h) 位置の応答が `onPositionSaved` に 1 回渡る、(i) `markCompleted` を保留しても `listenCompleted` はすぐ戻る、(j) `beginBackgroundTask` の開始と終了が 1 回ずつ | — |
+| CI-T8 | **T-T8**: 上の Reporter の規則の表を 1 行ずつ。時計を注入して、(a) `playing` に入って 15 秒未満は 0 回・15 秒で 1 回、(b) 一時停止への遷移で 1 回・一時停止中は時計を進めても 0 回、(c) `flush()` は `playing / buffering / paused` で 1 回・同じ位置の 2 回目は 0・ほかの状態で 0、(d) 送った値より小さい位置（巻き戻し）も、一時停止への遷移と `flush()` で送る、(e) 完聴の呼出列が `markCompleted(id)` → `updatePosition(id, 総時間)` → `onCompletionRecorded` で、同じ再生の 2 回目は増えず、次の `loading` の後はまた送る。`listenCompleted(a)` の直後（Task が動く前）に次のエピソード b の `loading` が来ても、書込は `updatePosition(a, a の総時間)`、(f) 総時間 0 なら完聴時点の位置、それも 0 なら位置の書込なし（`markCompleted` は送る）、(g) `markCompleted` が失敗しても位置の書込は行われる。`lastSyncFailure` は最後に終わった送信の結果（失敗で値・成功で `nil`）、(h) 位置の応答が `onPositionSaved` に 1 回渡る、(i) `markCompleted` を保留しても `listenCompleted` はすぐ戻る、(j) `beginBackgroundTask` の開始と終了が 1 回ずつ | — |
 | CI-T10 | **T-T10**: `AudioCacheManager(fileManager: MockFileManager())` を包み、`save` の後 `has` true・`savedIds` に含む。`clearAll` の後 `has` false・`savedIds` 空。`remove` の後も同じ。`refresh(candidateIds:)` は実体のある id だけ。`url` は無ければ `nil`。削除が失敗する double（`AppStateTestSupport.swift` の `FailingRemoveFileManager`。`MockFileManager` は `final` で継承できない）では `savedIds` が実体と一致したまま error | — |
 | CI-T11 | **T-T11**: 下の 20 通り | — |
 
