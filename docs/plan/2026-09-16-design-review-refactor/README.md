@@ -27,7 +27,7 @@ Spec §6 の `S0 spec`（共有仕様の改訂）は **news-listen-docs #133 で
 
 | 順 | order | 依存 | release トリガ（submodule PR が main ＋ 親ポインタが進む） | 並行可能な組 |
 |---|---|---|---|---|
-| 1 | I-S2（wave 1・実行中） | S1（完了） | — | — |
+| 1 | I-S2（完了。ios PR #91・2026-09-28） | S1（完了） | — | — |
 | 2 | I-S3a | I-S2 | I-S2 の ios PR merge → 親ポインタ PR merge（`git -C <親> submodule status` で `ios` に `+` 無し） | — |
 | 3 | I-S3b1 | I-S3a | I-S3a の ios PR → 親ポインタ | — |
 | 4 | I-S3b2 | I-S3b1 | I-S3b1 の ios PR → 親ポインタ | — |
@@ -53,6 +53,7 @@ Spec §6 の `S0 spec`（共有仕様の改訂）は **news-listen-docs #133 で
 - SG-C14（旧 U-3b3-3）: `NowPlaying` は共通 7 ＋ iOS 固有 2 field（`sourceArticles` / `sourceKind`。ADR-095 の出典・ライセンス表示用）。定義は I-S3b1、`PodcastAttributionContent(nowPlaying:)` への付け替えは I-S3b3。
 - SG-C12（旧 U-5-1）: logout 時の `unregisterDeviceToken` client 呼出を削除し B-S5b の連鎖削除に任せる。
 - SG-C13: `unavailable` 中の login 成功（`completeLogin`。password / passkey とも唯一の入口）も主体の確定に含め、起動時回収を 1 回走らせる（I-S5 の経路 (v)）。
+- **2026-09-30 の前提点検（wave 1 完了後）**: I-S2 の成果に合わせて I-S3a の実測値（78 関数・集合 17）と行番号を直し、再生の停止の扱いを user 判断で確定した（親 docs 監査レポート §5 の SG-C21〜C28）: `AudioEngine` port は `stop` を含む 7 操作（C22）、停止は遷移表の外のリセットで分母 16 は不変・契約 CI-T1b（C24）、I-S3a の間は VM の旗が「読み込み済みか」を持つ = TP5（C23。削除は I-S3b2）、T-T15 の 2 本は engine double の状態を観測（C21・C26）、`MediaPlayerNowPlaying` は App が 1 個作り `AppState` にも渡す（C27）、リモートコマンドの解除は現行どおり VM の `deinit`（C28。後始末へ移すかは I-S3b1 / I-S3b2 で判断）。
 - Selection Gate SG-X1〜X5 は 2026-09-16 に確定、SG-X3 は 2026-09-23 に ADR-104 で改訂（待たない＋主体識別）。iOS に効くのは SG-X1（I-S3b2）・SG-X4（I-S3b2 で pin）・SG-X5（I-S4）・SG-X3 revised（I-S2・I-S5）・SG-A1（I-S5）。
 - 他モジュールとの契約: パスワード規則は ADR-101 の **12〜20**（Spec 本文の 8〜20 は採らない）。`user_id` は B-S5 が `/auth/me` と login 応答に載せる（ADR-104 決定 15）。logout の明示ヘッダ（決定 14）は新ヘッダを作らず、破棄前に捕捉したトークンで既存 `Authorization: Bearer` を付けて送る（2026-09-23 user 判断）。`user_id` 欠落・形式不正はキャッシュ無効＋回収は未認証と同じ（決定 16 を 3 platform 共通に）。`error_message` 4 値の文言写像（ADR-102）は iOS 次サイクル（RO-c）で scope 外。
 - `docs/trial-log/` の `player-auto-converge.md`・`transcript-sync-highlight.md`・`mino-design-review-delegation.md`（棄却した案）は I-S3b1〜I-S3b3 の着手前に読み、棄却済み案を再試行しない。
