@@ -7,6 +7,8 @@
 
 > **2026-09-30 の前提点検（wave 1 完了後）**: I-S2 の成果で本 order の前提が 4 点変わった。(1) I-S2 が `PodcastViewModelTests` に T-T15 の 2 本（`testTT15_09_…` / `testTT15_10_…`）を足し、どちらも `XCTAssertNil(vm.player)` を持つ。関数数は 76 → **78**、AVFoundation / `vm.player` を直接扱う集合は 15 → **17**。(2) `NowPlayingCenter` port と adapter は I-S2 が既に `Podcast/Platform/` に置いた（移動・改名は不要）。(3) `AppState.init` が既定引数で `MediaPlayerNowPlaying()` を生成する。(4) 本文の行番号は I-S2 の変更で約 5 行ずれた（本文は 2026-09-30 実測へ更新済み）。再生の停止の扱いは user 判断で確定済み（親 docs 監査レポート §5 の **SG-C21〜C28**。Spec 冒頭の 2026-09-30 追記）。再提案しない。
 
+> **2026-09-30 の実装時の裁定（order の訂正。本文は起票時のまま残す）**: takt の run は実装を終えたが、本 order の字面では現行の挙動を再現できない箇所があり、完了ゲートで user の裁定待ちになった。user が推奨案で確定した（親 docs 監査レポート §5 の **SG-C29〜C38**。Spec 冒頭の「I-S3a 実装時の裁定」追記）。本文のうち次を読み替える。(1) `EngineEvent` は 8 種ではなく **10 種**（`paused`・`outputDeviceLost` を追加、`timeUpdate` に `duration`）。(2) `load(url:)` は `String?` を返す。(3) `NowPlayingCenter` は `updateElapsed` を加えた 5 操作で、`registerCommands` は token を返し `unregister` は token を取る。(4) `MediaPlayerNowPlaying(` の生成は 2 箇所ではなく **3 箇所**（VM の既定引数を含む）。(5) 完了条件の grep は誤りがあった: パターン `AVPlayer` は型名 `AVPlayerEngine` に一致し、pathspec `Podcast/*View*.swift` は変更必須の `PodcastViewModel.swift` に一致し、公開面のパターンはコメント行に一致する。判定は `GrepOracleTests` の訂正版で行う。(6) 事象 stream は load ごとに作り直す。
+
 Spec §8 着手順 3 の入口条件（親 plan の I-S3a）。
 
 ## 前提・着手条件

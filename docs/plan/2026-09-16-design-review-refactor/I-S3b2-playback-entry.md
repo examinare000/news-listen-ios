@@ -33,6 +33,8 @@ TP3 の `errorMessage` は「`session` が `errored(reason)` のときの理由�
 | PS-06 | 完聴 → **`duration` の位置書込 1 回** → advance（SG-X1。現行は停止時同期の値に任せる）。完聴は 1 セッション 1 回 | 準拠テスト（CI-T8）。既存 `testPlaybackEndedMarksCapturedPodcastBeforeAutoAdvanceAndRefreshesStreak` / `testCompletionFailureDoesNotBlockQueueAutoAdvance` を行 ID 付きへ昇格 |
 | PS-07 | `completed` かつ `error_message` 非 null は再生不可・▶なし（現行は文字列分岐） | 準拠テスト（CI-T11）＋ `PodcastRowView` |
 | PS-08 | セッション速度を開始時に既定速度で初期化（現行は `1.0` 固定・非初期化）。セッション中の変更は既定速度を書かない | 準拠テスト（CI-T4）。既存 `testSetSpeedUpdatesPlaybackSpeed*` は期待値を既定速度基準に |
+| CI-T1c（行 ID なし。iOS 固有。SG-C39） | 読み込み中（buffering）に engine が止まると、再生中ではなく一時停止の表示になる（現行は buffering 表示だけ消え、再生中のまま） | 準拠テスト（CI-T1c。facade＋double） |
+| CI-T1e（行 ID なし。iOS 固有。SG-C43） | 再生開始の直後から総時間が表示される（現行は最初の定期更新まで 0）。総時間が不明な間に先送りしても位置 0 へ戻らない（現行は `min(0, …)` で 0 へ戻る） | 準拠テスト（CI-T1e。facade＋double） |
 | CI-T9 / T9b（行 ID なし） | `init` / `setQueue` の重複 id を dedupe（不変条件 1）。重複入力以外の Q-* は不変 | T-T9（property）・T-T9b（期待値表）＋ conformance 32 件不変 |
 
 上表以外で既存テストの Then を変える必要が出たら、実装を止めて報告する（scope 逸脱）。`testReplayCurrentEpisode*` 4 件は replay が `startEpisode` 経路になるが期待値は不変（完聴後の server 位置 = `duration` は RS-05 で 0）。
