@@ -14,6 +14,14 @@
 > - SG-X3: 主体離脱で cleanup 完了を待たない（本書どおり）。SG-X4: 一時停止中は周期送信しない（本書どおり）。
 > - SG-X5: 設定画面の既定速度 Picker（`SettingsView.swift:50` の 5 段）を `PlaybackConstants.speeds` 8 段へ揃える（S4 に追加）。
 > - パスワード（SG-B2）: **12〜20 文字**（ADR-101。本書 §3.3・CI-T16 の「8〜20」を置換）。
+>
+> **追記（2026-09-30・wave 1 完了後の前提点検による上書き）**: I-S2 の完了で I-S3a の前提が変わり、再生の停止の扱いを user 判断で確定した（親 docs 監査レポート §5 の SG-C21〜C28）。本書の次の記述を上書きする（本書は改訂せず、この追記と各 slice の order を優先する）。
+> - SG-C22: `AudioEngine` port は **7 操作**（load / play / pause / seek / rate / **stop** / 事象 stream）。`stop` は「止めて読み込みを外す。以後も `load` で再利用できる」（§2 port 表と §5 rejected_overdesign RO4 の「6 操作」を置換）。RO4 が棄却するのは AVPlayer の鏡写しで、基準は「Session が必要とする操作に絞る」のまま。
+> - SG-C24: `PlaybackSession.stop` は §3.1 の遷移表の外の**リセット**。どの状態からでも `idle` へ戻し、分母 16 には数えない。契約 **CI-T1b**: 任意の状態で `stop` → `idle`・`AudioEngine.stop` が届く・`idle` での `stop` は何もしない。検証 T-T1b は engine double の状態で観測する（I-S3b1）。`removeFromQueue` と `stopForLogout` の `session.stop()` はこの操作を指す。
+> - SG-C23: I-S3a の時点では Session が無いため、「engine に音声が読み込まれているか」は `PodcastViewModel` の private な旗が持つ（`load` で立て、`stop` で倒す）。**TP5**（owner: user／導入: I-S3a／削除条件: I-S3b2 で Session の状態（`idle` か否か）に置き換わった時）。
+> - SG-C21・SG-C26: 主体離脱時の再生停止のテストは、利用者に見える状態に加えて engine double が「読み込み済みでない」ことを観測する。呼出回数は問わない。
+> - SG-C27: `NowPlayingCenter` adapter は App が 1 個作り、`AppState` と再生側の両方へ渡す（§2 composition root 表どおり。`AppState` の既定引数は Preview とテスト用）。
+> - SG-C28: リモートコマンドの解除の契機は現行どおり登録者の破棄時。主体離脱の後始末へ移すかは I-S3b1 / I-S3b2 で判断する。
 
 ## 0. Decision frame と function_plan
 
