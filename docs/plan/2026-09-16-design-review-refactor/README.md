@@ -1,45 +1,62 @@
 # iOS リファクタ計画（2026-09-16 設計レビュー反映）— takt 委譲用の指示書
 
-2026-09-16 の iOS 設計レビュー（`docs/research-reports/2026-09-16-code-design-review.md`）と user 承認済みの Implementation Spec（`docs/design/2026-09-16-implementation-spec-playback-domain-model.md`）、2026-09-23 の主体離脱の設計決定（親 docs `docs/adr/104-subject-departure-and-subject-scoped-assets.md`）を、takt の `sdd-governed` ワークフローへ slice 単位で委譲するための指示書（order）一式。正本は Spec と ADR-104 であり、本フォルダの各 order は該当 slice を takt の 1 タスクに切り出したもの。slice ID は親 docs の実行計画 `docs/plan/2026-09-16-design-review-refactor.md`（2026-09-23 再スライス版）の接頭辞付き ID **I-\*** を使う（`docs/design/ios-design.md` §11.3 と同一）。実装完了後、本フォルダは削除し、確定内容は親 docs の `design/ios-design.md`（§4〜§8 を target の内容へ書き換え、§11 を削除）へ移す（`agent-rules/30` の plan ライフサイクル）。
+2026-09-16 の iOS 設計レビュー（`docs/research-reports/2026-09-16-code-design-review.md`）と user 承認済みの Implementation Spec（`docs/design/2026-09-16-implementation-spec-playback-domain-model.md`）、2026-09-23 の主体離脱の設計決定（親 docs `docs/adr/104-subject-departure-and-subject-scoped-assets.md`）、2026-09-30 の目標アーキテクチャ（親 docs `docs/adr/110-refactor-target-domain-centered-onion-cqrs.md` と iOS Spec `docs/design/2026-09-30-implementation-spec-target-architecture.md`）を、takt の `sdd-governed` ワークフローへ slice 単位で委譲するための指示書（order）一式。正本は 2 つの Spec（構造・型の置き場・依存の向き・slice の全体は 2026-09-30 の Spec、状態遷移と契約は 2026-09-16 の Spec）と ADR-104・ADR-110 であり、本フォルダの各 order は該当 slice を takt の 1 タスクに切り出したもの。slice ID は親 docs の実行計画 `docs/plan/2026-09-16-design-review-refactor.md`（2026-09-23 再スライス版）の接頭辞付き ID **I-\*** を使う（`docs/design/ios-design.md` §11.3 と同一）。実装完了後、本フォルダは削除し、確定内容は親 docs の `design/ios-design.md`（§4〜§8 を target の内容へ書き換え、§11 を削除）へ移す（`agent-rules/30` の plan ライフサイクル）。
 
 Spec §6 の `I-S0 spec`（旧 S0。共有仕様の改訂）は **news-listen-docs #133 で main 済み・完了**。本フォルダに order は作らない。
 
-## slice と投入順
+## 投入前の前提点検が必須（2026-10-01）
 
-| 順 | order | 内容 | 依存 | 検証する行 ID（ios-design §11.3） | 切替方式 |
+**どの order も、投入の直前に、その order の「着手前の前提点検」の節（引用する件数・行番号・型名・grep の結果と、数え直すコマンド）を `ios/` で実行し、値が order と合うことを確かめてから投入する。** 値が違えば、order を直してから投入する（実装者に読み替えさせない）。後の wave の order は、書いた時点（2026-10-01、revision `ef9e559`）から前の slice が実コードを変えているので、点検なしでは投入できない。あわせて `analyze_order` の受入検査（未決の選択が無い／全称命題の集合が列挙されている／完了条件・対象・禁止の相互矛盾が無い／依存で結ばれた order と対で突き合わせる）を自分で通す。
+
+**2026-10-01 の改訂**: 目標アーキテクチャ（親 docs `adr/110-refactor-target-domain-centered-onion-cqrs.md`、`design/architecture.md`、iOS Spec `docs/design/2026-09-30-implementation-spec-target-architecture.md`。以下「TA Spec」）に合わせ、補完 slice **I-T1〜I-T12**（12 本。枝番を数えて 15 本）の order を足し、未着手の I-S3b1・I-S3b2・I-S3b3・I-S4・I-S5 を TA Spec §8.3 のとおり補正した（各 order の冒頭の「2026-10-01 … による補正」の節に直した点を列挙）。I-S3c は保留のまま path だけを追随させた。実装と takt への投入は、親 docs plan「実装の停止と再開ゲート」の 3 条件が満たされるまで止めてある。
+
+## slice と投入順（TA Spec §8.1 の順。同じ submodule なので 1 本ずつ投入する）
+
+| 順 | order | 内容 | 依存（submodule PR が main ＋ 親ポインタが進んでいること） | 契約・検査 | 状態 |
 |---|---|---|---|---|---|
-| — | （I-S0 spec） | 共有仕様の改訂 | なし | — | 完了済み（news-listen-docs #133） |
-| 1 | [S1-failure-meaning.md](S1-failure-meaning.md)（I-S1。完了。ios PR #84） | `ApiFailure`・`validateResponse` の変換・`notFound.subject`・非 HTTP 応答・`FailureMessages`。10 消費者の置換 | なし | CI-T12 / T13 | 旧 `APIError` 互換 throw（TP1）は本 slice の中で削除済み（削除条件「`Networking/` 以外に参照 0」が成立。2026-09-30 実測: production の `APIError` は 0 件） |
-| 2 | [I-S2-session-boundary.md](I-S2-session-boundary.md)（完了。ios PR #91） | `AuthSession` union・失効検知・`SubjectCleanup` の骨格・`PreferenceRegistry`・`NowPlayingCenter` port（clear の最小） | S1 | SL-01〜SL-05（音声キャッシュ部分は I-S5 まで `clearAll()`） | TP2（`SettingsViewModel` の既定引数）・TP4（`PodcastViewModel` が `PlaybackLifecycle` を暫定実装）を導入。削除条件はどちらも I-S3b2 で成立、物理削除は I-S3b3 |
-| 3 | [I-S3a-audio-engine-doubles.md](I-S3a-audio-engine-doubles.md)（完了。ios PR #95） | `AudioEngine` port（`Podcast/Playback/AudioEngine.swift`）と double、**Platform adapter 2 本（`Podcast/Platform/{AVPlayerEngine,MediaPlayerNowPlaying}`）**を導入し、現行 `PodcastViewModel` を port 経由化（挙動不変・公開面不変）。engine 結合テスト **17 関数**（2026-09-30 再実測。78 関数中。11 は double 駆動、6 は `AVPlayerEngineTests` へ）を移植 | I-S2 | —（全件 green が I-S3b1 の入口条件） | 挙動不変（特性テスト＋公開面 grep）。**2026-09-23 夜に切り直し**: adapter を I-S3b2 から前倒し（下記「切り直しの理由」） |
-| 4 | [I-S3b1-playback-domain.md](I-S3b1-playback-domain.md) | `Podcast/Playback/{Session,Coordinator,OfflineLibrary,PositionReporter}`・`Models/Episode.swift`・DEBUG ファクトリ `PlaybackCoordinator+Preview.swift`（新規 6 本）のドメイン層新設。Coordinator は公開 **19 操作**（SG-C10 の `startEpisode(id:)` / `replayCurrent()`、SG-C60 の `minimizePlayer` / `expandPlayer` を含む）と `NowPlaying`（Android と同型の 7 field ＋ iOS 固有 2。SG-C11 / C14）を持ち、`session`（`PlaybackState`）/ `presentation` / `queue` / `notice` / `isAdvancing` を `@Published private(set)` で read-only 公開する（操作に数えない）。engine の test double を実 adapter と同じ振る舞いに直す。既存コードから呼ばない。**2026-09-30 に全面的に書き直した**（型・操作・手順・状態 × 事象の表を order が固定） | I-S3a | RS-01〜RS-07（CI-T3）・PS-04（CI-T7a）。契約テスト CI-T1 / T1b〜T1f / T2 / T3 / T4 / T5 / T6 / T7 / T8 / T10 / T11 | ① 新規コードのみ |
-| 5 | [I-S3b2-playback-entry.md](I-S3b2-playback-entry.md) | 合成 root（`OfflineLibrary`・Coordinator・PositionReporter。主体離脱の全削除も保存庫を通す）・facade 化（Coordinator の `session` / `presentation` / `notice` を同名 `@Published` に写す。View は Coordinator を持たない）・`startEpisode` 1 経路・`PlaybackQueue` dedupe・`Episode` 切替・View 2 箇所・Preview（I-S3b1 の DEBUG ファクトリ経由）・`SettingsViewModel` / `SettingsView` へ `OfflineLibrary` 注入（production 9 本）。共有仕様 §2・Q-* は挙動不変。変わる挙動は order の表の 14 行だけ（2026-09-30 に数え上げ直した）。**決定境界は「入口の差し替え」1 つ**（adapter は I-S3a） | I-S3b1 | PS-01〜PS-03（CI-T6）・PS-04（CI-T7 / T-T7b）・PS-05 / PS-05b / PS-06（CI-T8。SG-X1 / SG-X4）・PS-07（CI-T11）・PS-08（CI-T4）・CI-T9 / T9b | ② 入口の差し替え。TP3（旧公開プロパティ 8 の computed）を導入。TP2（型を `OfflineLibrary` に変えて既定引数のまま）/ TP4 の削除条件成立 |
-| 6 | [I-S3b3-playback-cleanup.md](I-S3b3-playback-cleanup.md) | `PodcastViewModel` の縮小（TP3・`didFinishCurrentEpisode` / `downloadedIds`・forwarder 7・旧 engine 由来 2）・TP2 / TP4 の物理削除・View 読出の付け替え（44 箇所（2026-09-24 再実測: `PodcastView` の `errorMessage` 3 のうち 2 は書込で I-S3b2 が置換済み）。呼出形は SG-C10、子 View は `NowPlaying` を受け `Podcast` DTO を出さない = SG-C11、transport は facade が写した `session` を直読み）。エラー alert は 1 つのまま View で合成（facade が写した `notice` → facade の `errorMessage`） | I-S3b2。未決なし（U-3b3-3 は SG-C14 で確定） | —（参照 0 件の grep 9 本。契約テスト件数は減らさない） | ③ 削除のみ |
-| 保留 | [I-S3c-remote-next-track.md](I-S3c-remote-next-track.md)（2026-09-30 新設・同日に保留。SG-C70） | リモートコマンド「次のトラック」を Coordinator の `skipToNext` につなぐ。待機列が空の間は無効にする（SG-C63）。`NowPlayingCenter` は 6 操作、`RemoteCommand` は 8 種になる | I-S3b3 | —（CI-T7 の抜粋 T-T7h / T-T7i。共有仕様 §2.12） | 小ステップ。I-S4・I-S5 と変更ファイルは重ならない |
-| 7 | [I-S4-rules-ci.md](I-S4-rules-ci.md) | `PasswordPolicy`（12〜20、ADR-101）・`AccountSettingsViewModel` 新設・`AdminUsersViewModel` の policy 参照・既定速度 Picker を 8 段へ（SG-X5）・`ci.yml` を `make test` 呼出へ | I-S3b3 | CI-T16 | 小ステップ。**I-S5 と並行可** |
-| 8 | [I-S5-subject-cache.md](I-S5-subject-cache.md) | 主体別音声キャッシュ `Caches/NewsListenApp/audio/{user_id}/`・起動時の回収（SG-B3 の 4 経路）・平置きキャッシュの初回全削除（SG-A1）・`user_id` 欠落時はキャッシュ無効（SG-B6）・ダウンロードジョブの主体固定・遷移 ④・logout の明示ヘッダ（ADR-104 決定 14・26）・logout 時の `unregisterDeviceToken` 呼出削除（SG-C12）・`unavailable` 中の login 成功も確定契機（SG-C13） | **backend main の `user_id` 契約**（B-S5a の成果）＋ I-S3b3。未決なし | SL-06 / SL-07・SL-01 / SL-02 の音声キャッシュ部分（CI-T10 / T15） | 不可逆点（キャッシュ構造の変更。移行なし）。**I-S4 と並行可** |
-| 保留 | （views） | `QuizSheetView` の採点 VM 化・構造整理のみ（View の `nowPlaying()` / `session` 直読み化は I-S3b3 で完了） | I-S3b3 | — | order 未作成（学習機能のサイクルまで。ios-design §11.3「保留 views」行と同一） |
+| — | （I-S0 spec） | 共有仕様の改訂 | なし | — | 完了（news-listen-docs #133） |
+| — | [S1-failure-meaning.md](S1-failure-meaning.md)（I-S1） | `ApiFailure`・`validateResponse` の変換・`notFound.subject`・`FailureMessages` | なし | CI-T12 / T13 | **完了**（ios PR #84。TP1 は slice 内で削除済み） |
+| — | [I-S2-session-boundary.md](I-S2-session-boundary.md) | `AuthSession` union・失効検知・`SubjectCleanup` の骨格・`PreferenceRegistry`・`NowPlayingCenter` port | S1 | SL-01〜SL-05 | **完了**（ios PR #91） |
+| — | [I-S3a-audio-engine-doubles.md](I-S3a-audio-engine-doubles.md) | `AudioEngine` port・double・Platform adapter 2 本・VM の port 経由化 | I-S2 | engine 結合テスト 17 関数 | **完了**（ios PR #95） |
+| 1 | [I-T1-layer-manifest.md](I-T1-layer-manifest.md) | 層の所属表と依存の検査。現状の違反を許可リスト（TP10）に固定（test だけ） | なし（再開ゲート 1〜3） | TA-V1〜V5・V7・V9 | 未着手 |
+| 2 | [I-T2a-domain-foundation.md](I-T2a-domain-foundation.md) | `Episode`・`EpisodeContent`・generic な `PlaybackQueue`・`ApiFailure` の置き場・`toEpisode()` | I-T1 | CI-T11（T-T11）・TA-R-CT-1・3〜5・TA-D2 | 未着手 |
+| 3 | [I-T2b-nowplaying-port.md](I-T2b-nowplaying-port.md) | ロック画面の port を `NowPlayingSnapshot` に。port と adapter の補助の置き場 | I-T1（I-T2a と順不同） | TA-D11・G03 | 未着手 |
+| 4 | [I-S3b1-playback-domain.md](I-S3b1-playback-domain.md) | 再生の domain と application を新規コードとして入れる（2026-10-01 補正） | I-S3a・I-T1・I-T2a・I-T2b | CI-T1・T1b〜T1f・T2〜T8・T10、RS-01〜RS-07、PS-04・PS-09〜PS-13、TA-V6（PB） | 未着手 |
+| 5 | [I-T3-offline-downloads.md](I-T3-offline-downloads.md) | オフライン保存の use case `OfflineDownloads`（新規コードのみ） | I-S3b1 | TA-C-PB-20〜22・TA-Q-PB-4・TA-R-PB-8 | 未着手 |
+| 6 | [I-S3b2-playback-entry.md](I-S3b2-playback-entry.md) | 入口の差し替え（facade 化。2026-10-01 補正） | I-S3b1・I-T3 | PS-01〜PS-08（05b・07b）・CI-T9 / T9b | 未着手 |
+| 7 | [I-S3b3-playback-cleanup.md](I-S3b3-playback-cleanup.md) | 旧実装の削除・View の読出の付け替え（2026-10-01 補正） | I-S3b2 | 参照 0 件の grep・TA-D5（`Podcast/`） | 未着手 |
+| 8 | [I-T4-catalog.md](I-T4-catalog.md) | 一覧を `EpisodeCatalog`・`EpisodeRow` へ（TP6 を消す） | I-S3b3 | TA-Q-CT-1・2・TA-C-CT-1・TA-R-CT-2 | 未着手 |
+| 9 | [I-T5-account-domain.md](I-T5-account-domain.md) | `Subject`・`Role`・`SubjectKey`・`AuthSession` から DTO を外す | I-S3b3（I-T4 と並行可） | TA-R-AC-4・5・CI-T14（不変） | 未着手 |
+| 10 | [I-S4-rules-ci.md](I-S4-rules-ci.md) | `PasswordPolicy`・`AccountProfile`・`AccountSettingsViewModel`・速度の Picker・CI（2026-10-01 補正） | I-S3b3・I-T5 | CI-T16・TA-R-AC-1・TA-R-PB-4 | 未着手 |
+| 11 | [I-S5-subject-cache.md](I-S5-subject-cache.md) | 主体別の音声キャッシュ・起動時の回収・logout の送信（2026-10-01 補正） | I-S3b3・I-T3・I-T5 ＋ backend **B-S5a**（完了）と **B-S5b** の契約 | SL-06〜SL-10・CI-T10 / T15 | **B-S5b 待ち**（B-S5b が親 main に入るまで投入しない） |
+| 12 | [I-T6-preferences.md](I-T6-preferences.md) | Preferences の値型と `PreferencesStore` | I-S4（I-S5 と並行可） | TA-C-PF-1〜3・TA-Q-PF-1・TA-R-PF-1〜6・CI-T17（不変） | 未着手 |
+| 13 | [I-T7a-curation.md](I-T7a-curation.md) | Curation（Feed・Starred・残り回数） | I-T6 | TA-C-CU-1〜4・TA-Q-CU-1〜3・TA-R-CU-1〜5 | 未着手 |
+| 14 | [I-T7b-sources-onboarding.md](I-T7b-sources-onboarding.md) | RSS ソースと Onboarding | I-T6（I-T7a と並行可） | TA-C-SO-1〜3・TA-Q-SO-1・2・TA-R-SO-1〜4 | 未着手 |
+| 15 | [I-T7c-account-periphery.md](I-T7c-account-periphery.md) | Account の周辺（login・Sessions・Passkey・Admin） | I-S4・I-S5・I-T5 | TA-C-AC-1・5〜9・TA-Q-AC-2・TA-R-AC-5〜7 | **B-S5b 待ち**（I-S5 経由） |
+| 16 | [I-T8-learning-domain.md](I-T8-learning-domain.md) | Learning の domain の型 | I-T2a・I-S3b3 | TA-R-LE-1〜4・TA-R-LV-1・TA-R-LC-1・TA-V7 | 未着手 |
+| 17 | [I-T9-vocabulary-quiz.md](I-T9-vocabulary-quiz.md) | 語彙とクイズの application（TP7 を消す） | I-S3b3・I-T8 | TA-C-LV-1・2・TA-Q-LV-1・2・TA-C-LC-1・TA-R-LV-2・TA-R-LC-2 | 未着手 |
+| 18 | [I-T10-engagement.md](I-T10-engagement.md) | 継続（ストリーク・ダッシュボード・既読）の application | I-T8・I-T6・I-T9（I-T9 は gateway のファイルと `LearningViewModel` の呼出先を共有するため。TA Spec §8.1 への返却事項） | TA-Q-LE-1〜3・TA-C-LE-1・TA-R-LE-1・2 | 未着手 |
+| 19 | [I-T11-playback-transition.md](I-T11-playback-transition.md) | 再生の遷移の決定を domain の純関数へ（TP8 を消す） | I-S3b3（ほかと並行可） | TA-R-PB-1 | 未着手 |
+| 20 | [I-T12-finishing.md](I-T12-finishing.md) | 仕上げ: `AppState` を Account だけに・Push・Observability・adapter の生成を合成 root だけに・許可リストを空に | I-T4〜I-T11 の全部 | TA-C-AC-3・TA-C-PU-1・2・TA-C-OB-1・TA-D3・D5・D13 が 0 | **B-S5b 待ち**（I-T7c 経由） |
+| 保留 | [I-S3c-remote-next-track.md](I-S3c-remote-next-track.md) | リモートコマンド「次のトラック」 | I-S3b3 | CI-T7 の抜粋（T-T7h / T-T7i） | 保留（SG-C70。投入しない。2026-10-01 に path だけ追随） |
+| 未起票 | （位置同期） | ADR-109 決定 7〜13 の iOS 側 | backend B-S7・I-S3b3・I-T5 | — | 保留（SG-C79。order 未作成。起票の方針は TA Spec §8.3 の末尾） |
 
-- 依存の連鎖: **I-S2 → I-S3a → I-S3b1 → I-S3b2 → I-S3b3 → {I-S4 ∥ I-S5}**（I-S3c は保留）。I-S5 はさらに **backend main に `user_id` 契約があること**（B-S5a の成果。クリティカルパスは B-S5a → I-S5 で、B-S5a は依存を持たない。親 plan「クリティカルパス」）。
-- 3 段分割の理由（親 plan 2026-09-23）: 旧 `S3b-playback.md` は一括切替で、入口条件が slice の外側でしか判定できず巻き戻しが 1,000 行超だった。① は特性テストに依存せず着手でき、② は「挙動不変（特性テスト）＋変更行（準拠テスト）」で判定でき、③ は数え上げられる。
-- **切り直しの理由（2026-09-23 夜の点検）**: 起票時の I-S3a は「`PodcastViewModel.swift` の diff 0」と「AVFoundation 直結テストを double 駆動へ」を同時に要求していたが、対象 15 関数（再実測。Spec の 17 はコメント行の一致 2 件を含む数）のうち 14 は VM の公開 API を AVFoundation 型で駆動しており、VM が port を消費しない限り double で駆動できない（条項の相互矛盾）。Platform adapter 2 本と VM の port 経由化（挙動不変）を I-S3a へ前倒しし、I-S3b2 は facade 化 1 境界に絞った。これに伴い親 docs `ios-design.md` §11.3 の I-S3a / I-S3b2 行と Spec §6 S3a / S3b 行の adapter 所属、I-S2 本文の「`update` / `registerCommands` の port 化は I-S3b2」が本 README と食い違う（router へ返す。I-S2 は投入済みのため本文は直さない）。**2026-09-30 追記**: `ios-design.md` §11.3 は反映済み。Spec §6 は同日に I-* の表へ直した（関数数は 2026-09-30 再実測の 17）。
+- 依存の連鎖（クリティカルパス）: **I-T1 → I-T2a / I-T2b → I-S3b1 → I-T3 → I-S3b2 → I-S3b3 → I-T5 → I-S4 → I-T6 → …**、および **B-S5b → I-S5 → I-T7c → I-T12**。I-T12 は I-T4〜I-T11 の全部の後。
+- 「並行可」は対象のファイルが重ならず順序を問わないという意味（TA Spec §8.1）。同じ submodule なので、投入は 1 本ずつ（前の PR が main に入り、親ポインタが進んでから次）。
+- 一時経路（TA Spec §8.4。TP1〜TP5 は再生 Spec §6）: TP6（facade の一覧が DTO。I-S3b2 → I-T4）、TP7（学習の中継 3 本。既存 → I-T9）、TP8（`PlaybackSession` が遷移の決定を持つ。I-S3b1 → I-T11）、TP9（旧 VM が `PlaybackQueue<Podcast>`。I-T2a → I-S3b2）、TP10（依存の検査の許可リスト。I-T1 → I-T12）、TP11（既定引数の adapter の生成。既存 → I-S3b3（`SettingsViewModel`）・I-T12）。
+- 判断待ち: 無い（TA Spec §10.3 の 1 = 難易度ラベルは SG-D8 で (a) 現状維持に確定）。投入を止めているのは backend B-S5b の契約（I-S5・I-T7c・I-T12）と、再開ゲート。
 
 ## 投入順と release トリガ（takt の実挙動 2026-09-23: submodule PR の merge 後、親ポインタ PR が main に入ってから次を release する）
 
-| 順 | order | 依存 | release トリガ（submodule PR が main ＋ 親ポインタが進む） | 並行可能な組 |
-|---|---|---|---|---|
-| 1 | I-S2（完了。ios PR #91・2026-09-28） | S1（完了） | — | — |
-| 2 | I-S3a（完了。ios PR #95・2026-09-30） | I-S2 | I-S2 の ios PR merge → 親ポインタ PR merge（`git -C <親> submodule status` で `ios` に `+` 無し） | — |
-| 3 | I-S3b1 | I-S3a | I-S3a の ios PR → 親ポインタ | — |
-| 4 | I-S3b2 | I-S3b1 | I-S3b1 の ios PR → 親ポインタ | — |
-| 5 | I-S3b3 | I-S3b2（SG-C10 / C11 / C14 は確定済み。未決なし） | I-S3b2 の ios PR → 親ポインタ | — |
-| 保留 | I-S3c（投入しない。SG-C70） | I-S3b3 | I-S3b3 の ios PR → 親ポインタ | I-S4・I-S5 と変更ファイルは重ならない（I-S3c = `Podcast/Platform/{NowPlayingCenter,MediaPlayerNowPlaying}`・`Podcast/Playback/PlaybackCoordinator(+Preview)`）。同じ submodule なので投入は直列が無難 |
-| 6a | I-S4 | I-S3b3 | I-S3b3 の ios PR → 親ポインタ | I-S5 と並行（変更ファイルが重ならない: I-S4 = `Auth/PasswordPolicy`・`Settings/AccountSettingsViewModel`・`Settings/AccountSettingsView`・`Settings/SettingsView`・`Admin/*`・`ci.yml`・`scripts/test.sh`、I-S5 = `Models/AuthModels`・`Networking/AudioCacheManager`・`Podcast/Playback/OfflineLibrary`・`Auth/SubjectCleanup`・`AppState`・`Settings/SettingsViewModel`。後から merge する側が rebase する） |
-| 6b | I-S5 | I-S3b3 ＋ backend main の `user_id` 契約（B-S5a）。未決なし（U-5-1 は SG-C12 で確定） | I-S3b3 の ios PR → 親ポインタ、**かつ** B-S5a の backend PR → 親ポインタ（`backend` に `+` 無し） | 同上 |
+上の表の「順」のとおり 1 本ずつ投入する。release トリガは「依存 slice の ios PR が main に merge 済み ＋ 親ポインタ PR が main に入っている（`git -C <親> submodule status` で `ios` に `+` が無い）」。他 module への依存は PR 番号ではなく「契約が main にあること」で書く（I-S5 ← backend B-S5a・B-S5b。親ポインタが backend の該当 main を指していること = `backend` に `+` が無い）。並行可の組（I-T2a ∥ I-T2b、I-T4 ∥ I-T5、I-S4 ∥ I-S5、I-T6 ∥ I-S5、I-T7a ∥ I-T7b、I-T11 ∥ ほか）も投入は直列で、後から merge する側が rebase する。
 
-各 order の「前提・着手条件」は「依存 slice の submodule PR が main に merge 済み **かつ** 親リポのポインタが進んでいる（`git -C <親> submodule status` で `+` が無い）」を必ず含む。他 module への依存（I-S5 ← B-S5a）は PR 番号ではなく「契約が main にあること」で書く。
+各 order の「前提・着手条件」は「依存 slice の submodule PR が main に merge 済み **かつ** 親リポのポインタが進んでいる」を必ず含む。
 
-**`unresolved`: 無し**（2026-09-30。order は承認済みの定義どおりで、未決の選択を含まない）
+**`unresolved`: 無し**（2026-10-01。order は TA Spec と承認済みの決定どおりで、未決の選択を含まない。投入を止める外部条件は B-S5b と再開ゲート）
+
+## 経緯の記録（2026-09-23〜2026-09-30）
+
+以下は経緯の記録で、当時の値のまま残す。2026-10-01 の補正で置き換わった記述（I-S3b1 の新規 6 本 → 9 本と `Models/Episode.swift` の削除、`Episode.decode` → `toEpisode()`、alert の合成の置き場 → facade の `alertMessage`、facade の `positionReporter` の公開 → command `flushPosition()`、`downloadingIds` の持ち主 → `OfflineDownloads`、I-S5 の依存「B-S5」→ B-S5a と B-S5b）は、各 order の冒頭の「2026-10-01 … による補正」の節と本文が正しい。
 
 **2026-09-30 夜に user が確定した点**（一問一答。親 docs 監査レポート §5 の SG-C64〜C79）: `partial_failed` は再生不可で、backend も生成側で失敗にする（SG-C64。order は変更なし）。engine を呼ぶ順序（SG-C66）・読み込み中の割り込み（SG-C71）・聴き終えた後の表示（SG-C72）・利用者の開始の優先（SG-C73）は、order の記載どおりで確認済み。巻き戻した位置も送る（SG-C67。I-S3b1・I-S3b2 を直した）。I-S3c は保留（SG-C70）。位置同期の新しい規則（記録時刻の比較・オフライン分の同期・再開時の確認。SG-C74〜C79・親 docs ADR-109）は、backend の B-S7 を先に入れ、iOS は I-S3b3 の後に別の slice を起こす。
 
@@ -78,10 +95,10 @@ takt run
 
 - ブランチ名は `takt/refactor/ios-<slice>`。1 slice = 1 タスク = 1 PR（サブモジュール PR → 親 PR。**draft は作らない**。`.takt/facets/knowledge/project-context.md`）。
 - 前 slice の submodule PR が main に merge され、**親リポのポインタ PR も main に入ってから**次を投入する（takt の worktree は親 main から clone し、bootstrap が submodule と親の記録の一致を検査するため。上の「投入順と release トリガ」）。
-- **投入前に、指示書を `analyze_order` の受入検査（全称命題の対象集合の数え上げ／条項どうしの矛盾／未決の選択）へ自分で通す。** 未決が 1 件でも残っていれば投入しない（親 docs `trial-log/order-acceptance-inspection-finds-design-defects.md`）。
+- **投入前に、指示書の「着手前の前提点検」を実行して値を確かめ（冒頭「投入前の前提点検が必須」）、指示書を `analyze_order` の受入検査（全称命題の対象集合の数え上げ／条項どうしの矛盾／未決の選択／依存で結ばれた指示書の対の突き合わせ）へ自分で通す。** 未決が 1 件でも残っていれば投入しない（親 docs `trial-log/order-acceptance-inspection-finds-design-defects.md`）。
 - analyze_order は order を「承認済み指示書」として**検証モード**で受ける。generate_spec の `spec.md` / `plan.md` は Spec の該当 slice の契約（CI-T*）の抜粋で足り、新しい契約 ID を作らない。
 - 各 order の「特性テスト（baseline）」が green でなければ着手しない。
-- 検証コマンドは `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project NewsListenApp/NewsListenApp.xcodeproj -scheme NewsListenApp -destination 'platform=iOS Simulator,id=<UDID>' -only-testing:NewsListenAppTests`（`make test` は現行環境で不可。`docs/research-reports/2026-09-16-code-design-review/verification-run.md` §1 参照）。
+- 検証コマンドは `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer make test`（ios README「テスト」の現行の形式。`scripts/test.sh` が利用可能な iPhone シミュレータを選び `-only-testing:NewsListenAppTests` で走らせる。機種は `SIMULATOR='iPhone 16'` で指定できる）。2026-09-16 の `verification-run.md` §1 の「`make test` は不可」は、`DEVELOPER_DIR` を指定しない環境での記録。
 
 ## 完了後
 
