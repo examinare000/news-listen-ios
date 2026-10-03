@@ -128,7 +128,7 @@ final class AVPlayerEngineLifecycleTests: XCTestCase {
     // MARK: - T-A03（positive control）
 
     // verifies: CI-A2（M8）。positive control: 否定形（T-A04）だけでは、observer が死んでいるミュータントを
-    // 検出できない（docs/trial-log/player-auto-converge.md:74-79）。
+    // 検出できない（docs/trial-log/ios-player-auto-converge.md:74-79）。
     func testA03_didPlayToEndOfTheCurrentItemPublishesEnded() async throws {
         let engine = AVPlayerEngine()
         _ = engine.load(url: try makeSilentWAV())

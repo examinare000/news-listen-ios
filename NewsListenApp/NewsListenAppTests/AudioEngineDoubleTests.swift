@@ -4,7 +4,7 @@ import os
 
 // I-S3a: `AudioEngineDouble`（ハーネス）の契約テスト（spec §7.5。T-D01〜T-D05）。
 // double が lost wakeup・ハング・偽 green を起こさないことを固定する
-// （docs/trial-log/scripted-session-lost-wakeup.md）。各テストは消費者 Task を最後に cancel してから await する。
+// （docs/trial-log/ios-scripted-session-lost-wakeup.md）。各テストは消費者 Task を最後に cancel してから await する。
 @MainActor
 final class AudioEngineDoubleTests: XCTestCase {
 
