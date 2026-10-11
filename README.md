@@ -61,3 +61,5 @@ bash scripts/test-ci-post-clone.sh
 ```
 
 `NewsListenAppTests`（ユニットテスト）をシミュレータでヘッドレス実行する。UI テストは対象外。
+
+ソースを読む検査は `GrepOracleTests`（個別の grep）と `ArchitectureOracleTests`（層の所属表と依存方向）。所属表と許可リストは `ArchitectureManifest.swift`、共通の走査ヘルパーは `SourceGrepSupport.swift` にある。違反を減らしたら、同じ変更で許可リストの行数も減らす（実測と一致しないと落ちる）。
