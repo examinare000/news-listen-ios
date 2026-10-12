@@ -611,15 +611,16 @@ final class PodcastViewModel: NSObject, ObservableObject {
     }
 
     /// 現在の再生状態をロック画面に反映する。再生対象が無ければ消す。
-    /// タイトル・難易度などを含む辞書を全構築するため、再生/一時停止・シーク・速度変更などの
+    /// タイトル・難易度などを含む値を全構築するため、再生/一時停止・シーク・速度変更などの
     /// 離散イベント時に呼ぶ（高頻度の経過更新は `nowPlaying.updateElapsed` を使う）。
     private func updateNowPlayingInfo() {
         guard let podcast = currentPodcast else {
             nowPlaying.clear()
             return
         }
-        nowPlaying.update(NowPlayingInfo.make(
-            podcast: podcast,
+        nowPlaying.update(NowPlayingSnapshot(
+            title: podcast.displayTitle,
+            subtitle: DifficultyLabel.text(for: podcast.difficulty),
             elapsed: currentTime,
             duration: duration,
             rate: playbackSpeed,

@@ -509,12 +509,15 @@ final class ArchitectureOracleTests: XCTestCase {
         XCTAssertFalse(isViolation("let n: UInt"))
         XCTAssertFalse(isViolation("let item: NAVItem"))
         XCTAssertTrue(isViolation("let player: AVPlayer"))
+        // 正の対照: port が MediaPlayer の辞書や framework の型を取る宣言は違反として検出される。
+        XCTAssertTrue(isViolation("func update(_ info: [String: Any])"))
+        XCTAssertTrue(isViolation("let c: MPNowPlayingInfoCenter"))
 
         let ports = files(atRelativePaths: ArchitectureManifest.portFiles)
         XCTAssertEqual(ports.count, ArchitectureManifest.portFiles.count, "portFiles の path が production に無い")
         assertNonEmptyContents(ports, "portFiles")
         let hits = collectHits(in: ports, where: isViolation)
-        assertContainsHit(hits, path: "Podcast/Platform/NowPlayingCenter.swift", fragment: "[String: Any]", "TA-D11")
+        XCTAssertTrue(ports.contains { SourceGrep.relativePath($0) == "Podcast/Playback/NowPlayingCenter.swift" }, "実ソースの走査対象に NowPlayingCenter が入っていない")
         assertAllowlistMatches(rule: "TA-D11", measured: hits)
     }
 

@@ -12,13 +12,14 @@ final class MediaPlayerNowPlayingTests: XCTestCase {
         super.tearDown()
     }
 
-    // verifies: CI-N1, CI-N2
+    // verifies: CI-N1, CI-N2, CI-NS7
     func testP01_updateElapsedOverwritesElapsedAndDurationAndKeepsOtherKeys() {
         let nowPlaying = MediaPlayerNowPlaying()
-        nowPlaying.update([
-            MPMediaItemPropertyTitle: "title",
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: 0.0,
-        ])
+        // duration は 0 にする。0 だと adapter は duration のキーを置かないので、
+        // updateElapsed が duration を書かなければ後段の assert が nil で落ちる（上書きを判別できる）。
+        nowPlaying.update(NowPlayingSnapshot(
+            title: "title", subtitle: "s", elapsed: 0, duration: 0, rate: 1, isPlaying: true
+        ))
 
         nowPlaying.updateElapsed(12, duration: 300)
 
@@ -28,10 +29,12 @@ final class MediaPlayerNowPlayingTests: XCTestCase {
         XCTAssertEqual(info?[MPMediaItemPropertyTitle] as? String, "title", "ほかのキーは残る")
     }
 
-    // verifies: CI-N2, CI-N3
+    // verifies: CI-N2, CI-N3, CI-NS7
     func testP02_updateElapsedDoesNothingWhenTheInfoIsCleared() {
         let nowPlaying = MediaPlayerNowPlaying()
-        nowPlaying.update([MPMediaItemPropertyTitle: "title"])
+        nowPlaying.update(NowPlayingSnapshot(
+            title: "title", subtitle: "s", elapsed: 0, duration: 300, rate: 1, isPlaying: true
+        ))
         nowPlaying.clear()
 
         nowPlaying.updateElapsed(12, duration: 300)

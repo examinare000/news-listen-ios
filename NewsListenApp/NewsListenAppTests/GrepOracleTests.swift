@@ -218,13 +218,11 @@ final class GrepOracleTests: XCTestCase {
 
         // ③ 除外を適用する前の実ソースの結果に、純粋ヘルパと adapter の行が含まれる（走査が効いている確認）。
         let all = nonCommentHits(pattern: Self.platformTypePattern, in: SourceGrep.swiftFiles())
-        XCTAssertTrue(all.contains { $0.path == "Podcast/NowPlayingInfo.swift" })
+        XCTAssertTrue(all.contains { $0.path == "Podcast/Platform/NowPlayingInfo.swift" })
         XCTAssertTrue(all.contains { $0.path == "Podcast/Platform/AVPlayerEngine.swift" })
 
-        // ④ 除外（Platform 配下・NowPlayingInfo.swift）を適用した後は 0 件。
-        let outside = all.filter {
-            !$0.path.hasPrefix("Podcast/Platform/") && $0.path != "Podcast/NowPlayingInfo.swift"
-        }
+        // ④ 除外（Platform 配下）を適用した後は 0 件。
+        let outside = all.filter { !$0.path.hasPrefix("Podcast/Platform/") }
         XCTAssertTrue(outside.isEmpty, "Platform の外に AV / MP の型参照がある: \(outside)")
     }
 

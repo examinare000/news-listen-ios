@@ -52,11 +52,22 @@ final class RemoteCommandRegistration: @unchecked Sendable {
     }
 }
 
+/// ロック画面へ渡す再生情報（framework の辞書を隠した値）。
+/// 辞書への変換（キー・丸め・rate の扱い）は adapter が行う。
+struct NowPlayingSnapshot: Equatable {
+    let title: String
+    let subtitle: String
+    let elapsed: Double
+    let duration: Double
+    let rate: Float
+    let isPlaying: Bool
+}
+
 /// `MPNowPlayingInfoCenter` / `MPRemoteCommandCenter` を隠す port。`AppState` / `PodcastViewModel` /
 /// `Auth/SubjectCleanup.swift` はこの protocol だけを参照し、`MediaPlayer` を import しない。
 protocol NowPlayingCenter {
     /// ロック画面の再生情報を置き換える。
-    func update(_ info: [String: Any])
+    func update(_ snapshot: NowPlayingSnapshot)
     /// 既存の再生情報が有れば、経過/総時間だけを上書きする（無ければ何もしない）。
     func updateElapsed(_ elapsed: Double, duration: Double)
     /// ロック画面/コントロールセンターの再生情報表示を消す。
