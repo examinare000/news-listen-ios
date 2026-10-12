@@ -7,14 +7,6 @@
 
 import Foundation
 
-/// API が公開する理解度クイズ設問。
-///
-/// 正解はサーバー採点まで秘匿するため `answer_index` を持たない。
-struct QuizQuestion: Codable, Equatable {
-    let question: String
-    let options: [String]
-}
-
 /// 採点済み設問 1 件の結果。
 struct QuizGradeResult: Codable, Equatable {
     let questionIndex: Int

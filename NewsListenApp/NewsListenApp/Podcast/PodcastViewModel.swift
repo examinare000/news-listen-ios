@@ -54,7 +54,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     /// ダウンロード中 Podcast ID の集合（ViewModel のみが更新する）。
     @Published private(set) var downloadingIds: Set<String> = []
     /// 再生キュー（連続再生・プレイリスト / issue #81）。
-    @Published private(set) var queue = PlaybackQueue()
+    @Published private(set) var queue = PlaybackQueue<Podcast>()
     /// 現在ネットワークがオンラインかどうか（オフラインバナー表示用に View から購読する・issue #54）。
     @Published private(set) var isOnline: Bool
     /// キュー終端まで聴き終えたかどうか（完了時プレイヤー自動収束用）。
@@ -691,7 +691,7 @@ extension PodcastViewModel: PlaybackLifecycle {
     func stopForLogout() {
         tearDownPlayback()
         currentPodcast = nil
-        queue = PlaybackQueue()
+        queue = PlaybackQueue<Podcast>()
         presentation = .hidden
         didFinishCurrentEpisode = false
     }

@@ -240,7 +240,7 @@ final class ArchitectureOracleTests: XCTestCase {
                          controlPath: "Podcast/PodcastRowView.swift", controlFragment: #"case "processing":"#),
             LiteralGroup(key: "TA-R-CT-3", pattern: #"==\s*"featured""#,
                          isCanonical: exact("Catalog/Domain/EpisodeContent.swift"), excludesPath: never,
-                         controlPath: "Models/Podcast.swift", controlFragment: #"sourceKind == "featured""#),
+                         controlPath: "Catalog/Domain/EpisodeContent.swift", controlFragment: #"sourceKind == "featured""#),
             LiteralGroup(key: "TA-R-PB-5", pattern: #"max\(0,\s*(\w+\.)?currentTime\b|min\(\s*(\w+\.)?duration\s*,"#,
                          isCanonical: { path, _ in path.hasPrefix("Podcast/Playback/Domain/") }, excludesPath: never,
                          controlPath: "Podcast/AudioPlayerView.swift", controlFragment: "max(0, vm.currentTime"),
@@ -350,7 +350,7 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let domain = filesInLayer(.domain)
         assertNonEmptyContents(domain, "domain")
-        assertContains(domain, ["Podcast/PlaybackQueue.swift", "Podcast/TranscriptTiming.swift"], "domain")
+        assertContains(domain, ["Podcast/Playback/Domain/PlaybackQueue.swift", "Catalog/Domain/TranscriptTiming.swift"], "domain")
         assertNoHits(collectHits(in: domain, where: isViolation), "TA-D1（domain の import と型名）")
     }
 
@@ -457,14 +457,14 @@ final class ArchitectureOracleTests: XCTestCase {
         let domain = filesInLayer(.domain)
         assertNonEmptyContents(domain, "domain")
         let hits = collectHits(in: domain, where: isDTO)
-        XCTAssertTrue(hits.contains { $0.path == "Podcast/PlaybackQueue.swift" }, "PlaybackQueue の DTO の行が集合に無い")
+        XCTAssertTrue(hits.contains { $0.path == "Models/FeaturedCategory.swift" }, "FeaturedCategory の DTO の行が集合に無い")
         assertAllowlistMatches(rule: "TA-D2", measured: hits)
     }
 
     // verifies: TA-V2（TA-D4・TA-D6 の DTO の分）
     func testTA_V2b_presentationNamesNoDTO() throws {
         let names = dtoNames
-        XCTAssertEqual(names.count, 43, "DTO は 43 個（adapter のファイルの Codable 適合の宣言）")
+        XCTAssertEqual(names.count, 39, "DTO は 39 個（I-T2a で葉の値型 4 つが domain へ）")
         let isDTO = try matcher([wordPattern(names)])
         // 負の対照: 単語境界で照合する（`Podcast` が `PodcastViewModel` に当たらない）。
         let podcastOnly = try matcher([wordPattern(["Podcast"])])

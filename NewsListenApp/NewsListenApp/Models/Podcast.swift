@@ -7,44 +7,6 @@
 
 import Foundation
 
-/// トランスクリプトの1発話。バックエンドの `segments[]` 要素に対応する（issue #162）。
-struct TranscriptSegment: Codable, Equatable {
-    /// 話者ラベル（例: `"A"` / `"B"`）。
-    let speaker: String
-    /// その発話のテキスト。
-    let text: String
-    /// 役割ラベル（`"fact"` / `"commentary"`）。ADR-094 第一段階（issue #237）。
-    /// バックエンドは常にキーを返す（未設定時 null）が、`var` + 既定値にして
-    /// 既存の `TranscriptSegment(speaker:text:)` 呼び出し（memberwise init）を維持する。
-    var role: String? = nil
-}
-
-/// Podcast の出典記事1件。バックエンドの `source_articles[]` 要素に対応する（ADR-095 / issue #240）。
-/// 4キーすべて必須（要素内のキー欠落は `Podcast` 全体のデコード失敗として扱い、部分救済しない）。
-struct PodcastSourceArticle: Codable, Equatable {
-    /// 出典記事の ID。
-    let articleId: String
-    /// 出典記事のタイトル。
-    let title: String
-    /// 出典記事の URL（文字列のまま保持し、表示直前に `linkURL` で検証する）。
-    let url: String
-    /// 出典元の名称（例: `"hackernews"`）。
-    let source: String
-
-    enum CodingKeys: String, CodingKey {
-        case articleId = "article_id"
-        case title, url, source
-    }
-
-    /// `url` を検証済みの `URL` として返す。`http` / `https` スキームのときだけ非 nil。
-    /// - WHY: `Link` は任意スキームを `openURL` に渡すため、バックエンド経由の外部由来文字列を
-    ///        無検証で開かない（入力検証）。
-    var linkURL: URL? {
-        guard let url = URL(string: url), let scheme = url.scheme?.lowercased() else { return nil }
-        return (scheme == "http" || scheme == "https") ? url : nil
-    }
-}
-
 /// 生成済みの Podcast 1件。バックエンドの `PodcastResponse` に対応する。
 struct Podcast: Codable, Identifiable {
     /// Podcast の一意な識別子。
@@ -150,45 +112,22 @@ extension Podcast {
     /// - 両方空の場合は `"ニュースポッドキャスト"` を返す（空欄は決して表示しない）。
     /// - Note: ロック画面 (`NowPlayingInfo`) とリスト行 (`PodcastRowView`) の両方がこのプロパティを経由することで
     ///         最終デフォルトを含むフォールバック階層を一か所に集約する。
-    var displayTitle: String {
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedTitle.isEmpty { return trimmedTitle }
-        let trimmedIntro = japaneseIntroText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedIntro.isEmpty ? "ニュースポッドキャスト" : trimmedIntro
-    }
+    var displayTitle: String { toEpisode().content.displayTitle }
 
     /// トランスクリプト折りたたみ UI（`AudioPlayerView`）を表示すべきかどうか。
-    /// `segments` が nil または空配列の場合は表示しない（旧エピソードのグレースフルデグレード・issue #162）。
-    var hasTranscript: Bool {
-        guard let segments else { return false }
-        return !segments.isEmpty
-    }
+    var hasTranscript: Bool { toEpisode().content.hasTranscript }
 
     /// 語彙グロッサリを表示できる内容があるか。
-    var hasVocabulary: Bool {
-        guard let vocabulary else { return false }
-        return !vocabulary.isEmpty
-    }
+    var hasVocabulary: Bool { toEpisode().content.hasVocabulary }
 
     /// 理解度クイズを提示できる設問があるか。
-    var hasQuiz: Bool {
-        guard let quiz else { return false }
-        return !quiz.isEmpty
-    }
+    var hasQuiz: Bool { toEpisode().content.hasQuiz }
 
     /// 出典セクションを表示すべきか（`sourceArticles` が非nil非空、issue #240）。
-    var hasSourceArticles: Bool {
-        guard let sourceArticles else { return false }
-        return !sourceArticles.isEmpty
-    }
+    var hasSourceArticles: Bool { toEpisode().content.hasSourceArticles }
 
-    /// CC BY-SA 4.0 表示を出すべきか。`sourceKind == "featured"` の完全一致のときだけ true
-    /// （ADR-095、fail-closed）。`"user"` / `"unknown"` / `nil` / 未知値は false。
-    /// 正規化（trim / lowercased）は行わない。契約上の値は小文字固定であり、正規化を入れると
-    /// backend と iOS の二重管理になる。
-    var showsCcBySaLicense: Bool {
-        sourceKind == "featured"
-    }
+    /// CC BY-SA 4.0 表示を出すべきか（規則は `EpisodeContent.showsCcBySaLicense`）。
+    var showsCcBySaLicense: Bool { toEpisode().content.showsCcBySaLicense }
 }
 
 extension Podcast {

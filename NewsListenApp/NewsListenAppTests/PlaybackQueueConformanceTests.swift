@@ -21,7 +21,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     // MARK: - Q-01/Q-02: current / upNext アクセサ
 
     func testQ01_currentAndUpNextWithCurrent() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 1)
 
         XCTAssertEqual(q.current?.id, "b")
@@ -29,7 +29,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ02_currentAndUpNextWithoutCurrent() {
-        let q = PlaybackQueue(items: [podcast("a"), podcast("b")], currentIndex: nil)
+        let q = PlaybackQueue<Podcast>(items: [podcast("a"), podcast("b")], currentIndex: nil)
 
         XCTAssertNil(q.current)
         XCTAssertEqual(q.upNext.map { $0.id }, ["a", "b"])
@@ -38,7 +38,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     // MARK: - Q-03: start(podcast)
 
     func testQ03_startReplacesQueueWithSingleEpisode() {
-        var q = PlaybackQueue(items: [podcast("x"), podcast("y")], currentIndex: 0)
+        var q = PlaybackQueue<Podcast>(items: [podcast("x"), podcast("y")], currentIndex: 0)
         q.start(with: podcast("z"))
 
         XCTAssertEqual(q.items.map { $0.id }, ["z"])
@@ -48,7 +48,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     // MARK: - Q-04〜Q-07: setQueue(items, startAt)
 
     func testQ04_setQueueFromEmptyStartsAtGivenIndex() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 1)
 
         XCTAssertEqual(q.items.map { $0.id }, ["a", "b", "c"])
@@ -57,7 +57,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ05_setQueueClampsNegativeStartAtToZero() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: -5)
 
         XCTAssertEqual(q.currentIndex, 0)
@@ -65,7 +65,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ06_setQueueClampsOverflowingStartAtToLastIndex() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 10)
 
         XCTAssertEqual(q.currentIndex, 2)
@@ -74,7 +74,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ07_setQueueWithEmptyListYieldsEmptyQueue() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([], startAt: 0)
 
         XCTAssertEqual(q.items.map { $0.id }, [])
@@ -84,7 +84,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     // MARK: - Q-08/Q-09: add(podcast)
 
     func testQ08_addAppendsToTail() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.start(with: podcast("a"))
         q.add(podcast("b"))
 
@@ -93,7 +93,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ09_addIsNoOpForDuplicateId() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b")], startAt: 0)
         q.add(podcast("b"))
 
@@ -103,7 +103,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     // MARK: - Q-10〜Q-13: playNext(podcast)
 
     func testQ10_playNextInsertsRightAfterCurrent() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 1)
         q.playNext(podcast("d"))
 
@@ -113,7 +113,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ11_playNextMovesExistingDuplicateAfterCurrent() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 0)
         q.playNext(podcast("c"))
 
@@ -123,7 +123,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ12_playNextForCurrentEpisodeIsNoOp() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 0)
         q.playNext(podcast("a"))
 
@@ -132,7 +132,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ13_playNextWithoutCurrentInsertsAtHead() {
-        var q = PlaybackQueue(items: [podcast("a"), podcast("b")], currentIndex: nil)
+        var q = PlaybackQueue<Podcast>(items: [podcast("a"), podcast("b")], currentIndex: nil)
         q.playNext(podcast("c"))
 
         XCTAssertEqual(q.items.map { $0.id }, ["c", "a", "b"])
@@ -142,7 +142,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     // MARK: - Q-14/Q-15: jump(id)
 
     func testQ14_jumpToExistingItemSetsCurrentAndReturnsTrue() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 0)
 
         XCTAssertTrue(q.jump(to: "c"))
@@ -150,7 +150,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ15_jumpToMissingItemReturnsFalseAndLeavesCurrentUnchanged() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 0)
 
         XCTAssertFalse(q.jump(to: "zzz"))
@@ -160,7 +160,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     // MARK: - Q-16〜Q-19: advance()
 
     func testQ16_advanceFromNoCurrentStartsAtHead() {
-        var q = PlaybackQueue(items: [podcast("a"), podcast("b"), podcast("c")], currentIndex: nil)
+        var q = PlaybackQueue<Podcast>(items: [podcast("a"), podcast("b"), podcast("c")], currentIndex: nil)
         let next = q.advance()
 
         XCTAssertEqual(next?.id, "a")
@@ -168,7 +168,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ17_advanceMovesToNextItem() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 0)
         let next = q.advance()
 
@@ -177,7 +177,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ18_advanceAtTailStopsAndKeepsCurrent() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 2)
         let next = q.advance()
 
@@ -186,14 +186,14 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ19_advanceOnEmptyQueueReturnsNil() {
-        var q = PlaybackQueue(items: [], currentIndex: nil)
+        var q = PlaybackQueue<Podcast>(items: [], currentIndex: nil)
         XCTAssertNil(q.advance())
     }
 
     // MARK: - Q-20〜Q-25: remove(id)
 
     func testQ20_removeItemBeforeCurrentShiftsCurrentIndexDown() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 2)
         q.remove(id: "a")
 
@@ -202,7 +202,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ21_removeCurrentItemPromotesNext() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 1)
         q.remove(id: "b")
 
@@ -211,7 +211,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ22_removeCurrentAtTailClampsToNewTail() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 2)
         q.remove(id: "c")
 
@@ -220,7 +220,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ23_removeItemAfterCurrentLeavesCurrentUnaffected() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 0)
         q.remove(id: "c")
 
@@ -229,7 +229,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ24_removeMissingIdIsNoOp() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 1)
         q.remove(id: "zzz")
 
@@ -238,7 +238,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ25_removeLastRemainingItemEmptiesQueue() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.start(with: podcast("a"))
         q.remove(id: "a")
 
@@ -253,7 +253,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     // Q-26/Q-28/Q-32 は旧 web（splice 方式）との乖離検出行だが iOS 自身は乖離しない想定。
 
     func testQ26_moveUpNextForwardUsesOnMoveSemantics() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c"), podcast("d")], startAt: 0)
         q.reorderUpNext(fromOffsets: IndexSet(integer: 0), toOffset: 2)
 
@@ -263,7 +263,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ27_moveUpNextBackwardMatchesBothSemantics() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c"), podcast("d")], startAt: 0)
         q.reorderUpNext(fromOffsets: IndexSet(integer: 2), toOffset: 0)
 
@@ -272,7 +272,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ28_moveUpNextToOffsetEqualsCountMovesToTail() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c"), podcast("d")], startAt: 0)
         // upNext count = 3。toOffset == count は末尾への移動（onMove 規約）。
         q.reorderUpNext(fromOffsets: IndexSet(integer: 0), toOffset: 3)
@@ -282,7 +282,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ29_moveUpNextWithOutOfRangeToOffsetIsNoOp() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c"), podcast("d")], startAt: 0)
         // upNext count = 3。有効な toOffset は [0, 3]。4 は範囲外 ⟹ 正本は無変更（no-op）。
         q.reorderUpNext(fromOffsets: IndexSet(integer: 0), toOffset: 4)
@@ -292,7 +292,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ30_moveUpNextWithOutOfRangeFromIsNoOp() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c"), podcast("d")], startAt: 0)
         // upNext count = 3。有効な from は [0, 2]。5 は範囲外 ⟹ 正本は無変更（no-op）。
         q.reorderUpNext(fromOffsets: IndexSet(integer: 5), toOffset: 0)
@@ -302,7 +302,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ31_moveUpNextToSamePositionIsNoOp() {
-        var q = PlaybackQueue()
+        var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c"), podcast("d")], startAt: 0)
         q.reorderUpNext(fromOffsets: IndexSet(integer: 1), toOffset: 1)
 
@@ -310,7 +310,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
     }
 
     func testQ32_moveUpNextWithoutCurrentOperatesOnWholeQueue() {
-        var q = PlaybackQueue(items: [podcast("a"), podcast("b"), podcast("c")], currentIndex: nil)
+        var q = PlaybackQueue<Podcast>(items: [podcast("a"), podcast("b"), podcast("c")], currentIndex: nil)
         q.reorderUpNext(fromOffsets: IndexSet(integer: 0), toOffset: 2)
 
         XCTAssertEqual(q.upNext.map { $0.id }, ["b", "a", "c"])
