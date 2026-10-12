@@ -9,8 +9,8 @@ import MediaPlayer
 
 /// `MPNowPlayingInfoCenter` / `MPRemoteCommandCenter` を使う本番実装。登録表は持たない（解除は token が担う）。
 final class MediaPlayerNowPlaying: NowPlayingCenter {
-    func update(_ info: [String: Any]) {
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    func update(_ snapshot: NowPlayingSnapshot) {
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = NowPlayingInfo.make(snapshot: snapshot)
     }
 
     /// 経過/総時間のみを既存の Now Playing 辞書に上書きする軽量更新。

@@ -297,4 +297,37 @@ final class PodcastViewModelPortTests: XCTestCase {
         XCTAssertEqual(rig.vm.currentTime, 0, "読み込み済みなので seek(to: 0) する")
         XCTAssertTrue(rig.vm.isPlaying)
     }
+
+    // verifies: CI-NS8
+    // kills: subtitle に難易度の生コードを渡す／title に表示名ではなく紹介文（intro）を渡す／
+    // elapsed と duration の取り違え／rate に固定値を渡す／isPlaying を反映しない
+    func testN14_nowPlayingSnapshotMapsTheViewModelState() async throws {
+        let rig = makeRig()
+        let episode = Podcast(
+            id: "a", type: "single", articleIds: [], difficulty: "toeic_900",
+            audioUrl: "https://storage.example.com/a.mp3", title: "速報タイトル",
+            japaneseIntroText: "i",
+            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0, segments: nil
+        )
+        await rig.vm.play(podcast: episode)
+        // timeUpdate は経過時間だけを更新するので、全体更新は setSpeed で起こす。
+        await rig.engine.send(.timeUpdate(seconds: 12, duration: 300))
+
+        rig.vm.setSpeed(1.5)
+
+        XCTAssertEqual(episode.displayTitle, "速報タイトル", "title が intro より優先される前提")
+        XCTAssertNotEqual(DifficultyLabel.text(for: episode.difficulty), episode.difficulty, "表示ラベルは生コードと違う")
+        XCTAssertEqual(
+            rig.spy.currentInfo,
+            NowPlayingSnapshot(
+                title: episode.displayTitle,
+                subtitle: DifficultyLabel.text(for: episode.difficulty),
+                elapsed: 12, duration: 300, rate: 1.5, isPlaying: true
+            )
+        )
+
+        rig.vm.togglePlayPause()
+        XCTAssertEqual(rig.spy.currentInfo?.isPlaying, false, "一時停止は snapshot に反映される")
+    }
 }

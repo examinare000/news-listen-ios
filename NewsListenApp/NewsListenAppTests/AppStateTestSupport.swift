@@ -21,8 +21,8 @@ final class NowPlayingCenterSpy: NowPlayingCenter {
     /// `clear()` が呼ばれた時点の追加観測用フック（例: token/session のスナップショット）。
     var onClear: (() -> Void)?
 
-    /// ロック画面の辞書（`update` で設定し、`clear` で nil）。
-    private(set) var currentInfo: [String: Any]?
+    /// ロック画面へ渡した値（`update` で設定し、`clear` で nil）。
+    private(set) var currentInfo: NowPlayingSnapshot?
     /// 直近の `updateElapsed` の引数。
     private(set) var lastElapsedUpdate: (elapsed: Double, duration: Double)?
     /// `registerCommands` が発行した token と handler の組（発行順）。
@@ -31,8 +31,8 @@ final class NowPlayingCenterSpy: NowPlayingCenter {
     /// 解除されていない（`isCancelled == false` の）token の数。
     var activeRegistrationCount: Int { registrations.filter { !$0.token.isCancelled }.count }
 
-    func update(_ info: [String: Any]) {
-        currentInfo = info
+    func update(_ snapshot: NowPlayingSnapshot) {
+        currentInfo = snapshot
     }
 
     func updateElapsed(_ elapsed: Double, duration: Double) {

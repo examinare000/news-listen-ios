@@ -16,40 +16,22 @@ import MediaPlayer
 enum NowPlayingInfo {
     /// 再生状態から Now Playing 情報辞書を組み立てる。
     ///
+    /// - title と subtitle は加工せず、曲名とアーティスト名に載せる。
     /// - duration は有限かつ正のときのみ載せる（未確定の NaN/∞ はロック画面表示を崩すため除外）。
     /// - elapsed は 0 未満を 0 に丸める。
     /// - rate は一時停止中に 0 を載せ、ロック画面側の進行表示を止める。
-    /// - Parameters:
-    ///   - podcast: 再生中の Podcast。
-    ///   - elapsed: 現在の再生位置（秒）。
-    ///   - duration: 総再生時間（秒）。
-    ///   - rate: 再生速度（倍率）。
-    ///   - isPlaying: 再生中かどうか。
-    static func make(
-        podcast: Podcast,
-        elapsed: Double,
-        duration: Double,
-        rate: Float,
-        isPlaying: Bool
-    ) -> [String: Any] {
+    /// - Parameter snapshot: ロック画面へ渡す再生情報。
+    static func make(snapshot: NowPlayingSnapshot) -> [String: Any] {
         var info: [String: Any] = [:]
-        info[MPMediaItemPropertyTitle] = title(for: podcast)
-        info[MPMediaItemPropertyArtist] = DifficultyLabel.text(for: podcast.difficulty)
-        if duration.isFinite, duration > 0 {
-            info[MPMediaItemPropertyPlaybackDuration] = duration
+        info[MPMediaItemPropertyTitle] = snapshot.title
+        info[MPMediaItemPropertyArtist] = snapshot.subtitle
+        if snapshot.duration.isFinite, snapshot.duration > 0 {
+            info[MPMediaItemPropertyPlaybackDuration] = snapshot.duration
         }
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, elapsed)
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, snapshot.elapsed)
         // 一時停止中は rate=0 を載せてロック画面の進行を止める。
-        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(rate) : 0.0
+        info[MPNowPlayingInfoPropertyPlaybackRate] = snapshot.isPlaying ? Double(snapshot.rate) : 0.0
         return info
-    }
-
-    /// ロック画面に表示するタイトルを決める。
-    /// フォールバック階層（title → japaneseIntroText → "ニュースポッドキャスト"）は `Podcast.displayTitle` に集約済み。
-    /// ここでは `displayTitle` をそのまま返すだけで、独自の trim やデフォルト処理は行わない。
-    /// - Parameter podcast: 対象の Podcast。
-    static func title(for podcast: Podcast) -> String {
-        podcast.displayTitle
     }
 }
 

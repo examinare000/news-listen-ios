@@ -39,12 +39,8 @@ enum ArchitectureManifest {
         // domain
         "Models/FeaturedCategory.swift": .domain,
         // application
-        "Podcast/PlaybackLifecycle.swift": .application,
-        "Podcast/PlayerPresentation.swift": .application,
-        "Podcast/Platform/NowPlayingCenter.swift": .application,
         "Passkey/PasskeyAuthorizationProviding.swift": .application,
         // adapter（5 規則のどれにも当たらないもの）
-        "Podcast/NowPlayingInfo.swift": .adapter,
         "Passkey/PasskeyModels.swift": .adapter,
         "Sessions/SessionModels.swift": .adapter,
         "Passkey/PasskeyOptionsDecoder.swift": .adapter,
@@ -58,8 +54,8 @@ enum ArchitectureManifest {
     /// port を定義するファイル（TA-D11 の対象）。
     static let portFiles: Set<String> = [
         "Podcast/Playback/AudioEngine.swift",
-        "Podcast/Platform/NowPlayingCenter.swift",
-        "Podcast/PlaybackLifecycle.swift",
+        "Podcast/Playback/NowPlayingCenter.swift",
+        "Podcast/Playback/PlaybackLifecycle.swift",
         "Passkey/PasskeyAuthorizationProviding.swift",
     ]
 
@@ -124,7 +120,6 @@ enum ArchitectureManifest {
         ("TA-D6/DTO", "Starred/StarredViewModel.swift", 2),
         ("TA-D8", "DesignSystem/PreviewSupport.swift", 2),
         ("TA-D8", "Podcast/QuizSheetView.swift", 1),
-        ("TA-D11", "Podcast/Platform/NowPlayingCenter.swift", 1),
         ("TA-R-CT-1・2", "Podcast/PodcastRowView.swift", 3),
         ("TA-R-PB-5", "Podcast/AudioPlayerView.swift", 2),
         ("TA-R-PB-5", "Podcast/PodcastViewModel.swift", 2),
