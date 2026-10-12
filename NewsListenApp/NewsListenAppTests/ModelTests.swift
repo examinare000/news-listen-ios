@@ -997,4 +997,86 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(response.results[1].correctIndex, 2)
         XCTAssertFalse(response.results[1].isCorrect)
     }
+
+    // MARK: - 葉の値型の Codable（キー名と省略の扱いを固定）
+
+    private func encodedObject<T: Encodable>(_ value: T) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(value)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    // verifies: TA-V11
+    func testLeafValueTypesEncodeWithBackendKeysAndOmitNilRole() throws {
+        let withRole = try encodedObject(TranscriptSegment(speaker: "A", text: "hi", role: "fact"))
+        XCTAssertEqual(Set(withRole.keys), ["speaker", "text", "role"])
+        XCTAssertEqual(withRole["role"] as? String, "fact")
+
+        let withoutRole = try encodedObject(TranscriptSegment(speaker: "A", text: "hi"))
+        XCTAssertEqual(Set(withoutRole.keys), ["speaker", "text"])
+
+        let vocabulary = try encodedObject(VocabularyEntry(term: "t", meaningJa: "意味", example: "e"))
+        XCTAssertEqual(Set(vocabulary.keys), ["term", "meaning_ja", "example"])
+        XCTAssertEqual(vocabulary["meaning_ja"] as? String, "意味")
+
+        let quiz = try encodedObject(QuizQuestion(question: "q", options: ["x", "y"]))
+        XCTAssertEqual(Set(quiz.keys), ["question", "options"])
+
+        let article = try encodedObject(PodcastSourceArticle(articleId: "a1", title: "t", url: "https://example.com", source: "s"))
+        XCTAssertEqual(Set(article.keys), ["article_id", "title", "url", "source"])
+        XCTAssertEqual(article["article_id"] as? String, "a1")
+    }
+
+    // verifies: TA-V11
+    func testLeafValueTypesRoundTripThroughJSON() throws {
+        let segments = [
+            TranscriptSegment(speaker: "A", text: "hi", role: "commentary"),
+            TranscriptSegment(speaker: "B", text: "yo"),
+        ]
+        let vocabulary = VocabularyEntry(term: "t", meaningJa: "意味", example: "e")
+        let quiz = QuizQuestion(question: "q", options: ["x", "y"])
+        let article = PodcastSourceArticle(articleId: "a1", title: "t", url: "https://example.com", source: "s")
+        let decoder = JSONDecoder()
+
+        XCTAssertEqual(try decoder.decode([TranscriptSegment].self, from: JSONEncoder().encode(segments)), segments)
+        XCTAssertEqual(try decoder.decode(VocabularyEntry.self, from: JSONEncoder().encode(vocabulary)), vocabulary)
+        XCTAssertEqual(try decoder.decode(QuizQuestion.self, from: JSONEncoder().encode(quiz)), quiz)
+        XCTAssertEqual(try decoder.decode(PodcastSourceArticle.self, from: JSONEncoder().encode(article)), article)
+    }
+
+    // verifies: TA-V11
+    func testLeafValueTypesRejectMissingRequiredKeys() {
+        let decoder = JSONDecoder()
+        XCTAssertThrowsError(try decoder.decode(TranscriptSegment.self, from: Data(#"{"speaker":"A"}"#.utf8)))
+        XCTAssertThrowsError(try decoder.decode(VocabularyEntry.self, from: Data(#"{"term":"t","example":"e"}"#.utf8)))
+        XCTAssertThrowsError(try decoder.decode(QuizQuestion.self, from: Data(#"{"question":"q"}"#.utf8)))
+        XCTAssertThrowsError(try decoder.decode(PodcastSourceArticle.self, from: Data(#"{"article_id":"a","title":"t","url":"u"}"#.utf8)))
+    }
+
+    // MARK: - 推定タイミングの移行用の入口
+
+    // verifies: TA-R-CT-4
+    func testTranscriptSourceMirrorsPodcastFieldsAndLegacyEntryPointAgrees() throws {
+        let segments = [
+            TranscriptSegment(speaker: "A", text: "ab"),
+            TranscriptSegment(speaker: "B", text: "cd"),
+        ]
+        let podcast = Podcast(
+            id: "p", type: "single", articleIds: [], difficulty: "toeic_900",
+            audioUrl: "https://example.com/p.mp3", title: "t",
+            japaneseIntroText: "導入",
+            durationSeconds: 80, createdAt: "2026-05-31T06:00:00Z", status: "completed",
+            errorMessage: nil, playbackPositionSeconds: 0, segments: segments
+        )
+
+        XCTAssertEqual(
+            podcast.transcriptSource,
+            TranscriptSource(introText: "導入", segments: segments, durationSeconds: 80)
+        )
+
+        let timing: TranscriptTimingProviding = EstimatedTranscriptTiming()
+        let viaPodcast = try XCTUnwrap(timing.segmentStartOffsets(for: podcast))
+        let viaSource = try XCTUnwrap(timing.segmentStartOffsets(for: podcast.transcriptSource))
+        XCTAssertEqual(viaPodcast, viaSource)
+        XCTAssertEqual(viaPodcast, [40, 60])
+    }
 }

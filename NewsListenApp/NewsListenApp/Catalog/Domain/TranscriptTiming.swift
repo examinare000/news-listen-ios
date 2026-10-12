@@ -10,14 +10,21 @@
 
 import Foundation
 
+/// 推定タイミングの入力。エピソードの冒頭イントロ・発話一覧・音声全体の長さだけを持つ。
+struct TranscriptSource: Equatable {
+    let introText: String
+    let segments: [TranscriptSegment]?
+    let durationSeconds: Int
+}
+
 /// トランスクリプト各セグメントの開始時刻（秒）を供給する差し替え点。
 ///
 /// 将来バックエンドが `segments[].start_seconds` を返すようになったら、
 /// 実時刻を優先する実装を追加してここを差し替える（UI 側は本 protocol にのみ依存する）。
 protocol TranscriptTimingProviding {
-    /// 各セグメントの推定開始秒（`podcast.segments` と同順・同数）。
+    /// 各セグメントの推定開始秒（`source.segments` と同順・同数）。
     /// 算出不能（duration 0・セグメント無し・文字数計 0）なら nil。
-    func segmentStartOffsets(for podcast: Podcast) -> [Double]?
+    func segmentStartOffsets(for source: TranscriptSource) -> [Double]?
 }
 
 /// 文字数按分による推定タイミング。
@@ -34,12 +41,12 @@ struct EstimatedTranscriptTiming: TranscriptTimingProviding {
     /// ここだけを再調整すればよい。
     static let japaneseCharWeight: Double = 2.0
 
-    func segmentStartOffsets(for podcast: Podcast) -> [Double]? {
-        guard let segments = podcast.segments else { return nil }
+    func segmentStartOffsets(for source: TranscriptSource) -> [Double]? {
+        guard let segments = source.segments else { return nil }
         return Self.offsets(
-            introCharCount: podcast.japaneseIntroText.count,
+            introCharCount: source.introText.count,
             segmentCharCounts: segments.map { $0.text.count },
-            totalDuration: Double(podcast.durationSeconds)
+            totalDuration: Double(source.durationSeconds)
         )
     }
 

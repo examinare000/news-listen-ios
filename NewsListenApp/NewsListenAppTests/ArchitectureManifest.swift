@@ -37,9 +37,6 @@ enum ArchitectureManifest {
     /// 混在ファイルと、規則に当たらないファイルを割り当てる。目標の path へ移した slice でその行を消す。
     static let explicitLayers: [String: ArchitectureLayer] = [
         // domain
-        "Podcast/PlaybackQueue.swift": .domain,
-        "Podcast/PlaybackConstants.swift": .domain,
-        "Podcast/TranscriptTiming.swift": .domain,
         "Models/FeaturedCategory.swift": .domain,
         // application
         "Podcast/PlaybackLifecycle.swift": .application,
@@ -71,6 +68,8 @@ enum ArchitectureManifest {
         "TranscriptTimingTests.swift",
         "PlaybackQueueTests.swift",
         "PlaybackQueueConformanceTests.swift",
+        "EpisodeTests.swift",
+        "EpisodeContentTests.swift",
     ]
 
     /// TA-D12 の恒久の許可リスト（入力の下書き 6 個）。
@@ -96,8 +95,6 @@ enum ArchitectureManifest {
         ("TA-D13", "Settings/SettingsViewModel.swift", 2),
         ("TA-D13", "Starred/StarredViewModel.swift", 1),
         ("TA-D2", "Models/FeaturedCategory.swift", 2),
-        ("TA-D2", "Podcast/PlaybackQueue.swift", 10),
-        ("TA-D2", "Podcast/TranscriptTiming.swift", 2),
         ("TA-D4/DTO", "Auth/LoginView.swift", 1),
         ("TA-D4/DTO", "DesignSystem/Components/DSStreakToolbar.swift", 1),
         ("TA-D4/DTO", "DesignSystem/PreviewSupport.swift", 12),
@@ -106,11 +103,11 @@ enum ArchitectureManifest {
         ("TA-D4/DTO", "Feed/SwipeableArticleCard.swift", 1),
         ("TA-D4/DTO", "Learning/LearningView.swift", 5),
         ("TA-D4/DTO", "Onboarding/OnboardingSourcesView.swift", 1),
-        ("TA-D4/DTO", "Podcast/AudioPlayerView.swift", 11),
+        ("TA-D4/DTO", "Podcast/AudioPlayerView.swift", 7),
         ("TA-D4/DTO", "Podcast/PodcastRowView.swift", 4),
         ("TA-D4/DTO", "Podcast/PodcastView.swift", 4),
         ("TA-D4/DTO", "Podcast/QueueSheet.swift", 1),
-        ("TA-D4/DTO", "Podcast/QuizSheetView.swift", 12),
+        ("TA-D4/DTO", "Podcast/QuizSheetView.swift", 11),
         ("TA-D4/DTO", "Settings/AccountSettingsView.swift", 1),
         ("TA-D4/DTO", "Settings/SettingsView.swift", 5),
         ("TA-D4/DTO", "Starred/StarredView.swift", 2),
@@ -121,7 +118,7 @@ enum ArchitectureManifest {
         ("TA-D6/DTO", "Onboarding/OnboardingSourcesViewModel.swift", 3),
         ("TA-D6/DTO", "Passkey/PasskeyCredentialsViewModel.swift", 1),
         ("TA-D6/DTO", "Passkey/PasskeyLoginViewModel.swift", 2),
-        ("TA-D6/DTO", "Podcast/PodcastViewModel.swift", 12),
+        ("TA-D6/DTO", "Podcast/PodcastViewModel.swift", 14),
         ("TA-D6/DTO", "Sessions/SessionsViewModel.swift", 1),
         ("TA-D6/DTO", "Settings/SettingsViewModel.swift", 4),
         ("TA-D6/DTO", "Starred/StarredViewModel.swift", 2),
@@ -129,7 +126,6 @@ enum ArchitectureManifest {
         ("TA-D8", "Podcast/QuizSheetView.swift", 1),
         ("TA-D11", "Podcast/Platform/NowPlayingCenter.swift", 1),
         ("TA-R-CT-1・2", "Podcast/PodcastRowView.swift", 3),
-        ("TA-R-CT-3", "Models/Podcast.swift", 1),
         ("TA-R-PB-5", "Podcast/AudioPlayerView.swift", 2),
         ("TA-R-PB-5", "Podcast/PodcastViewModel.swift", 2),
         ("TA-R-PB-4", "Settings/SettingsView.swift", 1),

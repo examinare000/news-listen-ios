@@ -85,33 +85,24 @@ final class TranscriptTimingTests: XCTestCase {
         XCTAssertNil(EstimatedTranscriptTiming.activeSegmentIndex(offsets: [], currentTime: 10))
     }
 
-    // MARK: - TranscriptTimingProviding: Podcast からの供給
+    // MARK: - TranscriptTimingProviding: TranscriptSource からの供給
 
     func testProviderDerivesOffsetsFromPodcastFields() throws {
         // イントロ2文字 × 重み既定2.0 = 加重4、セグメント計4文字 → 加重8が80秒に対応。
-        let podcast = Podcast(
-            id: "p", type: "single", articleIds: [], difficulty: "toeic_900",
-            audioUrl: "https://example.com/p.mp3", title: "t",
-            japaneseIntroText: "導入",
-            durationSeconds: 80, createdAt: "2026-05-31T06:00:00Z", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0,
+        let source = TranscriptSource(
+            introText: "導入",
             segments: [
                 TranscriptSegment(speaker: "A", text: "ab"),
                 TranscriptSegment(speaker: "B", text: "cd"),
-            ]
+            ],
+            durationSeconds: 80
         )
-        let offsets = try XCTUnwrap(EstimatedTranscriptTiming().segmentStartOffsets(for: podcast))
+        let offsets = try XCTUnwrap(EstimatedTranscriptTiming().segmentStartOffsets(for: source))
         XCTAssertEqual(offsets, [40, 60])
     }
 
     func testProviderReturnsNilWithoutSegments() {
-        let podcast = Podcast(
-            id: "p", type: "single", articleIds: [], difficulty: "toeic_900",
-            audioUrl: "https://example.com/p.mp3", title: "t",
-            japaneseIntroText: "",
-            durationSeconds: 80, createdAt: "2026-05-31T06:00:00Z", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0, segments: nil
-        )
-        XCTAssertNil(EstimatedTranscriptTiming().segmentStartOffsets(for: podcast))
+        let source = TranscriptSource(introText: "", segments: nil, durationSeconds: 80)
+        XCTAssertNil(EstimatedTranscriptTiming().segmentStartOffsets(for: source))
     }
 }

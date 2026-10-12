@@ -11,14 +11,14 @@ import Foundation
 /// 順序付きの再生キュー。現在再生中の位置（`currentIndex`）と待機列を管理する。
 ///
 /// プレイヤー非依存（副作用なし）。`PodcastViewModel` が再生終了イベントで `advance()` を呼び、
-/// 返った Podcast を再生する（nil なら停止）。
-struct PlaybackQueue {
+/// 返った要素を再生する（nil なら停止）。
+struct PlaybackQueue<Item: Identifiable> where Item.ID == String {
     /// キュー全体（再生済み + 現在 + 待機）。
-    private(set) var items: [Podcast]
+    private(set) var items: [Item]
     /// 現在再生中の位置。未再生・空のときは nil。
     private(set) var currentIndex: Int?
 
-    init(items: [Podcast] = [], currentIndex: Int? = nil) {
+    init(items: [Item] = [], currentIndex: Int? = nil) {
         self.items = items
         if let i = currentIndex, items.indices.contains(i) {
             self.currentIndex = i
@@ -27,14 +27,14 @@ struct PlaybackQueue {
         }
     }
 
-    /// 現在再生中の Podcast（なければ nil）。
-    var current: Podcast? {
+    /// 現在再生中の要素（なければ nil）。
+    var current: Item? {
         guard let i = currentIndex, items.indices.contains(i) else { return nil }
         return items[i]
     }
 
     /// 再生待ち（現在より後ろの要素）。
-    var upNext: [Podcast] {
+    var upNext: [Item] {
         guard let i = currentIndex else { return items }
         let start = min(i + 1, items.count)
         return Array(items[start...])
@@ -44,34 +44,34 @@ struct PlaybackQueue {
     var isEmpty: Bool { items.isEmpty }
 
     /// 単一エピソードで開始する（既存キューを置き換える）。
-    mutating func start(with podcast: Podcast) {
-        items = [podcast]
+    mutating func start(with item: Item) {
+        items = [item]
         currentIndex = 0
     }
 
     /// 一覧を指定位置から再生する（「ここから連続再生」）。
-    mutating func setQueue(_ podcasts: [Podcast], startAt index: Int) {
-        items = podcasts
-        currentIndex = podcasts.isEmpty ? nil : max(0, min(index, podcasts.count - 1))
+    mutating func setQueue(_ newItems: [Item], startAt index: Int) {
+        items = newItems
+        currentIndex = newItems.isEmpty ? nil : max(0, min(index, newItems.count - 1))
     }
 
     /// 末尾に追加する（既に含まれていれば無視＝重複防止）。
-    mutating func add(_ podcast: Podcast) {
-        guard !items.contains(where: { $0.id == podcast.id }) else { return }
-        items.append(podcast)
+    mutating func add(_ item: Item) {
+        guard !items.contains(where: { $0.id == item.id }) else { return }
+        items.append(item)
     }
 
     /// 現在の次に挿入する（「次に再生」）。既存の重複（現在再生中を除く）は取り除いてから挿入する。
-    mutating func playNext(_ podcast: Podcast) {
+    mutating func playNext(_ item: Item) {
         let currentId = current?.id
-        if podcast.id == currentId { return }   // 再生中の自分自身は何もしない
-        items.removeAll { $0.id == podcast.id }
+        if item.id == currentId { return }   // 再生中の自分自身は何もしない
+        items.removeAll { $0.id == item.id }
         // 削除で currentIndex がずれうるため現在 id から再計算する。
         if let cid = currentId {
             currentIndex = items.firstIndex { $0.id == cid }
         }
         let insertAt = currentIndex.map { $0 + 1 } ?? 0
-        items.insert(podcast, at: min(insertAt, items.count))
+        items.insert(item, at: min(insertAt, items.count))
     }
 
     /// 指定 id が既にキューにあればそれを現在位置にする（「キュー内の別エピソードを今すぐ再生」）。
@@ -83,7 +83,7 @@ struct PlaybackQueue {
     }
 
     /// 次のエピソードへ進む。次があれば `currentIndex` を進めて返す。無ければ nil（停止）。
-    mutating func advance() -> Podcast? {
+    mutating func advance() -> Item? {
         guard let i = currentIndex else {
             // 未再生なら先頭から始める。
             guard !items.isEmpty else { return nil }
@@ -128,7 +128,7 @@ struct PlaybackQueue {
     }
 
     /// `Array.move(fromOffsets:toOffset:)`（SwiftUI 提供）と同じ規約での移動を自前実装する。
-    private static func applyMove(to array: inout [Podcast], fromOffsets source: IndexSet, toOffset destination: Int) {
+    private static func applyMove(to array: inout [Item], fromOffsets source: IndexSet, toOffset destination: Int) {
         // shared-playback-spec §2.7: 範囲外の moveUpNext はクランプせず no-op。
         guard !source.isEmpty, source.allSatisfy({ array.indices.contains($0) }), (0...array.count).contains(destination) else { return }
         let moving = source.sorted().map { array[$0] }
@@ -141,3 +141,5 @@ struct PlaybackQueue {
         array.insert(contentsOf: moving, at: insertAt)
     }
 }
+
+extension PlaybackQueue: Equatable where Item: Equatable {}
