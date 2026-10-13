@@ -27,7 +27,7 @@ final class LoginViewModelTests: XCTestCase {
         XCTAssertNil(vm.errorMessage)
     }
 
-    // T-T13-04（verifies: CI-T13, R-keep2）。
+    // T-T13-04（verifies: ios-contract-19, R-keep2）。
     func testWrongCredentialsShowsGenericError() async {
         var called = false
         let vm = LoginViewModel(apiClient: makeClient(data: Data(), status: 401)) { _ in called = true }

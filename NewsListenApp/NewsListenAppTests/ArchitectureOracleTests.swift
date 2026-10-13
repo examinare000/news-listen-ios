@@ -1,15 +1,15 @@
 import XCTest
 @testable import NewsListenApp
 
-/// 層の所属表（`ArchitectureManifest`）と依存方向の規則 TA-D* を、ソースを読んで検査する oracle。
+/// 層の所属表（`ArchitectureManifest`）と依存方向の規則 ios-dep-* を、ソースを読んで検査する oracle。
 /// `GrepOracleTests` と同じ方式（`SourceGrep` でコメント行を除いた行を集める）で、現状の違反は
 /// `ArchitectureManifest.allowlist` の `(規則キー, path, 行数)` に固定する。許可リストの比較は**等号だけ**で、
 /// 増えても減っても落ちる（減らした slice が同じ PR で一覧を減らす）。
 ///
-/// 規則キー: TA-D2・D3・D4・D5・D6・D8・D11・D12・D13 と、TA-V3 の 13 群（`TA-R-…`）。
-/// TA-D4・D6 は検査が 2 つに分かれる（DTO の分は T-TA-V2b、それ以外は T-TA-V4b）ので、
-/// DTO の分だけ `<規則 ID>/DTO` と書く。TA-D1・D7・D10 は 0 件が契約で、許可リストに行を持たない。
-/// TA-D14（既存の検査を保つ）は T-TA-V9 で検査する（`ci.yml:47` の grep を XCTest に入れたもの）。
+/// 規則キー: ios-dep-02・ios-dep-03・ios-dep-04・ios-dep-05・ios-dep-06・ios-dep-08・ios-dep-11・ios-dep-12・ios-dep-13 と、ios-check-04 の 13 群（`ios-rule-…`）。
+/// ios-dep-04・ios-dep-06 は検査が 2 つに分かれる（DTO の分は ios-test-059、それ以外は ios-test-064）ので、
+/// DTO の分だけ `<規則 ID>/DTO` と書く。ios-dep-01・ios-dep-07・ios-dep-10 は 0 件が契約で、許可リストに行を持たない。
+/// ios-dep-14（既存の検査を保つ）は ios-test-070 で検査する（`ci.yml:47` の grep を XCTest に入れたもの）。
 final class ArchitectureOracleTests: XCTestCase {
 
     // MARK: - 走査の土台
@@ -81,7 +81,7 @@ final class ArchitectureOracleTests: XCTestCase {
         }
     }
 
-    // MARK: 条件コンパイルと #Preview の除外（TA-D13 と TA-V3 だけで使う）
+    // MARK: 条件コンパイルと #Preview の除外（ios-dep-13 と ios-check-04 だけで使う）
 
     /// `#if DEBUG` の枝の中と `#Preview` ブロックの中の行（0 始まりの添字）。
     /// 全種類の `#if` の深さを追う（`#if canImport(UIKit)` などで範囲を取り違えない）。
@@ -220,7 +220,7 @@ final class ArchitectureOracleTests: XCTestCase {
         XCTAssertTrue(hits.isEmpty, "\(label) は 0 件であること。違反:\n\(describe(hits))", file: file, line: line)
     }
 
-    // MARK: TA-V3 の群
+    // MARK: ios-check-04 の群
 
     private struct LiteralGroup {
         let key: String
@@ -235,49 +235,49 @@ final class ArchitectureOracleTests: XCTestCase {
         func exact(_ paths: String...) -> (String, ArchitectureLayer?) -> Bool { { path, _ in paths.contains(path) } }
         let never: (String) -> Bool = { _ in false }
         return [
-            LiteralGroup(key: "TA-R-CT-1・2", pattern: #""(completed|processing|failed|partial_failed)""#,
+            LiteralGroup(key: "ios-rule-catalog-01・ios-rule-catalog-02", pattern: #""(completed|processing|failed|partial_failed)""#,
                          isCanonical: exact("Models/Podcast+Episode.swift"), excludesPath: never,
                          controlPath: "Podcast/PodcastRowView.swift", controlFragment: #"case "processing":"#),
-            LiteralGroup(key: "TA-R-CT-3", pattern: #"==\s*"featured""#,
+            LiteralGroup(key: "ios-rule-catalog-03", pattern: #"==\s*"featured""#,
                          isCanonical: exact("Catalog/Domain/EpisodeContent.swift"), excludesPath: never,
                          controlPath: "Catalog/Domain/EpisodeContent.swift", controlFragment: #"sourceKind == "featured""#),
-            LiteralGroup(key: "TA-R-PB-5", pattern: #"max\(0,\s*(\w+\.)?currentTime\b|min\(\s*(\w+\.)?duration\s*,"#,
+            LiteralGroup(key: "ios-rule-playback-05", pattern: #"max\(0,\s*(\w+\.)?currentTime\b|min\(\s*(\w+\.)?duration\s*,"#,
                          isCanonical: { path, _ in path.hasPrefix("Podcast/Playback/Domain/") }, excludesPath: never,
                          controlPath: "Podcast/AudioPlayerView.swift", controlFragment: "max(0, vm.currentTime"),
-            LiteralGroup(key: "TA-R-PB-4", pattern: #"\[\s*(0\.5\s*,\s*)?0\.75\s*,\s*1\.0\s*,\s*1\.25"#,
+            LiteralGroup(key: "ios-rule-playback-04", pattern: #"\[\s*(0\.5\s*,\s*)?0\.75\s*,\s*1\.0\s*,\s*1\.25"#,
                          isCanonical: exact("Podcast/PlaybackConstants.swift", "Podcast/Playback/Domain/PlaybackConstants.swift"), excludesPath: never,
                          controlPath: "Settings/SettingsView.swift", controlFragment: "playbackSpeeds"),
-            LiteralGroup(key: "TA-R-AC-1", pattern: #"\.count\s*(>=|<)\s*[0-9]+"#,
+            LiteralGroup(key: "ios-rule-account-01", pattern: #"\.count\s*(>=|<)\s*[0-9]+"#,
                          isCanonical: exact("Auth/Domain/PasswordPolicy.swift"), excludesPath: never,
                          controlPath: "Settings/AccountSettingsView.swift", controlFragment: "newPassword.count >= 8"),
-            LiteralGroup(key: "TA-R-AC-5", pattern: #""(admin|user)""#,
+            LiteralGroup(key: "ios-rule-account-05", pattern: #""(admin|user)""#,
                          isCanonical: exact("Auth/Domain/Subject.swift"), excludesPath: { $0 == "Passkey/PasskeyOptionsDecoder.swift" },
                          controlPath: "Models/AuthModels.swift", controlFragment: #"role == "admin""#),
-            LiteralGroup(key: "TA-R-AC-6・TA-R-CU-4・TA-R-SO-2・TA-R-LC-2", pattern: #"catch\s+ApiFailure\.(notFound\(subject|conflict\b)"#,
+            LiteralGroup(key: "ios-rule-account-06・ios-rule-curation-04・ios-rule-sources-02・ios-rule-learning-08", pattern: #"catch\s+ApiFailure\.(notFound\(subject|conflict\b)"#,
                          isCanonical: { path, layer in layer == .application || path.hasPrefix("Networking/") }, excludesPath: never,
                          controlPath: "AppState.swift", controlFragment: "catch ApiFailure.notFound(subject: .streak)"),
-            LiteralGroup(key: "TA-R-PF-1", pattern: #""(toeic_600|toeic_900|ielts_55|ielts_7|eiken_2|eiken_p1)""#,
+            LiteralGroup(key: "ios-rule-prefs-01", pattern: #""(toeic_600|toeic_900|ielts_55|ielts_7|eiken_2|eiken_p1)""#,
                          isCanonical: exact("Shared/Domain/DifficultyLevel.swift"), excludesPath: never,
                          controlPath: "Utilities/DifficultyLabel.swift", controlFragment: #"case "toeic_600":"#),
-            LiteralGroup(key: "TA-R-PF-2", pattern: #"\[3,\s*5,\s*7,\s*10\]"#,
+            LiteralGroup(key: "ios-rule-prefs-02", pattern: #"\[3,\s*5,\s*7,\s*10\]"#,
                          isCanonical: exact("Settings/Domain/WeeklyGoalTarget.swift"), excludesPath: never,
                          controlPath: "Settings/PreferenceRegistry.swift", controlFragment: "[3, 5, 7, 10].contains"),
-            LiteralGroup(key: "TA-R-PF-3", pattern: #""(absolute|relative)""#,
+            LiteralGroup(key: "ios-rule-prefs-03", pattern: #""(absolute|relative)""#,
                          isCanonical: exact("Settings/Domain/TimeFormat.swift"), excludesPath: never,
                          controlPath: "Settings/SettingsView.swift", controlFragment: #".tag("absolute")"#),
-            LiteralGroup(key: "TA-R-CU-3", pattern: #"\blimit\s*==\s*0\b"#,
+            LiteralGroup(key: "ios-rule-curation-03", pattern: #"\blimit\s*==\s*0\b"#,
                          isCanonical: exact("Feed/Domain/GenerationAllowance.swift"), excludesPath: never,
                          controlPath: "Settings/SettingsView.swift", controlFragment: "quota.limit == 0"),
-            LiteralGroup(key: "TA-R-LC-1", pattern: #">=\s*0\.5\b"#,
+            LiteralGroup(key: "ios-rule-learning-07", pattern: #">=\s*0\.5\b"#,
                          isCanonical: exact("Learning/Domain/QuizAttempt.swift"), excludesPath: never,
                          controlPath: "Podcast/QuizSheetView.swift", controlFragment: "correctRate >= 0.5"),
         ]
     }
 
-    private let vocabularyKey = "TA-R-LV-1"
+    private let vocabularyKey = "ios-rule-learning-05"
     private let vocabularyCanonicalPath = "Learning/Domain/VocabularyTest.swift"
 
-    /// `TA-R-LV-1`: 日付の切り出し `String(<識別子の連鎖>.prefix(10))` の部分文字列だけを取り除き、
+    /// `ios-rule-learning-05`: 日付の切り出し `String(<識別子の連鎖>.prefix(10))` の部分文字列だけを取り除き、
     /// 残りに `.prefix(10)` があれば数える（同じ行の出題の上限の式を見落とさない）。
     private func vocabularyLimitLineIsViolation(_ line: String) -> Bool {
         let datePattern = #"String\(\s*[A-Za-z_][\w.]*\.prefix\(10\)\s*\)"#
@@ -288,15 +288,15 @@ final class ArchitectureOracleTests: XCTestCase {
     /// 許可リストの規則キー（一致を検査するもの）。(規則キー, path) の構造の整合に使う。
     private var knownRuleKeys: Set<String> {
         let partKeys: Set<String> = [
-            "TA-D2", "TA-D3", "TA-D4", "TA-D4/DTO", "TA-D5", "TA-D6", "TA-D6/DTO", "TA-D8", "TA-D11", "TA-D12", "TA-D13",
+            "ios-dep-02", "ios-dep-03", "ios-dep-04", "ios-dep-04/DTO", "ios-dep-05", "ios-dep-06", "ios-dep-06/DTO", "ios-dep-08", "ios-dep-11", "ios-dep-12", "ios-dep-13",
         ]
         return partKeys.union(literalGroups.map(\.key)).union([vocabularyKey])
     }
 
-    // MARK: - TA-V1
+    // MARK: - ios-check-01
 
-    // verifies: TA-V1（TA-D10）
-    func testTA_V1a_everyProductionFileBelongsToExactlyOneLayer() throws {
+    // verifies: ios-check-01（ios-dep-10）
+    func testIosTest053_everyProductionFileBelongsToExactlyOneLayer() throws {
         // 正の対照: 規則 (3) と (5) の両方に当たる合成の path は 2 層、どれにも当たらない path は 0 層。
         XCTAssertEqual(ArchitectureManifest.matchedLayers(of: "Podcast/Playback/DummyView.swift"), [.application, .presentation])
         XCTAssertEqual(ArchitectureManifest.matchedLayers(of: "Misc/Dummy.swift"), [])
@@ -322,7 +322,7 @@ final class ArchitectureOracleTests: XCTestCase {
 
         // 許可リストの構造の整合（行数の値は読まない。値は規則キーを検査するテストだけが見る）。
         let known = knownRuleKeys
-        let forbiddenKeys: Set<String> = ["TA-D1", "TA-D7", "TA-D10"]
+        let forbiddenKeys: Set<String> = ["ios-dep-01", "ios-dep-07", "ios-dep-10"]
         var seen: Set<String> = []
         for entry in ArchitectureManifest.allowlist {
             XCTAssertTrue(known.contains(entry.rule), "未知の規則キー: \(entry.rule)（\(entry.path)）")
@@ -332,8 +332,8 @@ final class ArchitectureOracleTests: XCTestCase {
         }
     }
 
-    // verifies: TA-V1（TA-D1）
-    func testTA_V1b_domainImportsOnlyFoundationAndNamesNoAdapterOrPersistence() throws {
+    // verifies: ios-check-01（ios-dep-01）
+    func testIosTest054_domainImportsOnlyFoundationAndNamesNoAdapterOrPersistence() throws {
         let patterns = [
             #"^\s*import\s+(?!Foundation\b)\w+"#,
             #"\b(Codable|Decodable|Encodable|CodingKeys?|UserDefaults|ObservableObject|URLSession|FileManager)\b"#,
@@ -351,11 +351,11 @@ final class ArchitectureOracleTests: XCTestCase {
         let domain = filesInLayer(.domain)
         assertNonEmptyContents(domain, "domain")
         assertContains(domain, ["Podcast/Playback/Domain/PlaybackQueue.swift", "Catalog/Domain/TranscriptTiming.swift"], "domain")
-        assertNoHits(collectHits(in: domain, where: isViolation), "TA-D1（domain の import と型名）")
+        assertNoHits(collectHits(in: domain, where: isViolation), "ios-dep-01（domain の import と型名）")
     }
 
-    // verifies: TA-V1（TA-D3）
-    func testTA_V1c_applicationDependsOnlyOnAllowedFrameworksAndNames() throws {
+    // verifies: ios-check-01（ios-dep-03）
+    func testIosTest055_applicationDependsOnlyOnAllowedFrameworksAndNames() throws {
         let patterns = [
             #"^\s*import\s+(?!(Foundation|Combine|os)\b)\w+"#,
             wordPattern(ArchitectureManifest.adapterConcrete),
@@ -370,12 +370,12 @@ final class ArchitectureOracleTests: XCTestCase {
         assertNonEmptyContents(application, "application")
         assertContains(application, ["AppState.swift"], "application")
         let hits = collectHits(in: application, where: isViolation)
-        assertContainsHit(hits, path: "AppState.swift", fragment: "KeychainSessionStore()", "TA-D3")
-        assertAllowlistMatches(rule: "TA-D3", measured: hits)
+        assertContainsHit(hits, path: "AppState.swift", fragment: "KeychainSessionStore()", "ios-dep-03")
+        assertAllowlistMatches(rule: "ios-dep-03", measured: hits)
     }
 
-    // verifies: TA-V1（TA-D7）
-    func testTA_V1d_adapterNamesNoViewModelOrAppStateAndNoSwiftUI() throws {
+    // verifies: ios-check-01（ios-dep-07）
+    func testIosTest056_adapterNamesNoViewModelOrAppStateAndNoSwiftUI() throws {
         let isViolation = try matcher([
             #"\b[A-Za-z_]\w*ViewModel\b"#,
             #"\bAppState\b"#,
@@ -394,11 +394,11 @@ final class ArchitectureOracleTests: XCTestCase {
             withComments.contains { $0.path == "Observability/CrashReporter.swift" && SourceGrep.isCommentLine($0.text) },
             "コメント行の対照が除外の前の集合に無い"
         )
-        assertNoHits(collectHits(in: adapter, where: isViolation), "TA-D7（adapter の ViewModel・AppState・SwiftUI）")
+        assertNoHits(collectHits(in: adapter, where: isViolation), "ios-dep-07（adapter の ViewModel・AppState・SwiftUI）")
     }
 
-    // verifies: TA-V1（TA-D13）
-    func testTA_V1e_adapterConcreteIsConstructedOnlyInCompositionRootOrDebug() throws {
+    // verifies: ios-check-01（ios-dep-13）
+    func testIosTest057_adapterConcreteIsConstructedOnlyInCompositionRootOrDebug() throws {
         let isConstruction = try matcher([constructionPattern(ArchitectureManifest.adapterConcrete)])
 
         // 合成テキスト: `#if DEBUG` と `#Preview` の中は数えず、`#if canImport` の `#else` の後と DEBUG の `#else` 側は数える。
@@ -446,25 +446,25 @@ final class ArchitectureOracleTests: XCTestCase {
             afterExclusion.contains { $0.path == "Podcast/PodcastViewModel.swift" && $0.text.trimmingCharacters(in: .whitespaces).hasPrefix("///") },
             "doc コメントが数えられている"
         )
-        assertAllowlistMatches(rule: "TA-D13", measured: afterExclusion)
+        assertAllowlistMatches(rule: "ios-dep-13", measured: afterExclusion)
     }
 
-    // MARK: - TA-V2
+    // MARK: - ios-check-03
 
-    // verifies: TA-V2（TA-D2）
-    func testTA_V2a_domainNamesNoDTO() throws {
+    // verifies: ios-check-03（ios-dep-02）
+    func testIosTest058_domainNamesNoDTO() throws {
         let isDTO = try matcher([wordPattern(dtoNames)])
         let domain = filesInLayer(.domain)
         assertNonEmptyContents(domain, "domain")
         let hits = collectHits(in: domain, where: isDTO)
         XCTAssertTrue(hits.contains { $0.path == "Models/FeaturedCategory.swift" }, "FeaturedCategory の DTO の行が集合に無い")
-        assertAllowlistMatches(rule: "TA-D2", measured: hits)
+        assertAllowlistMatches(rule: "ios-dep-02", measured: hits)
     }
 
-    // verifies: TA-V2（TA-D4・TA-D6 の DTO の分）
-    func testTA_V2b_presentationNamesNoDTO() throws {
+    // verifies: ios-check-03（ios-dep-04・ios-dep-06 の DTO の分）
+    func testIosTest059_presentationNamesNoDTO() throws {
         let names = dtoNames
-        XCTAssertEqual(names.count, 39, "DTO は 39 個（I-T2a で葉の値型 4 つが domain へ）")
+        XCTAssertEqual(names.count, 39, "DTO は 39 個（ios-slice-foundation-01 で葉の値型 4 つが domain へ）")
         let isDTO = try matcher([wordPattern(names)])
         // 負の対照: 単語境界で照合する（`Podcast` が `PodcastViewModel` に当たらない）。
         let podcastOnly = try matcher([wordPattern(["Podcast"])])
@@ -479,22 +479,22 @@ final class ArchitectureOracleTests: XCTestCase {
         let viewModelHits = collectHits(in: viewModels, where: isDTO)
         XCTAssertTrue(viewHits.contains { $0.path == "Podcast/PodcastView.swift" }, "View の DTO の行が集合に無い")
         XCTAssertTrue(viewModelHits.contains { $0.path == "Podcast/PodcastViewModel.swift" }, "ViewModel の DTO の行が集合に無い")
-        assertAllowlistMatches(rule: "TA-D4/DTO", measured: viewHits)
-        assertAllowlistMatches(rule: "TA-D6/DTO", measured: viewModelHits)
+        assertAllowlistMatches(rule: "ios-dep-04/DTO", measured: viewHits)
+        assertAllowlistMatches(rule: "ios-dep-06/DTO", measured: viewModelHits)
     }
 
-    // verifies: TA-V2（TA-D8）
-    func testTA_V2c_codableAppearsOnlyInAdapter() throws {
+    // verifies: ios-check-03（ios-dep-08）
+    func testIosTest060_codableAppearsOnlyInAdapter() throws {
         let isCodable = try matcher([#"\b(Codable|Decodable|Encodable|CodingKeys?|JSONDecoder|JSONEncoder)\b"#])
         let targets = nonAdapterFiles
         assertNonEmptyContents(targets, "adapter 以外")
         let hits = collectHits(in: targets, where: isCodable)
         XCTAssertTrue(hits.contains { $0.path == "DesignSystem/PreviewSupport.swift" }, "PreviewSupport の Codable の行が集合に無い")
-        assertAllowlistMatches(rule: "TA-D8", measured: hits)
+        assertAllowlistMatches(rule: "ios-dep-08", measured: hits)
     }
 
-    // verifies: TA-V2（TA-D11）
-    func testTA_V2d_portDeclarationsNameNoFrameworkOrDTO() throws {
+    // verifies: ios-check-03（ios-dep-11）
+    func testIosTest061_portDeclarationsNameNoFrameworkOrDTO() throws {
         let patterns = [
             wordPattern(dtoNames),
             #"\bAV[A-Z]\w*"#,
@@ -518,23 +518,23 @@ final class ArchitectureOracleTests: XCTestCase {
         assertNonEmptyContents(ports, "portFiles")
         let hits = collectHits(in: ports, where: isViolation)
         XCTAssertTrue(ports.contains { SourceGrep.relativePath($0) == "Podcast/Playback/NowPlayingCenter.swift" }, "実ソースの走査対象に NowPlayingCenter が入っていない")
-        assertAllowlistMatches(rule: "TA-D11", measured: hits)
+        assertAllowlistMatches(rule: "ios-dep-11", measured: hits)
     }
 
-    // MARK: - TA-V3
+    // MARK: - ios-check-04
 
-    // verifies: TA-V3（群ごとの規則キー: TA-R-CT-1・2 ほか 13 群）
-    func testTA_V3_ruleLiteralsLiveOnlyInTheirCanonicalPlace() throws {
+    // verifies: ios-check-04（群ごとの規則キー: ios-rule-catalog-01・ios-rule-catalog-02 ほか 13 群）
+    func testIosTest062_ruleLiteralsLiveOnlyInTheirCanonicalPlace() throws {
         let all = production
         assertNonEmptyContents(all, "production")
 
-        // TA-R-LV-1 の日付の除外は一致の単位（合成の対照）。
+        // ios-rule-learning-05 の日付の除外は一致の単位（合成の対照）。
         XCTAssertTrue(vocabularyLimitLineIsViolation("let firstTen = Array(items.prefix(10)); let label = String(items.count)"))
         XCTAssertFalse(vocabularyLimitLineIsViolation("Text(String(item.registeredAt.prefix(10)))"))
         XCTAssertTrue(vocabularyLimitLineIsViolation("return String(article.publishedAt.prefix(10)) + Array(xs.prefix(10)).description"))
 
-        // 負の対照（TA-R-PB-5）: 添字の丸めは「現在位置・総時間」の式に当たらない。
-        let playbackClamp = try matcher([literalGroups.first { $0.key == "TA-R-PB-5" }!.pattern])
+        // 負の対照（ios-rule-playback-05）: 添字の丸めは「現在位置・総時間」の式に当たらない。
+        let playbackClamp = try matcher([literalGroups.first { $0.key == "ios-rule-playback-05" }!.pattern])
         XCTAssertFalse(playbackClamp("let a = max(0, elapsed)"))
         XCTAssertFalse(playbackClamp("let b = min(index, articles.count)"))
         XCTAssertTrue(playbackClamp("seek(to: max(0, vm.currentTime - 15))"))
@@ -550,7 +550,7 @@ final class ArchitectureOracleTests: XCTestCase {
             assertAllowlistMatches(rule: group.key, measured: outside)
         }
 
-        // TA-R-LV-1: 日付の切り出しを一致の単位で除く。除外の前は日付の行も含み、除外の後は出題の上限の式だけが残る。
+        // ios-rule-learning-05: 日付の切り出しを一致の単位で除く。除外の前は日付の行も含み、除外の後は出題の上限の式だけが残る。
         let isPrefix = try matcher([#"\.prefix\(10\)"#])
         let beforeExclusion = collectHits(in: all, where: isPrefix)
         XCTAssertTrue(beforeExclusion.contains { $0.path == "Settings/AccountSettingsView.swift" }, "日付の切り出しの行が除外の前の集合に無い")
@@ -561,10 +561,10 @@ final class ArchitectureOracleTests: XCTestCase {
         assertAllowlistMatches(rule: vocabularyKey, measured: violations)
     }
 
-    // MARK: - TA-V4
+    // MARK: - ios-check-05
 
-    // verifies: TA-V4（TA-D5）
-    func testTA_V4a_viewsDoNotAssignViewModelOrAppState() throws {
+    // verifies: ios-check-05（ios-dep-05）
+    func testIosTest063_viewsDoNotAssignViewModelOrAppState() throws {
         let owner = #"\b(viewModel|vm|appState|[A-Za-z_]\w*ViewModel)\??(\.[A-Za-z_]\w*)+"#
         let isAssignment = try matcher([owner + #"\s*=(?!=)"#, owner + #"\.toggle\(\)"#])
         // 正の対照: 代入と toggle に当たる。負の対照: 比較・不等号・複合代入は代入でない。
@@ -578,12 +578,12 @@ final class ArchitectureOracleTests: XCTestCase {
         assertNonEmptyContents(targets, "View ファイル＋合成 root")
         assertContains(targets, ["NewsListenAppApp.swift", "Settings/SettingsView.swift"], "View ファイル＋合成 root")
         let hits = collectHits(in: targets, where: isAssignment)
-        assertContainsHit(hits, path: "NewsListenAppApp.swift", fragment: "appState.selectedPodcastId = nil", "TA-D5")
-        assertAllowlistMatches(rule: "TA-D5", measured: hits)
+        assertContainsHit(hits, path: "NewsListenAppApp.swift", fragment: "appState.selectedPodcastId = nil", "ios-dep-05")
+        assertAllowlistMatches(rule: "ios-dep-05", measured: hits)
     }
 
-    // verifies: TA-V4（TA-D4・TA-D6 の DTO を除く分）
-    func testTA_V4b_presentationDoesNotKnowAdapters() throws {
+    // verifies: ios-check-05（ios-dep-04・ios-dep-06 の DTO を除く分）
+    func testIosTest064_presentationDoesNotKnowAdapters() throws {
         let views = viewFiles
         let viewModels = viewModelFiles
         assertNonEmptyContents(views, "View ファイル")
@@ -597,15 +597,15 @@ final class ArchitectureOracleTests: XCTestCase {
         )
         let viewHits = collectHits(in: views, where: viewMatcher)
         let viewModelHits = collectHits(in: viewModels, where: viewModelMatcher)
-        assertContainsHit(viewHits, path: "Settings/SettingsView.swift", fragment: "@AppStorage", "TA-D4")
-        assertAllowlistMatches(rule: "TA-D4", measured: viewHits)
-        assertAllowlistMatches(rule: "TA-D6", measured: viewModelHits)
+        assertContainsHit(viewHits, path: "Settings/SettingsView.swift", fragment: "@AppStorage", "ios-dep-04")
+        assertAllowlistMatches(rule: "ios-dep-04", measured: viewHits)
+        assertAllowlistMatches(rule: "ios-dep-06", measured: viewModelHits)
     }
 
-    // MARK: - TA-V5
+    // MARK: - ios-check-06
 
-    // verifies: TA-V5（TA-D12）
-    func testTA_V5a_writablePublishedIsOnlyDraftAllowlist() throws {
+    // verifies: ios-check-06（ios-dep-12）
+    func testIosTest065_writablePublishedIsOnlyDraftAllowlist() throws {
         let published = try NSRegularExpression(pattern: #"@Published\s+var\s+(\w+)"#)
         func publishedName(_ line: String) -> String? {
             guard !line.contains("private(set)") else { return nil }
@@ -641,19 +641,19 @@ final class ArchitectureOracleTests: XCTestCase {
             }
         }
         XCTAssertTrue(applicationHits.contains { $0.path == "AppState.swift" }, "AppState の @Published が集合に無い")
-        assertAllowlistMatches(rule: "TA-D12", measured: applicationHits + viewModelHits)
+        assertAllowlistMatches(rule: "ios-dep-12", measured: applicationHits + viewModelHits)
     }
 
-    // verifies: TA-V5（TA-D9）
-    func testTA_V5b_readModelFilesAreEmptyForNow() {
+    // verifies: ios-check-06（ios-dep-09）
+    func testIosTest066_readModelFilesAreEmptyForNow() {
         // 初版は対象 0 本。リードモデルを足す slice で、この assert を各ファイルの検査へ改める。
         XCTAssertTrue(ArchitectureManifest.readModelFiles.isEmpty)
     }
 
-    // MARK: - TA-V7
+    // MARK: - ios-check-08
 
-    // verifies: TA-V7
-    func testTA_V7_domainTestsUseNoIO() throws {
+    // verifies: ios-check-08
+    func testIosTest068_domainTestsUseNoIO() throws {
         let isIO = try matcher([#"\b(URLSession|UserDefaults|FileManager|MockURLSession)\b"#, #"^\s*import\s+UIKit\b"#])
         XCTAssertTrue(isIO("let s = URLSession.shared"))
         XCTAssertTrue(isIO("import UIKit"))
@@ -665,13 +665,13 @@ final class ArchitectureOracleTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "domain のテストファイルが無い: \(url.lastPathComponent)")
         }
         assertNonEmptyContents(urls, "domainTestFiles")
-        assertNoHits(collectHits(in: urls, where: isIO), "TA-V7（domain のテストの I/O）")
+        assertNoHits(collectHits(in: urls, where: isIO), "ios-check-08（domain のテストの I/O）")
     }
 
-    // MARK: - TA-V9
+    // MARK: - ios-check-10
 
-    // verifies: TA-V9（TA-D14。ci.yml の `statusCode ==|httpError(` の grep と同じ判定。コメント行は除かない）
-    func testTA_V9_noHTTPStatusComparisonOutsideNetworking() throws {
+    // verifies: ios-check-10（ios-dep-14。ci.yml の `statusCode ==|httpError(` の grep と同じ判定。コメント行は除かない）
+    func testIosTest070_noHTTPStatusComparisonOutsideNetworking() throws {
         let isStatusCheck = try matcher([#"statusCode ==|httpError\("#])
         XCTAssertTrue(isStatusCheck("if http.statusCode == 401 {"))
         XCTAssertTrue(isStatusCheck("throw httpError(code)"))
@@ -685,6 +685,6 @@ final class ArchitectureOracleTests: XCTestCase {
         XCTAssertTrue(endpoint.map { SourceGrep.content(of: $0).contains("enum APIEndpoint") } ?? false)
 
         let outside = collectHits(in: all, excludeComments: false, where: isStatusCheck).filter { !$0.path.hasPrefix("Networking/") }
-        assertNoHits(outside, "TA-V9（Networking/ の外の HTTP ステータス比較）")
+        assertNoHits(outside, "ios-check-10（Networking/ の外の HTTP ステータス比較）")
     }
 }

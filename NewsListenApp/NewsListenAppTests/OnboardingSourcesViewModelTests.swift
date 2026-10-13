@@ -51,7 +51,7 @@ final class OnboardingSourcesViewModelTests: XCTestCase {
         XCTAssertNil(vm.subscribeErrorMessage)
     }
 
-    // T-T13-04（verifies: CI-T13, R-keep2）。
+    // T-T13-04（verifies: ios-contract-19, R-keep2）。
     func testSubscribeTreats409AsAlreadySubscribed() async throws {
         let vm = OnboardingSourcesViewModel(apiClient: makeClient(json: "", statusCode: 409))
         let site = FeaturedSite(id: "hn", name: "HackerNews", url: "https://hnrss.org/frontpage", thumbnailURL: nil, description: nil)

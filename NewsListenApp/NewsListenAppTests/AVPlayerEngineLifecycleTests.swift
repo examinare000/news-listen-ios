@@ -3,7 +3,7 @@ import AVFoundation
 import os
 @testable import NewsListenApp
 
-// I-S3a: `AVPlayerEngine` の寿命・配送規則のテスト（spec §7.4。T-A01〜T-A07）。
+// ios-slice-playback-01: `AVPlayerEngine` の寿命・配送規則のテスト（spec §7.4。T-A01〜T-A07）。
 // 実 AVPlayer を使うが、ネットワークは要らない（ローカルに作った無音 WAV を読み込む）。
 //
 // 事象を数えるテストの注意: 実 AVPlayer を `play()` すると、ready / buffering / timeUpdate など

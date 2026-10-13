@@ -1171,13 +1171,13 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertFalse(vm.didFinishCurrentEpisode)
     }
 
-    // MARK: - T-T15-09, T-T15-10（CI-T15.7・I-S2 TP4: PlaybackLifecycle 暫定実装）
+    // MARK: - T-T15-09, T-T15-10（ios-contract-21.7・ios-slice-auth-01 ios-temp-04: PlaybackLifecycle 暫定実装）
 
-    // TP4（owner: user／導入: I-S2 2026-09-28／削除条件: I-S3b2 で PlaybackCoordinator が
-    // PlaybackLifecycle の実装を引き継いだ時点。物理削除は I-S3b3）。
+    // ios-temp-04（owner: user／導入: ios-slice-auth-01 2026-09-28／削除条件: ios-slice-playback-03 で PlaybackCoordinator が
+    // PlaybackLifecycle の実装を引き継いだ時点。物理削除は ios-slice-playback-04）。
     // `stopForLogout()` は位置同期を送らずに停止する（C1: `stopPlayback()` の同期部分を呼ばない）。
 
-    // verifies: CI-T15.7
+    // verifies: ios-contract-21.7
     func testTT15_09_stopForLogoutResetsPlaybackWithoutSyncingPosition() async throws {
         let recording = RequestRecordingSession()
         let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: recording)
@@ -1201,7 +1201,7 @@ final class PodcastViewModelTests: XCTestCase {
         )
     }
 
-    // verifies: CI-T15.7
+    // verifies: ios-contract-21.7
     func testTT15_10_stopForLogoutIsIdempotent() async throws {
         let recording = RequestRecordingSession()
         let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: recording)

@@ -2,7 +2,7 @@
 //  PreferenceRegistry.swift
 //  NewsListenApp
 //
-//  設定宣言（key・scope・subjectScoped・値域・既定値）を 1 箇所に集約する（I-S2 / CI-T17）。
+//  設定宣言（key・scope・subjectScoped・値域・既定値）を 1 箇所に集約する（ios-slice-auth-01 / ios-contract-23）。
 //  `AppState.Keys`・`DSFeedback` の AppStorage key・`AchievementCelebrationTracker` の key
 //  文字列宣言はここへ一本化し、他ファイルは本ファイルの key 定数を参照する別名にする。
 //

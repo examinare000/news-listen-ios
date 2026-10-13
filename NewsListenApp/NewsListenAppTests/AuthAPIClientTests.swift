@@ -56,7 +56,7 @@ final class AuthAPIClientTests: XCTestCase {
         XCTAssertEqual(session.lastRequest?.value(forHTTPHeaderField: "X-API-Key"), "api-key")
     }
 
-    // T-T12-05（verifies: CI-T12, D1）。401 → .unauthorized。
+    // T-T12-05（verifies: ios-contract-18, D1）。401 → .unauthorized。
     func testLogin401ThrowsUnauthorized() async throws {
         let (client, _) = makeClient(data: Data(), status: 401)
         do {

@@ -82,7 +82,7 @@ struct NewsListenAppApp: App {
                             )
                         }
                     case .unavailable:
-                        // I-S2: 認証解決の失敗（トークンは保持）。再試行導線を出す（UV-1）。
+                        // ios-slice-auth-01: 認証解決の失敗（トークンは保持）。再試行導線を出す（UV-1）。
                         ContentUnavailableView {
                             Label("認証を確認できません", systemImage: "wifi.exclamationmark")
                         } description: {
@@ -181,7 +181,7 @@ struct ContentView: View {
             await appState.refreshOnboardingStatus()
             await appState.refreshListeningStreak()
         }
-        // 主体離脱時の再生停止 port を登録する（I-S2 / CI-T15.9・TP4）。
+        // 主体離脱時の再生停止 port を登録する（ios-slice-auth-01 / ios-contract-21.9・ios-temp-04）。
         .onAppear { appState.registerPlaybackLifecycle(playerViewModel) }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {

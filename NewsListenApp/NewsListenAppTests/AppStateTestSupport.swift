@@ -1,7 +1,7 @@
 import XCTest
 @testable import NewsListenApp
 
-// I-S2 の AuthSession・SubjectCleanup・PreferenceRegistry テスト（T-T14・T-T15・T-T17）で共有する
+// ios-slice-auth-01 の AuthSession・SubjectCleanup・PreferenceRegistry テスト（ios-test-099・ios-test-100・ios-test-102）で共有する
 // test double とヘルパー。spec.md §5.5「共通 double」を参照。
 //
 // - `NowPlayingCenterSpy` / `PlaybackLifecycleSpy`: SubjectCleanup が呼ぶ port の spy（呼出回数と、
@@ -11,9 +11,9 @@ import XCTest
 // - `makeSubjectAwareAppState`: 主体離脱（logout・401 失効）を伴うテストで必ず doubles を注入する
 //   ためのファクトリ（PM-8: 実機のキャッシュディレクトリ・`MPNowPlayingInfoCenter` に触れないため）。
 
-// MARK: - Ports の spy（CI-T15.2, 15.6, 15.9）
+// MARK: - Ports の spy（ios-contract-21.2, 15.6, 15.9）
 
-/// `NowPlayingCenter` の spy。`clear()` の呼出回数（I-S2）に加えて、I-S3a で増えた操作の結果を
+/// `NowPlayingCenter` の spy。`clear()` の呼出回数（ios-slice-auth-01）に加えて、ios-slice-playback-01 で増えた操作の結果を
 /// 状態として保持する（`currentInfo` / `lastElapsedUpdate` / 発行した token と handler の組）。
 /// 呼出回数ではなく、観測できる状態でテストする。
 final class NowPlayingCenterSpy: NowPlayingCenter {
@@ -81,7 +81,7 @@ final class PlaybackLifecycleSpy: PlaybackLifecycle {
     }
 }
 
-// MARK: - FileManager 失敗版（CI-T15.3）
+// MARK: - FileManager 失敗版（ios-contract-21.3）
 
 /// `AudioCacheManagerTests.MockFileManager` と同じインメモリ実装だが、`removeItem` だけ throw する。
 /// `clearCache()` はディレクトリ内の各ファイルへ `removeItem` を呼ぶため、これを注入すると

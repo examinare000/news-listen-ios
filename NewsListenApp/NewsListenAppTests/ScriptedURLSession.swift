@@ -4,7 +4,7 @@ import os
 
 /// method + path ごとに「即時応答」か「保留」を指定できる `URLSessionProtocol` の test double。
 ///
-/// I-S2 の主体照合（`AppState` の主体ガード表・`SubjectStamp`）テストで、await をまたぐ競合
+/// ios-slice-auth-01 の主体照合（`AppState` の主体ガード表・`SubjectStamp`）テストで、await をまたぐ競合
 /// （前の主体の応答が後から届く／進行中に別の主体が確立する）を決定論的に再現するために使う
 /// （spec.md §5.5「共通 double」）。全リクエストを一律に止める形は使わない
 /// （`logout()` 内の別 path が止まってデッドロックするため。同 spec 節）。

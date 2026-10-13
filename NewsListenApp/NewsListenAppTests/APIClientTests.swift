@@ -87,7 +87,7 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(mockSession.lastRequest?.httpMethod, "DELETE")
     }
 
-    // T-T12-18（verifies: CI-T12, D3）。unstarArticle は subject .star を宣言する endpoint。
+    // T-T12-18（verifies: ios-contract-18, D3）。unstarArticle は subject .star を宣言する endpoint。
     func testUnstarArticleMaps404ToNotFoundStarSubject() async {
         let mockSession = MockURLSession(data: Data(), statusCode: 404)
         let client = APIClient(
@@ -154,7 +154,7 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(mockSession.lastRequest?.value(forHTTPHeaderField: "X-API-Key"), "secret-key")
     }
 
-    // T-T12-09（verifies: CI-T12, D1）。500 → .server(status: 500)。
+    // T-T12-09（verifies: ios-contract-18, D1）。500 → .server(status: 500)。
     func testHTTPErrorThrowsServerFailure() async throws {
         let mockSession = MockURLSession(data: Data(), statusCode: 500)
         let client = APIClient(
@@ -296,7 +296,7 @@ final class APIClientTests: XCTestCase {
         XCTAssertNil(mockSession.lastRequest?.value(forHTTPHeaderField: "Authorization"))
     }
 
-    // T-T12-20（verifies: CI-T12, D1）。downloadAudio の 500 → .server(status: 500)。
+    // T-T12-20（verifies: ios-contract-18, D1）。downloadAudio の 500 → .server(status: 500)。
     func testDownloadAudioThrowsOnHTTPError() async throws {
         let mockSession = MockURLSession(data: Data(), statusCode: 500)
         let client = APIClient(
@@ -315,7 +315,7 @@ final class APIClientTests: XCTestCase {
         }
     }
 
-    // T-T12-20（verifies: CI-T12, D1）。downloadAudio の非 HTTP 応答 → .network(.badServerResponse)（CI-A02）。
+    // T-T12-20（verifies: ios-contract-18, D1）。downloadAudio の非 HTTP 応答 → .network(.badServerResponse)（CI-A02）。
     func testDownloadAudioThrowsNetworkFailureOnNonHTTPResponse() async throws {
         let mockSession = MockURLSession(mode: .nonHTTPResponse)
         let client = APIClient(
@@ -335,7 +335,7 @@ final class APIClientTests: XCTestCase {
     }
 
     // issue #82: 429 は rateLimited(retryAfter:) として Retry-After を添えて送出する。
-    // T-T12-11（verifies: CI-T12, D1）。
+    // T-T12-11（verifies: ios-contract-18, D1）。
     func testStar429ThrowsRateLimitedWithRetryAfter() async {
         let mockSession = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])
         let client = APIClient(
@@ -353,7 +353,7 @@ final class APIClientTests: XCTestCase {
         }
     }
 
-    // T-T12-11（verifies: CI-T12, D1）。
+    // T-T12-11（verifies: ios-contract-18, D1）。
     func testStar429WithoutHeaderHasNilRetryAfter() async {
         let mockSession = MockURLSession(data: Data(), statusCode: 429)
         let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
@@ -367,7 +367,7 @@ final class APIClientTests: XCTestCase {
         }
     }
 
-    // MARK: - T-T12（verifies: CI-T12）— D1 の写像を網羅する新規テスト（改訂 20 write_tests 1b）
+    // MARK: - ios-test-097（verifies: ios-contract-18）— D1 の写像を網羅する新規テスト（改訂 20 write_tests 1b）
 
     private func makeApiFailureClient(mode: MockURLSession.Mode) -> APIClient {
         APIClient(
@@ -511,7 +511,7 @@ final class APIClientTests: XCTestCase {
         }
     }
 
-    // T-T12-13〜15（verifies: CI-T12, D3）。subject 宣言の無い endpoint とは異なり、
+    // T-T12-13〜15（verifies: ios-contract-18, D3）。subject 宣言の無い endpoint とは異なり、
     // 404 が subject を持つ endpoint 群の写像を確かめる（streak / quota / quiz）。
     func testFetchListeningStreak404MapsToNotFoundStreakSubject() async {
         let mockSession = MockURLSession(data: Data(), statusCode: 404)
@@ -552,7 +552,7 @@ final class APIClientTests: XCTestCase {
         }
     }
 
-    // T-T12-19（verifies: CI-T12, D1）。subject を宣言しない endpoint の 404 → .unknown(status: 404)。
+    // T-T12-19（verifies: ios-contract-18, D1）。subject を宣言しない endpoint の 404 → .unknown(status: 404)。
     func testFetchPodcast404MapsToUnknown() async {
         let mockSession = MockURLSession(data: Data(), statusCode: 404)
         let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mockSession)
@@ -566,7 +566,7 @@ final class APIClientTests: XCTestCase {
         }
     }
 
-    // T-T12-21（verifies: CI-T12, D1）。独自組立の 2 経路（removeSource / unregisterDeviceToken）
+    // T-T12-21（verifies: ios-contract-18, D1）。独自組立の 2 経路（removeSource / unregisterDeviceToken）
     // も同じ写像を通る。subject を宣言しないので 404 → .unknown(status: 404)。
     func testRemoveSource404MapsToUnknown() async {
         let mockSession = MockURLSession(data: Data(), statusCode: 404)
@@ -885,7 +885,7 @@ final class APIClientTests: XCTestCase {
         XCTAssertTrue(query.contains("token=abc123token"), "query should carry the token: \(query)")
     }
 
-    // MARK: - T-T12-03/04（verifies: CI-T12, D2 exception）
+    // MARK: - T-T12-03/04（verifies: ios-contract-18, D2 exception）
     // 置換前後で GREEN を要求する特性テスト。Task キャンセル由来の失敗（`URLError(.cancelled)` /
     // `CancellationError`）は `ApiFailure` に変換されず、素のまま伝播する（D2）。
 
@@ -930,7 +930,7 @@ final class APIClientTests: XCTestCase {
 
 // 複数のテストファイル（Feed / Podcast / Settings の ViewModel テスト）から共用する。
 //
-// verifies: CI-T12（D6）。`Mode` は非 HTTP 応答・transport 失敗を CI-T12 の RED（写像前）で
+// verifies: ios-contract-18（D6）。`Mode` は非 HTTP 応答・transport 失敗を ios-contract-18 の RED（写像前）で
 // 再現するための拡張（改訂 20 write_tests 1a.1）。既存の `init(data:statusCode:headerFields:)` は
 // `.http` に委譲し、既存 15 ファイル 95 呼出の挙動・シグネチャは変えない。
 final class MockURLSession: URLSessionProtocol {

@@ -2,7 +2,7 @@ import XCTest
 import AVFoundation
 @testable import NewsListenApp
 
-// I-S3a: adapter 内部の stale ガード（旧 `PodcastViewModelTests` の issue #59 特性テスト 6 関数）。
+// ios-slice-playback-01: adapter 内部の stale ガード（旧 `PodcastViewModelTests` の issue #59 特性テスト 6 関数）。
 // 関数名は移植の追跡のためそのまま残す（spec §7.2。T-M01〜T-M06。verifies: CI-A1）。
 // AVFoundation 型を使い続けてよい（このファイルは `Podcast/Platform/` の adapter のテスト）。
 @MainActor

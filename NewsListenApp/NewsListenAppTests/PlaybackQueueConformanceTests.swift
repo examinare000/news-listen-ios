@@ -2,7 +2,7 @@ import XCTest
 @testable import NewsListenApp
 
 /// クロスプラットフォーム共有仕様（docs/design/shared-playback-spec.md §4.1）の
-/// 正本テストケース表 Q-01〜Q-32 の準拠テスト。
+/// 正本テストケース表 shared-queue-01〜shared-queue-32 の準拠テスト。
 ///
 /// 各テストメソッド名に行 ID を含め、正本の行と 1 対 1 で対応させる（§5 準拠テストの規約）。
 /// 既存の PlaybackQueueTests.swift は変更・削除せず、本ファイルと併存させる。
@@ -18,7 +18,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         )
     }
 
-    // MARK: - Q-01/Q-02: current / upNext アクセサ
+    // MARK: - shared-queue-01・shared-queue-02: current / upNext アクセサ
 
     func testQ01_currentAndUpNextWithCurrent() {
         var q = PlaybackQueue<Podcast>()
@@ -35,7 +35,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.upNext.map { $0.id }, ["a", "b"])
     }
 
-    // MARK: - Q-03: start(podcast)
+    // MARK: - shared-queue-03: start(podcast)
 
     func testQ03_startReplacesQueueWithSingleEpisode() {
         var q = PlaybackQueue<Podcast>(items: [podcast("x"), podcast("y")], currentIndex: 0)
@@ -45,7 +45,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.current?.id, "z")
     }
 
-    // MARK: - Q-04〜Q-07: setQueue(items, startAt)
+    // MARK: - shared-queue-04〜shared-queue-07: setQueue(items, startAt)
 
     func testQ04_setQueueFromEmptyStartsAtGivenIndex() {
         var q = PlaybackQueue<Podcast>()
@@ -81,7 +81,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertNil(q.currentIndex)
     }
 
-    // MARK: - Q-08/Q-09: add(podcast)
+    // MARK: - shared-queue-08・shared-queue-09: add(podcast)
 
     func testQ08_addAppendsToTail() {
         var q = PlaybackQueue<Podcast>()
@@ -100,7 +100,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.items.map { $0.id }, ["a", "b"])
     }
 
-    // MARK: - Q-10〜Q-13: playNext(podcast)
+    // MARK: - shared-queue-10〜shared-queue-13: playNext(podcast)
 
     func testQ10_playNextInsertsRightAfterCurrent() {
         var q = PlaybackQueue<Podcast>()
@@ -139,7 +139,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertNil(q.currentIndex)
     }
 
-    // MARK: - Q-14/Q-15: jump(id)
+    // MARK: - shared-queue-14・shared-queue-15: jump(id)
 
     func testQ14_jumpToExistingItemSetsCurrentAndReturnsTrue() {
         var q = PlaybackQueue<Podcast>()
@@ -157,7 +157,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.current?.id, "a")
     }
 
-    // MARK: - Q-16〜Q-19: advance()
+    // MARK: - shared-queue-16〜shared-queue-19: advance()
 
     func testQ16_advanceFromNoCurrentStartsAtHead() {
         var q = PlaybackQueue<Podcast>(items: [podcast("a"), podcast("b"), podcast("c")], currentIndex: nil)
@@ -190,7 +190,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertNil(q.advance())
     }
 
-    // MARK: - Q-20〜Q-25: remove(id)
+    // MARK: - shared-queue-20〜shared-queue-25: remove(id)
 
     func testQ20_removeItemBeforeCurrentShiftsCurrentIndexDown() {
         var q = PlaybackQueue<Podcast>()
@@ -246,11 +246,11 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertNil(q.currentIndex)
     }
 
-    // MARK: - Q-26〜Q-32: moveUpNext(from, toOffset) — 正本 = iOS onMove（削除前オフセット方式）
+    // MARK: - shared-queue-26〜shared-queue-32: moveUpNext(from, toOffset) — 正本 = iOS onMove（削除前オフセット方式）
     //
     // iOS の `reorderUpNext(fromOffsets:toOffset:)` は単一要素の IndexSet で呼ぶ（正本の
     // moveUpNext(from, toOffset) と等価）。正本は本方式を単一のソース・オブ・トゥルースとしており、
-    // Q-26/Q-28/Q-32 は旧 web（splice 方式）との乖離検出行だが iOS 自身は乖離しない想定。
+    // shared-queue-26・shared-queue-28・shared-queue-32 は旧 web（splice 方式）との乖離検出行だが iOS 自身は乖離しない想定。
 
     func testQ26_moveUpNextForwardUsesOnMoveSemantics() {
         var q = PlaybackQueue<Podcast>()

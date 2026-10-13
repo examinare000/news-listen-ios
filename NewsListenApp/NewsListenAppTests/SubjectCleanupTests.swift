@@ -1,9 +1,9 @@
 import XCTest
 @testable import NewsListenApp
 
-/// `SubjectCleanup` 単体テストと、`AppState` を介した主体離脱の統合テスト（I-S2 / CI-T15）。
+/// `SubjectCleanup` 単体テストと、`AppState` を介した主体離脱の統合テスト（ios-slice-auth-01 / ios-contract-21）。
 ///
-/// spec.md §5.2 CI-T15 / §5.5 T-T15-* に対応する。SL-01〜SL-05 は共有仕様 §4.4 の行 ID で、
+/// spec.md §5.2 ios-contract-21 / §5.5 T-T15-* に対応する。shared-leave-01〜shared-leave-05 は共有仕様 §4.4 の行 ID で、
 /// テスト名に含める（spec §5.5 テスト名規約）。
 @MainActor
 final class SubjectCleanupTests: XCTestCase {
@@ -51,9 +51,9 @@ final class SubjectCleanupTests: XCTestCase {
         return fm
     }
 
-    // MARK: - T-T15-01（CI-T15.1, CI-T15.2, SL-01）
+    // MARK: - T-T15-01（ios-contract-21.1, ios-contract-21.2, shared-leave-01）
 
-    // verifies: CI-T15.1, CI-T15.2
+    // verifies: ios-contract-21.1, ios-contract-21.2
     func testTT15_01_SL01_logoutClearsSubjectAssets() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -100,9 +100,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertNil(appState.lastCleanupIncomplete)
     }
 
-    // MARK: - T-T15-02（CI-T14.9, CI-T15.2, SL-02）
+    // MARK: - T-T15-02（ios-contract-20.9, ios-contract-21.2, shared-leave-02）
 
-    // verifies: CI-T14.9, CI-T15.2
+    // verifies: ios-contract-20.9, ios-contract-21.2
     func testTT15_02_SL02_unauthorizedFromAnyAPIClearsSubjectAssets() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -124,7 +124,7 @@ final class SubjectCleanupTests: XCTestCase {
         appState.registerPlaybackLifecycle(playback)
         appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
 
-        await appState.refreshListeningStreak() // 保存トークン付きの任意 API が 401（SL-02 の契機）
+        await appState.refreshListeningStreak() // 保存トークン付きの任意 API が 401（shared-leave-02 の契機）
 
         guard case .anonymous = appState.session else { return XCTFail(".anonymous になるべき") }
         XCTAssertNil(store.token)
@@ -140,9 +140,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertNil(appState.lastCleanupIncomplete)
     }
 
-    // MARK: - T-T15-03, T-T15-04（CI-T15.3, SL-04）
+    // MARK: - T-T15-03, T-T15-04（ios-contract-21.3, shared-leave-04）
 
-    // verifies: CI-T15.3
+    // verifies: ios-contract-21.3
     func testTT15_03_SL04_logoutReportsCleanupIncompleteWhenCacheClearFails() async {
         let store = InMemorySessionStore(token: "tA")
         let playback = PlaybackLifecycleSpy()
@@ -174,7 +174,7 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertEqual(appState.lastCleanupIncomplete?.failedParts, [.offlineLibrary])
     }
 
-    // verifies: CI-T15.3
+    // verifies: ios-contract-21.3
     func testTT15_04_SL04_subjectCleanupRunConvergesAfterDoubleRecovers() {
         let nowPlaying = NowPlayingCenterSpy()
         let playback = PlaybackLifecycleSpy()
@@ -211,9 +211,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertEqual(recoveredCacheManager.cacheSize(), 0)
     }
 
-    // MARK: - T-T15-05（CI-T15.5, CI-T14.7, CI-T14.12）
+    // MARK: - T-T15-05（ios-contract-21.5, ios-contract-20.7, ios-contract-20.12）
 
-    // verifies: CI-T15.5, CI-T14.7, CI-T14.12
+    // verifies: ios-contract-21.5, ios-contract-20.7, ios-contract-20.12
     func testTT15_05_logoutDuplicateTriggerRunsCleanupOnce() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -239,9 +239,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertEqual(playback.stopForLogoutCallCount, 1)
     }
 
-    // MARK: - T-T15-06（CI-T15.4, SL-03）
+    // MARK: - T-T15-06（ios-contract-21.4, shared-leave-03）
 
-    // verifies: CI-T15.4
+    // verifies: ios-contract-21.4
     func testTT15_06_SL03_unavailableDoesNotRunCleanup() async {
         for mode: MockURLSession.Mode in [.transportError(URLError(.notConnectedToInternet)), .http(statusCode: 500, headerFields: nil)] {
             let store = InMemorySessionStore(token: "tA")
@@ -272,7 +272,7 @@ final class SubjectCleanupTests: XCTestCase {
         }
     }
 
-    // verifies: CI-T15.4
+    // verifies: ios-contract-21.4
     func testTT15_06_SL03_decodingFailureDoesNotRunCleanup() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -293,9 +293,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertEqual(nowPlaying.clearCallCount, 0)
     }
 
-    // MARK: - T-T15-07（CI-T15.4, SL-05）
+    // MARK: - T-T15-07（ios-contract-21.4, shared-leave-05）
 
-    // verifies: CI-T15.4
+    // verifies: ios-contract-21.4
     func testTT15_07_SL05_loginFailureDoesNotRunCleanup() async {
         let nowPlaying = NowPlayingCenterSpy()
         let playback = PlaybackLifecycleSpy()
@@ -324,9 +324,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertEqual(playback.stopForLogoutCallCount, 0)
     }
 
-    // MARK: - T-T15-08（CI-T15.6）
+    // MARK: - T-T15-08（ios-contract-21.6）
 
-    // verifies: CI-T15.6
+    // verifies: ios-contract-21.6
     func testTT15_08_logoutWithoutRegisteredLifecycleStillClearsNowPlaying() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -348,7 +348,7 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertNil(appState.lastCleanupIncomplete, "lifecycle 未登録は CleanupIncomplete に含めない")
     }
 
-    // verifies: CI-T15.6
+    // verifies: ios-contract-21.6
     func testTT15_08_logoutWithReleasedLifecycleStillClearsNowPlaying() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -374,9 +374,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertNil(appState.lastCleanupIncomplete)
     }
 
-    // MARK: - T-T15-11a（CI-T15.8）
+    // MARK: - T-T15-11a（ios-contract-21.8）
 
-    // verifies: CI-T15.8
+    // verifies: ios-contract-21.8
     func testTT15_11a_writesToSubjectScopedPropertiesWhileNotAuthenticatedDoNotPersist() {
         let suite = UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!
         let appState = AppState(
@@ -399,9 +399,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertEqual(appState.weeklyGoalEpisodes, 3)
     }
 
-    // MARK: - T-T15-11b, T-T15-14（CI-T15.10, G3）
+    // MARK: - T-T15-11b, T-T15-14（ios-contract-21.10, G3）
 
-    // verifies: CI-T15.10
+    // verifies: ios-contract-21.10
     func testTT15_11b_logoutDuringPreferencesSyncDiscardsResult() async {
         let store = InMemorySessionStore(token: "t0")
         let scripted = ScriptedURLSession()
@@ -434,7 +434,7 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertEqual(appState.preferencesSyncFailed, failedBefore)
     }
 
-    // verifies: CI-T15.10
+    // verifies: ios-contract-21.10
     func testTT15_14_preferencesSyncDoesNotLeakIntoNextSubject() async {
         let store = InMemorySessionStore(token: "tA")
         let scripted = ScriptedURLSession()
@@ -468,9 +468,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertEqual(appState.preferencesSyncFailed, failedBefore)
     }
 
-    // MARK: - T-T15-13（CI-T15.10）
+    // MARK: - T-T15-13（ios-contract-21.10）
 
-    // verifies: CI-T15.10
+    // verifies: ios-contract-21.10
     func testTT15_13_refreshPreferencesNoOpWhenNotAuthenticated() async {
         let session = MockURLSession(data: Data(), statusCode: 500)
         for store in [InMemorySessionStore(), InMemorySessionStore(token: "tA")] {
@@ -493,9 +493,9 @@ final class SubjectCleanupTests: XCTestCase {
         }
     }
 
-    // MARK: - T-T15-15（CI-T14.15）
+    // MARK: - T-T15-15（ios-contract-20.15）
 
-    // verifies: CI-T14.15
+    // verifies: ios-contract-20.15
     func testTT15_15_staleClientAfterLogoutCannotAffectNextSubject() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -531,9 +531,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertEqual(playback.stopForLogoutCallCount, 1)
     }
 
-    // MARK: - T-T15-16（CI-T14.12, CI-T15.5）
+    // MARK: - T-T15-16（ios-contract-20.12, ios-contract-21.5）
 
-    // verifies: CI-T14.12, CI-T15.5
+    // verifies: ios-contract-20.12, ios-contract-21.5
     func testTT15_16_logoutInProgressDoesNotAffectNextSubject() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -572,9 +572,9 @@ final class SubjectCleanupTests: XCTestCase {
         XCTAssertNil(appState.lastCleanupIncomplete)
     }
 
-    // MARK: - T-T15-17（CI-T15.10）
+    // MARK: - T-T15-17（ios-contract-21.10）
 
-    // verifies: CI-T15.10
+    // verifies: ios-contract-21.10
     func testTT15_17_cancellationDuringPreferencesSyncIsNotTreatedAsFailure() async {
         for mode: MockURLSession.Mode in [.transportError(CancellationError()), .transportError(URLError(.cancelled))] {
             let store = InMemorySessionStore(token: "tA")

@@ -373,7 +373,7 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertTrue(vm.generationQuotaLoadFailed)
     }
 
-    // T-T13-04（verifies: CI-T13, R-keep2）。
+    // T-T13-04（verifies: ios-contract-19, R-keep2）。
     func testLoadGenerationQuota404GracefulDegradation() async throws {
         // 404 時は graceful degradation: 生成残回数セクションを非表示（failed=false）
         let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 404))

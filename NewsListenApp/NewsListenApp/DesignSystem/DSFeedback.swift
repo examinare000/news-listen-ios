@@ -24,7 +24,7 @@ final class DSFeedback {
     static let shared = DSFeedback()
 
     /// AppStorage キーの一元化（Settings 画面と共有）。key 文字列の宣言は
-    /// `PreferenceRegistry`（I-S2）が正本で、ここはその別名（D-5）。
+    /// `PreferenceRegistry`（ios-slice-auth-01）が正本で、ここはその別名（D-5）。
     static let sfxEnabledKey = PreferenceRegistry.sfxEnabledKey
     static let hapticsEnabledKey = PreferenceRegistry.hapticsEnabledKey
 

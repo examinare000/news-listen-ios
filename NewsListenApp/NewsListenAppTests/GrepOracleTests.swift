@@ -6,15 +6,15 @@ import XCTest
 /// `xcodebuild test` の分子に数える（spec §5.6 coverage の 36/38 自動テスト分子の一部）。
 ///
 /// 対応関係:
-/// - T-T14-15（CI-T14.13）: O-1・O-2
-/// - T-T14-24（CI-T14.19）: O-8・O-9・O-11・O-12・O-13
-/// - T-T15-12（CI-T15.9）: O-6・O-7
-/// - T-T17-06（CI-T17.6）: O-3・O-4・O-5
+/// - T-T14-15（ios-contract-20.13）: O-1・O-2
+/// - T-T14-24（ios-contract-20.19）: O-8・O-9・O-11・O-12・O-13
+/// - T-T15-12（ios-contract-21.9）: O-6・O-7
+/// - T-T17-06（ios-contract-23.6）: O-3・O-4・O-5
 final class GrepOracleTests: XCTestCase {
 
-    // MARK: - T-T14-15（CI-T14.13）: O-1・O-2
+    // MARK: - T-T14-15（ios-contract-20.13）: O-1・O-2
 
-    // verifies: CI-T14.13
+    // verifies: ios-contract-20.13
     func testTT14_15_unauthorizedDetectionIsCentralizedAndAuthStatusIsRemoved() {
         let files = SourceGrep.swiftFiles()
 
@@ -29,9 +29,9 @@ final class GrepOracleTests: XCTestCase {
         XCTAssertTrue(staleAuthStatusHits.isEmpty, "authStatus/AuthStatus が残存している: \(staleAuthStatusHits)")
     }
 
-    // MARK: - T-T14-24（CI-T14.19）: O-8・O-9・O-11・O-12・O-13
+    // MARK: - T-T14-24（ios-contract-20.19）: O-8・O-9・O-11・O-12・O-13
 
-    // verifies: CI-T14.19
+    // verifies: ios-contract-20.19
     func testTT14_24_externalWriteGuardsAreWiredBeforeFirstAwait() {
         let files = SourceGrep.swiftFiles()
 
@@ -127,9 +127,9 @@ final class GrepOracleTests: XCTestCase {
         return regex.matches(in: joined, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range) }
     }
 
-    // MARK: - T-T15-12（CI-T15.9）: O-6・O-7
+    // MARK: - T-T15-12（ios-contract-21.9）: O-6・O-7
 
-    // verifies: CI-T15.9
+    // verifies: ios-contract-21.9
     func testTT15_12_platformPortsAreIsolatedAndWired() {
         let boundaryFiles = [
             SourceGrep.appRoot.appendingPathComponent("AppState.swift"),
@@ -143,9 +143,9 @@ final class GrepOracleTests: XCTestCase {
         XCTAssertFalse(o7Hits.isEmpty, "registerPlaybackLifecycle の配線が無い")
     }
 
-    // MARK: - T-T17-06（CI-T17.6）: O-3・O-4・O-5
+    // MARK: - T-T17-06（ios-contract-23.6）: O-3・O-4・O-5
 
-    // verifies: CI-T17.6
+    // verifies: ios-contract-23.6
     func testTT17_06_preferenceKeysAreDeclaredOnlyInRegistry() {
         let files = SourceGrep.swiftFiles(excluding: ["Preferences.swift", "APIClient.swift"])
         let keyPattern = [
@@ -168,7 +168,7 @@ final class GrepOracleTests: XCTestCase {
         XCTAssertTrue(o5Hits.isEmpty, "AppState.swift が UserDefaults を直接扱っている（registry 経由にすべき）: \(o5Hits)")
     }
 
-    // MARK: - I-S3a: Platform adapter の導入（T-G01〜T-G05・T-G08。spec §7.7 / SG-1b）
+    // MARK: - ios-slice-playback-01: Platform adapter の導入（T-G01〜T-G05・T-G08。spec §7.7 / SG-1b）
 
     /// SG-1b で訂正した AV / MP の型参照パターン。`AVPlayer` は型名 `AVPlayerEngine` に一致させない
     /// （`AVPlayer` の後ろが英字でないか、`AVPlayerItem`、または行末）。

@@ -1,7 +1,7 @@
 import XCTest
 @testable import NewsListenApp
 
-// I-S3a: `PodcastViewModel` が port（`AudioEngine` / `NowPlayingCenter`）から事象を受けて派生値を更新する
+// ios-slice-playback-01: `PodcastViewModel` が port（`AudioEngine` / `NowPlayingCenter`）から事象を受けて派生値を更新する
 // 新しい振る舞いのテスト（spec §7.3。T-N01〜T-N13）。AVFoundation / MediaPlayer を使わない（double 駆動）。
 // 各テストの `kills` は、そのテストが RED にするミュータント。
 @MainActor

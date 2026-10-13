@@ -1005,7 +1005,7 @@ final class ModelTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    // verifies: TA-V11
+    // verifies: ios-check-12
     func testLeafValueTypesEncodeWithBackendKeysAndOmitNilRole() throws {
         let withRole = try encodedObject(TranscriptSegment(speaker: "A", text: "hi", role: "fact"))
         XCTAssertEqual(Set(withRole.keys), ["speaker", "text", "role"])
@@ -1026,7 +1026,7 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(article["article_id"] as? String, "a1")
     }
 
-    // verifies: TA-V11
+    // verifies: ios-check-12
     func testLeafValueTypesRoundTripThroughJSON() throws {
         let segments = [
             TranscriptSegment(speaker: "A", text: "hi", role: "commentary"),
@@ -1043,7 +1043,7 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(PodcastSourceArticle.self, from: JSONEncoder().encode(article)), article)
     }
 
-    // verifies: TA-V11
+    // verifies: ios-check-12
     func testLeafValueTypesRejectMissingRequiredKeys() {
         let decoder = JSONDecoder()
         XCTAssertThrowsError(try decoder.decode(TranscriptSegment.self, from: Data(#"{"speaker":"A"}"#.utf8)))
@@ -1054,7 +1054,7 @@ final class ModelTests: XCTestCase {
 
     // MARK: - 推定タイミングの移行用の入口
 
-    // verifies: TA-R-CT-4
+    // verifies: ios-rule-catalog-04
     func testTranscriptSourceMirrorsPodcastFieldsAndLegacyEntryPointAgrees() throws {
         let segments = [
             TranscriptSegment(speaker: "A", text: "ab"),

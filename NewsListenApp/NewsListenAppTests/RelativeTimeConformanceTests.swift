@@ -2,7 +2,7 @@ import XCTest
 @testable import NewsListenApp
 
 /// クロスプラットフォーム共有仕様（docs/design/shared-playback-spec.md §4.2）の
-/// 正本テストケース表 RT-01〜RT-15・RT-A01/RT-A02 の準拠テスト。
+/// 正本テストケース表 shared-reltime-01〜shared-reltime-15・shared-reltime-16・shared-reltime-17 の準拠テスト。
 ///
 /// `formatRelativeTime(_:now:)` と `Date.ISO8601String()` は RelativeTimeFormatterTests.swift
 /// で定義済みのテストヘルパー（同一ターゲット内で共有）を再利用する。
@@ -11,7 +11,7 @@ final class RelativeTimeConformanceTests: XCTestCase {
 
     private let base: TimeInterval = 1_700_000_000
 
-    // MARK: - RT-01: 未来（diff < 0）
+    // MARK: - shared-reltime-01: 未来（diff < 0）
 
     func testRT01_futureReturnsImminent() {
         let now = Date(timeIntervalSince1970: base)
@@ -19,7 +19,7 @@ final class RelativeTimeConformanceTests: XCTestCase {
         XCTAssertEqual(formatRelativeTime(iso, now: now), "もうすぐ")
     }
 
-    // MARK: - RT-02〜RT-04: たった今（< 60 秒）
+    // MARK: - shared-reltime-02〜shared-reltime-04: たった今（< 60 秒）
 
     func testRT02_threeSecondsReturnsJustNow() {
         let now = Date(timeIntervalSince1970: base)
@@ -39,7 +39,7 @@ final class RelativeTimeConformanceTests: XCTestCase {
         XCTAssertEqual(formatRelativeTime(iso, now: now), "たった今")
     }
 
-    // MARK: - RT-05/RT-06: 分
+    // MARK: - shared-reltime-05・shared-reltime-06: 分
 
     func testRT05_sixtySecondsReturnsOneMinuteAgo() {
         let now = Date(timeIntervalSince1970: base)
@@ -53,7 +53,7 @@ final class RelativeTimeConformanceTests: XCTestCase {
         XCTAssertEqual(formatRelativeTime(iso, now: now), "59分前")
     }
 
-    // MARK: - RT-07/RT-08: 時間
+    // MARK: - shared-reltime-07・shared-reltime-08: 時間
 
     func testRT07_sixtyMinutesReturnsOneHourAgo() {
         let now = Date(timeIntervalSince1970: base)
@@ -67,7 +67,7 @@ final class RelativeTimeConformanceTests: XCTestCase {
         XCTAssertEqual(formatRelativeTime(iso, now: now), "23時間前")
     }
 
-    // MARK: - RT-09/RT-10: 日
+    // MARK: - shared-reltime-09・shared-reltime-10: 日
 
     func testRT09_twentyFourHoursReturnsOneDayAgo() {
         let now = Date(timeIntervalSince1970: base)
@@ -81,7 +81,7 @@ final class RelativeTimeConformanceTests: XCTestCase {
         XCTAssertEqual(formatRelativeTime(iso, now: now), "29日前")
     }
 
-    // MARK: - RT-11〜RT-14: か月（年判定より先に月へフォールバックする境界を含む）
+    // MARK: - shared-reltime-11〜shared-reltime-14: か月（年判定より先に月へフォールバックする境界を含む）
 
     func testRT11_thirtyDaysReturnsOneMonthAgo() {
         let now = Date(timeIntervalSince1970: base)
@@ -107,7 +107,7 @@ final class RelativeTimeConformanceTests: XCTestCase {
         XCTAssertEqual(formatRelativeTime(iso, now: now), "12か月前")
     }
 
-    // MARK: - RT-15: 年（年判定が月判定に優先）
+    // MARK: - shared-reltime-15: 年（年判定が月判定に優先）
 
     func testRT15_threeSixtyFiveDaysReturnsOneYearAgo() {
         let now = Date(timeIntervalSince1970: base)
@@ -115,7 +115,7 @@ final class RelativeTimeConformanceTests: XCTestCase {
         XCTAssertEqual(formatRelativeTime(iso, now: now), "1年前")
     }
 
-    // MARK: - RT-A01/RT-A02: プラットフォームアダプタ挙動（§3.3、iOS = ISO8601 文字列パース）
+    // MARK: - shared-reltime-16・shared-reltime-17: プラットフォームアダプタ挙動（§3.3、iOS = ISO8601 文字列パース）
 
     func testRTA01_emptyInputReturnsEmptyString() {
         XCTAssertEqual(formatRelativeTime("", now: Date()), "")
