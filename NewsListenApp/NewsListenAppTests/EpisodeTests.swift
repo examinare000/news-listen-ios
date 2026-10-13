@@ -73,7 +73,7 @@ final class EpisodeTests: XCTestCase {
 
     // MARK: - 判別の表
 
-    // verifies: CI-T11
+    // verifies: ios-contract-17
     func testTableHasTwentyDistinctRowsWithExpectedBreakdown() {
         let rows = table()
         XCTAssertEqual(rows.count, 20)
@@ -83,7 +83,7 @@ final class EpisodeTests: XCTestCase {
         XCTAssertEqual(rows.filter { $0.kind == .failed }.count, 15)
     }
 
-    // verifies: CI-T11
+    // verifies: ios-contract-17
     func testToEpisodeClassifiesAllTwentyCombinations() {
         for row in table() {
             let source = podcast(status: row.status, audioUrl: row.audioUrl, errorMessage: row.errorMessage)
@@ -110,7 +110,7 @@ final class EpisodeTests: XCTestCase {
         }
     }
 
-    // verifies: CI-T11
+    // verifies: ios-contract-17
     func testFailedReportedMessageKeepsDTOValueWithoutDefaultText() {
         let withMessage = podcast(status: "failed", audioUrl: "", errorMessage: "boom").toEpisode()
         let withoutMessage = podcast(status: "failed", audioUrl: "", errorMessage: nil).toEpisode()
@@ -124,7 +124,7 @@ final class EpisodeTests: XCTestCase {
         XCTAssertNil(c.reportedMessage)
     }
 
-    // verifies: CI-T11
+    // verifies: ios-contract-17
     func testStatusComparisonIsExactAndAudioUrlIsNotTrimmed() {
         // 大文字違いの status は未知として failed。空白だけの audioUrl は「非空」なので playable のまま。
         if case .failed = podcast(status: "Completed", audioUrl: audio, errorMessage: nil).toEpisode() {} else {
@@ -138,13 +138,13 @@ final class EpisodeTests: XCTestCase {
         }
     }
 
-    // verifies: CI-T11
+    // verifies: ios-contract-17
     func testToEpisodeIsPureAndRepeatable() {
         let source = podcast(status: "completed", audioUrl: audio, errorMessage: nil)
         XCTAssertEqual(source.toEpisode(), source.toEpisode())
     }
 
-    // verifies: CI-T11
+    // verifies: ios-contract-17
     func testToEpisodeDoesNotCompleteOrTrimTitle() {
         let source = Podcast(
             id: "p", type: "single", articleIds: [], difficulty: "d", audioUrl: audio,
@@ -157,7 +157,7 @@ final class EpisodeTests: XCTestCase {
 
     // MARK: - 値の独立
 
-    // verifies: TA-V6
+    // verifies: ios-check-07
     func testEpisodeContentIsIndependentOfSourceArraysAndReturnedArrays() {
         var segments = [TranscriptSegment(speaker: "A", text: "one")]
         var vocabulary = [VocabularyEntry(term: "t1", meaningJa: "m1", example: "e1")]

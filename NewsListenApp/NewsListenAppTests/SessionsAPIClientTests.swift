@@ -46,7 +46,7 @@ final class SessionsAPIClientTests: XCTestCase {
         XCTAssertEqual(session.lastRequest?.httpMethod, "DELETE")
     }
 
-    // T-T12-17（verifies: CI-T12, D3）。revokeSession は subject .session を宣言する endpoint。
+    // T-T12-17（verifies: ios-contract-18, D3）。revokeSession は subject .session を宣言する endpoint。
     func testRevokeSessionMaps404ToNotFoundSessionSubject() async {
         let (client, _) = makeClient(data: Data(), status: 404)
 

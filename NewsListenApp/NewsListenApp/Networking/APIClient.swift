@@ -34,7 +34,7 @@ final class APIClient {
     private let session: URLSessionProtocol
     /// レスポンスボディのデコードに使う JSON デコーダ。
     private let decoder: JSONDecoder
-    /// Authorization 付きリクエストが 401 を受けたときに 1 回呼ばれる observer（I-S2 / CI-T14.8）。
+    /// Authorization 付きリクエストが 401 を受けたときに 1 回呼ばれる observer（ios-slice-auth-01 / ios-contract-20.8）。
     /// HTTP status・トークンは渡さない（境界の leakage 検査: spec §4）。
     private let onUnauthorized: (@MainActor () -> Void)?
 
@@ -549,7 +549,7 @@ final class APIClient {
     /// HTTP レスポンスのステータスを検証し、2xx 以外なら ``ApiFailure`` を投げる（D1）。
     /// - Parameters:
     ///   - response: 検証対象のレスポンス。
-    ///   - hasAuthorization: このリクエストが Authorization ヘッダを付けていたか（I-S2 / CI-T14.8）。
+    ///   - hasAuthorization: このリクエストが Authorization ヘッダを付けていたか（ios-slice-auth-01 / ios-contract-20.8）。
     ///   - notFoundSubject: 404 が意味を持つ endpoint のときだけ渡す（D3）。宣言が無ければ
     ///     404 は `.unknown(status: 404)` になる。
     private func validateResponse(

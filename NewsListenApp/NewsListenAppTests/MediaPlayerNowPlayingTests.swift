@@ -3,7 +3,7 @@ import MediaPlayer
 import os
 @testable import NewsListenApp
 
-// I-S3a: `NowPlayingCenter`（CP10）の本番 adapter と、解除 token の契約テスト（spec §7.6。T-P01〜T-P03）。
+// ios-slice-playback-01: `NowPlayingCenter`（CP10）の本番 adapter と、解除 token の契約テスト（spec §7.6。T-P01〜T-P03）。
 // このテストファイルは MediaPlayer のキー定数を使うため `import MediaPlayer` する（R-03 の対象外）。
 final class MediaPlayerNowPlayingTests: XCTestCase {
 

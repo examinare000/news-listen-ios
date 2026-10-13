@@ -1,7 +1,7 @@
 import XCTest
 @testable import NewsListenApp
 
-/// `PreferenceRegistry`（I-S2 / CI-T17）のテスト。spec.md §3.3・§5.3 CI-T17・§5.5 T-T17-* に対応する。
+/// `PreferenceRegistry`（ios-slice-auth-01 / ios-contract-23）のテスト。spec.md §3.3・§5.3 ios-contract-23・§5.5 T-T17-* に対応する。
 ///
 /// T-T17-07〜10 は `AppState`（`@MainActor`）を直接構築・操作するため、クラス全体を
 /// `@MainActor` にする（`AppStateAuthTests`・`SubjectCleanupTests` と同じ方針）。
@@ -13,9 +13,9 @@ final class PreferenceRegistryTests: XCTestCase {
         return suite
     }
 
-    // MARK: - T-T17-01（CI-T17.1）
+    // MARK: - T-T17-01（ios-contract-23.1）
 
-    // verifies: CI-T17.1
+    // verifies: ios-contract-23.1
     func testTT17_01_allKeysMatchesSpecTable() {
         let registry = PreferenceRegistry(defaults: makeSuite())
 
@@ -25,9 +25,9 @@ final class PreferenceRegistryTests: XCTestCase {
         ])
     }
 
-    // MARK: - T-T17-02（CI-T17.2）
+    // MARK: - T-T17-02（ios-contract-23.2）
 
-    // verifies: CI-T17.2
+    // verifies: ios-contract-23.2
     func testTT17_02_subjectScopedKeysMatchesSpecTable() {
         let registry = PreferenceRegistry(defaults: makeSuite())
 
@@ -48,9 +48,9 @@ final class PreferenceRegistryTests: XCTestCase {
         XCTAssertFalse(registry.hapticsEnabled.subjectScoped)
     }
 
-    // MARK: - T-T17-03（CI-T17.3, 表駆動: 8 設定 × {未保存, 列挙外/型不一致, 正常}）
+    // MARK: - T-T17-03（ios-contract-23.3, 表駆動: 8 設定 × {未保存, 列挙外/型不一致, 正常}）
 
-    // verifies: CI-T17.3
+    // verifies: ios-contract-23.3
     func testTT17_03_getReturnsDefaultWhenUnsetOrInvalid() {
         let suite = makeSuite()
         let registry = PreferenceRegistry(defaults: suite)
@@ -100,9 +100,9 @@ final class PreferenceRegistryTests: XCTestCase {
         XCTAssertEqual(registry.get(registry.hapticsEnabled), false)
     }
 
-    // MARK: - T-T17-04（CI-T17.4）
+    // MARK: - T-T17-04（ios-contract-23.4）
 
-    // verifies: CI-T17.4
+    // verifies: ios-contract-23.4
     func testTT17_04_setRejectsOutOfEnumValues() {
         let suite = makeSuite()
         let registry = PreferenceRegistry(defaults: suite)
@@ -119,9 +119,9 @@ final class PreferenceRegistryTests: XCTestCase {
         XCTAssertEqual(registry.get(registry.defaultDifficulty), "ielts_7")
     }
 
-    // MARK: - T-T17-05（CI-T17.5）
+    // MARK: - T-T17-05（ios-contract-23.5）
 
-    // verifies: CI-T17.5
+    // verifies: ios-contract-23.5
     func testTT17_05_clearSubjectScopedRemovesOnlySubjectScopedKeys() {
         let suite = makeSuite()
         let registry = PreferenceRegistry(defaults: suite)
@@ -148,9 +148,9 @@ final class PreferenceRegistryTests: XCTestCase {
         XCTAssertEqual(suite.string(forKey: "other_key"), "kept")
     }
 
-    // MARK: - T-T17-07（CI-T17.7, AppState の読込）
+    // MARK: - T-T17-07（ios-contract-23.7, AppState の読込）
 
-    // verifies: CI-T17.7
+    // verifies: ios-contract-23.7
     func testTT17_07_appStateReadsRegistryDefaultsWhenUnset() {
         let appState = AppState(
             sessionStore: InMemorySessionStore(),
@@ -166,9 +166,9 @@ final class PreferenceRegistryTests: XCTestCase {
         XCTAssertEqual(appState.timeFormat, "absolute")
     }
 
-    // MARK: - T-T17-08（CI-T17.8, AppState の保存）
+    // MARK: - T-T17-08（ios-contract-23.8, AppState の保存）
 
-    // verifies: CI-T17.8
+    // verifies: ios-contract-23.8
     func testTT17_08_appStateWritesThroughInjectedRegistry() async {
         let suite = makeSuite()
         let appState = AppState(
@@ -188,9 +188,9 @@ final class PreferenceRegistryTests: XCTestCase {
         XCTAssertEqual(suite.integer(forKey: "weekly_goal_episodes"), 5)
     }
 
-    // MARK: - T-T17-09, T-T17-10（CI-T17.9, CI-T15.10）
+    // MARK: - T-T17-09, T-T17-10（ios-contract-23.9, ios-contract-21.10）
 
-    // verifies: CI-T17.9, CI-T15.10
+    // verifies: ios-contract-23.9, ios-contract-21.10
     func testTT17_09_refreshPreferencesDoesNotAdoptOutOfEnumServerValues() async {
         let suite = makeSuite()
         let session = MockURLSession(
@@ -214,7 +214,7 @@ final class PreferenceRegistryTests: XCTestCase {
         XCTAssertFalse(appState.preferencesSyncFailed)
     }
 
-    // verifies: CI-T17.9, CI-T15.10
+    // verifies: ios-contract-23.9, ios-contract-21.10
     func testTT17_10_refreshPreferencesAdoptsInEnumServerValues() async {
         let suite = makeSuite()
         let json = #"{"default_difficulty":"toeic_900","default_playback_speed":1.25,"weekly_goal_episodes":5}"#

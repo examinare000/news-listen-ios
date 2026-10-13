@@ -2,9 +2,9 @@
 //  SubjectCleanup.swift
 //  NewsListenApp
 //
-//  主体離脱（logout・失効の両方）の事後条件を実行する（I-S2 / CI-T15 / spec §3.2）。
+//  主体離脱（logout・失効の両方）の事後条件を実行する（ios-slice-auth-01 / ios-contract-21 / spec §3.2）。
 //  4 手順を独立に試行し、失敗した手順だけを `CleanupIncomplete` に集める
-//  （消去失敗があっても認証状態の遷移自体は止めない。SG-X3「待たない」）。
+//  （消去失敗があっても認証状態の遷移自体は止めない。shared-dec-28「待たない」）。
 //
 
 import Foundation
@@ -15,7 +15,7 @@ enum SubjectCleanupFailedPart: Equatable {
     case offlineLibrary
 }
 
-/// 主体離脱の後始末が一部失敗したことを表す。遷移自体は完了している（SG-X3）。
+/// 主体離脱の後始末が一部失敗したことを表す。遷移自体は完了している（shared-dec-28）。
 struct CleanupIncomplete: Equatable {
     /// 失敗した手順の一覧。
     let failedParts: [SubjectCleanupFailedPart]
@@ -27,7 +27,7 @@ struct CleanupIncomplete: Equatable {
 /// `NowPlayingCenter` の port とクロージャだけを介して後始末を行う（leakage 検査: grep oracle O-6）。
 @MainActor
 struct SubjectCleanup {
-    /// 再生停止 port（未登録なら `nil`。未登録は失敗として扱わない: CI-T15.6）。
+    /// 再生停止 port（未登録なら `nil`。未登録は失敗として扱わない: ios-contract-21.6）。
     let playbackLifecycle: PlaybackLifecycle?
     /// ロック画面/コントロールセンターの表示クリア port。
     let nowPlayingCenter: NowPlayingCenter

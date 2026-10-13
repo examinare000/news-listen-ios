@@ -314,7 +314,7 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: 3599), "本日の生成上限に達しました（約1時間後に可能）")
     }
 
-    // T-T13-04（verifies: CI-T13, R-keep2）。
+    // T-T13-04（verifies: ios-contract-19, R-keep2）。
     func testBulkStarSurfaces429LimitMessage() async throws {
         // 一括 Star が 429（生成上限）に当たったら上限メッセージを出す（web とパリティ・review #2）。
         let mock = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])
@@ -329,7 +329,7 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertEqual(vm.errorMessage, "本日の生成上限に達しました（約12時間後に可能）")
     }
 
-    // T-T13-04（verifies: CI-T13, R-keep2）。
+    // T-T13-04（verifies: ios-contract-19, R-keep2）。
     func testStarOn429SetsLimitMessageAndRestoresArticle() async throws {
         // 429 + Retry-After を返すクライアントで star を確定させると、記事が戻り上限メッセージが出る。
         let mock = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])

@@ -3,7 +3,7 @@
 //  NewsListenApp
 //
 //  アプリ全体で共有するユーザー設定（API URL・キー・難易度・再生速度）と認証状態を保持する。
-//  設定値は `PreferenceRegistry` 経由で永続化し、認証状態は `AuthSession`（I-S2）で表す。
+//  設定値は `PreferenceRegistry` 経由で永続化し、認証状態は `AuthSession`（ios-slice-auth-01）で表す。
 //  SwiftUI から @StateObject / @EnvironmentObject で参照する。
 //
 
@@ -29,7 +29,7 @@ enum ArticleOpenMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// 認証状態（I-S2 / spec §3.1）。判別共用体で 4 状態のみを表す。
+/// 認証状態（ios-slice-auth-01 / spec §3.1）。判別共用体で 4 状態のみを表す。
 enum AuthSession: Equatable {
     /// 保存済みトークンで `/auth/me` を解決中（初期値）。
     case resolving
@@ -41,7 +41,7 @@ enum AuthSession: Equatable {
     case unavailable(ApiFailure)
 }
 
-/// 主体の照合値（I-S2）。`AppState` の外で await をまたいで状態を書く呼出元が、await の前に
+/// 主体の照合値（ios-slice-auth-01）。`AppState` の外で await をまたいで状態を書く呼出元が、await の前に
 /// 捕捉し、await の後に `isCurrentSubject(_:)` で照合してから書き込む。
 ///
 /// 保存トークンを内部に持つが、`AppState.swift` の外からは読めない（`token` は `fileprivate`）。
@@ -64,7 +64,7 @@ final class AppState: ObservableObject {
     /// 注入する（ADR-037）。ユーザー入力・UserDefaults 保存は廃止し、実行時は不変。
     let apiKey: String
 
-    /// 認証状態。`session` が唯一の正本（I-S2）。
+    /// 認証状態。`session` が唯一の正本（ios-slice-auth-01）。
     @Published private(set) var session: AuthSession = .resolving
 
     /// ログイン中ユーザー。`session` からの導出値（stored ではない: 同じ事実を二重に持たない）。
@@ -84,12 +84,12 @@ final class AppState: ObservableObject {
         return true
     }
 
-    /// Podcast 生成時の既定難易度。変更時に registry へ保存する（authenticated の間のみ永続化: CI-T15.8）。
+    /// Podcast 生成時の既定難易度。変更時に registry へ保存する（authenticated の間のみ永続化: ios-contract-21.8）。
     @Published var defaultDifficulty: String {
         didSet { persistSubjectScopedOrReset(\.defaultDifficulty, current: defaultDifficulty) { defaultDifficulty = $0 } }
     }
 
-    /// 既定の再生速度。変更時に registry へ保存する（authenticated の間のみ永続化: CI-T15.8）。
+    /// 既定の再生速度。変更時に registry へ保存する（authenticated の間のみ永続化: ios-contract-21.8）。
     @Published var defaultPlaybackSpeed: Double {
         didSet { persistSubjectScopedOrReset(\.defaultPlaybackSpeed, current: defaultPlaybackSpeed) { defaultPlaybackSpeed = $0 } }
     }
@@ -143,7 +143,7 @@ final class AppState: ObservableObject {
     /// 設定されると Podcast タブへ遷移して再生する。遷移後は受け手が nil に戻す。
     @Published var selectedPodcastId: String?
 
-    /// 直近の主体離脱の後始末が一部失敗したか（I-S2 / CI-T15.3）。全成功なら `nil`。
+    /// 直近の主体離脱の後始末が一部失敗したか（ios-slice-auth-01 / ios-contract-21.3）。全成功なら `nil`。
     @Published private(set) var lastCleanupIncomplete: CleanupIncomplete?
 
     /// 取得済みの APNs デバイストークン（16 進）。未取得なら `nil`。
@@ -153,7 +153,7 @@ final class AppState: ObservableObject {
     /// セッショントークンの保管先（既定は Keychain、テストはインメモリ）。
     private let sessionStore: SessionStore
 
-    /// 設定宣言の正本（I-S2）。
+    /// 設定宣言の正本（ios-slice-auth-01）。
     private let preferences: PreferenceRegistry
 
     /// ロック画面/コントロールセンターの表示クリア port（主体離脱の後始末で使う）。
@@ -187,7 +187,7 @@ final class AppState: ObservableObject {
 
     /// 現在の設定から生成した ``APIClient``。優先順位: override > factory > 本番生成（D-3）。
     ///
-    /// 生成時に読んだ保存トークンを unauthorized observer に捕捉させる（CI-T14.15）。
+    /// 生成時に読んだ保存トークンを unauthorized observer に捕捉させる（ios-contract-20.15）。
     /// これにより、そのクライアントが送るリクエストの 401 は「そのリクエストに使ったトークン」
     /// と照合してから遷移できる（前の主体の遅延応答が次の主体を巻き込まない）。
     var apiClient: APIClient? {
@@ -225,7 +225,7 @@ final class AppState: ObservableObject {
     }
 
     /// `AccountSettingsView.saveProfile()` 等、AppState の外で await した後にプロフィールを
-    /// 差し替える呼出元向けの API（I-S2 / G9）。`capturedAt` は await の前に捕捉した stamp。
+    /// 差し替える呼出元向けの API（ios-slice-auth-01 / G9）。`capturedAt` は await の前に捕捉した stamp。
     /// - Parameters:
     ///   - user: 差し替え後のユーザー情報。
     ///   - stamp: await の前に捕捉した `subjectStamp`。
@@ -241,7 +241,7 @@ final class AppState: ObservableObject {
     }
 
     /// Authorization 付きリクエストが 401 を返したときに `APIClient` の observer から呼ばれる
-    /// （CI-T14.7・CI-T14.8）。authenticated ∧ `sentToken` が保存トークンと一致するときだけ、
+    /// （ios-contract-20.7・ios-contract-20.8）。authenticated ∧ `sentToken` が保存トークンと一致するときだけ、
     /// 主体離脱の後始末を実行する。それ以外は状態・token・後始末とも変えない。
     /// - Parameters:
     ///   - failure: 観測した失敗。
@@ -356,7 +356,7 @@ final class AppState: ObservableObject {
             guard case .authenticated = session, sessionStore.token == t0 else { return }
             preferencesSyncFailed = true
         } catch {
-            // ApiFailure 以外（キャンセル）は失敗として扱わない（CI-T15.10・S1 D2）。
+            // ApiFailure 以外（キャンセル）は失敗として扱わない（ios-contract-21.10・ios-slice-failure-01 D2）。
         }
     }
 
@@ -402,7 +402,7 @@ final class AppState: ObservableObject {
     /// ログアウトしてサーバ側セッションを破棄し、ローカル状態を未認証にする（G4）。
     ///
     /// 開始時に `t0` を捕捉し、サーバ呼出（ベストエフォート）を await した後、保存トークンが
-    /// `t0` のままのときだけ遷移する。別の主体のトークン・状態・後始末には触れない（CI-T14.12）。
+    /// `t0` のままのときだけ遷移する。別の主体のトークン・状態・後始末には触れない（ios-contract-20.12）。
     func logout() async {
         let t0 = sessionStore.token
         // 進行中のデバイストークン登録タスクをキャンセルし、logout 後にサーバへ登録リクエストが
@@ -452,7 +452,7 @@ final class AppState: ObservableObject {
     }
 
     /// 主体依存 3 プロパティ（`defaultDifficulty`・`defaultPlaybackSpeed`・`weeklyGoalEpisodes`）の
-    /// 共通 didSet ロジック（CI-T15.8）。authenticated の間だけ registry へ永続化し、それ以外は
+    /// 共通 didSet ロジック（ios-contract-21.8）。authenticated の間だけ registry へ永続化し、それ以外は
     /// 代入を registry 既定値へ戻す（再帰は `isResettingSubjectScopedPreferences` で 1 段だけ抑止）。
     private func persistSubjectScopedOrReset<Value>(
         _ setting: KeyPath<PreferenceRegistry, PreferenceSetting<Value>>,
@@ -469,7 +469,7 @@ final class AppState: ObservableObject {
         preferences.set(preferences[keyPath: setting], current)
     }
 
-    /// 登録済みの `PlaybackLifecycle` を差し替える（weak）。`ContentView` が表示時に呼ぶ（CI-T15.9）。
+    /// 登録済みの `PlaybackLifecycle` を差し替える（weak）。`ContentView` が表示時に呼ぶ（ios-contract-21.9）。
     /// - Parameter lifecycle: 再生停止の実処理を持つオブジェクト。
     func registerPlaybackLifecycle(_ lifecycle: PlaybackLifecycle) {
         playbackLifecycle = lifecycle

@@ -1,7 +1,7 @@
 import XCTest
 @testable import NewsListenApp
 
-/// verifies: CI-T13（R-keep2）。`SessionsViewModel.revokeSession(id:)` の既存分岐
+/// verifies: ios-contract-19（R-keep2）。`SessionsViewModel.revokeSession(id:)` の既存分岐
 /// （404 = 冪等成功／500 = 汎用エラー文言）を、`ApiFailure` への置換前後で固定する特性テスト。
 @MainActor
 final class SessionsViewModelTests: XCTestCase {

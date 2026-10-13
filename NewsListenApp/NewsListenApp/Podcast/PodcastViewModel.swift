@@ -91,8 +91,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private let engine: any AudioEngine
     /// ロック画面の再生情報とリモートコマンドを隠す port。
     private let nowPlaying: NowPlayingCenter
-    /// エンジンに音声を読み込み済みか（`load` で真、`stop` で偽）。TP5: owner user／導入 I-S3a／
-    /// 削除条件 I-S3b2 で Session の状態に置き換わった時。
+    /// エンジンに音声を読み込み済みか（`load` で真、`stop` で偽）。ios-temp-05: owner user／導入 ios-slice-playback-01／
+    /// 削除条件 ios-slice-playback-03 で Session の状態に置き換わった時。
     private var isAudioLoaded = false
     /// 現在の load の事象 stream を購読する Task。tearDown で cancel する。
     private var engineEventTask: Task<Void, Never>?
@@ -548,7 +548,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     }
 
     /// エンジン・事象購読・再生状態を解放/リセットする（位置同期は行わない: D-4）。
-    /// `stopPlayback()`（同期あり）と `stopForLogout()`（同期なし・TP4）の共通部分。
+    /// `stopPlayback()`（同期あり）と `stopForLogout()`（同期なし・ios-temp-04）の共通部分。
     private func tearDownPlayback() {
         // タイマーを停止。
         syncTimer?.invalidate()
@@ -681,11 +681,11 @@ final class PodcastViewModel: NSObject, ObservableObject {
     }
 }
 
-// MARK: - PlaybackLifecycle（TP4）
+// MARK: - PlaybackLifecycle（ios-temp-04）
 
 extension PodcastViewModel: PlaybackLifecycle {
-    /// TP4（owner: user／導入: I-S2 2026-09-28／削除条件: I-S3b2 で `PlaybackCoordinator` が
-    /// `PlaybackLifecycle` の実装を引き継いだ時点。コードの物理削除は I-S3b3）。
+    /// ios-temp-04（owner: user／導入: ios-slice-auth-01 2026-09-28／削除条件: ios-slice-playback-03 で `PlaybackCoordinator` が
+    /// `PlaybackLifecycle` の実装を引き継いだ時点。コードの物理削除は ios-slice-playback-04）。
     ///
     /// 主体離脱時の再生停止。位置同期は送らない（D-4・C1: `stopPlayback()` の同期部分を呼ばない）。
     /// 冪等（2 回呼んでも同じ状態・送信 0）。

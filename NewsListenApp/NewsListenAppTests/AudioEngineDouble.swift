@@ -2,13 +2,13 @@ import XCTest
 import os
 @testable import NewsListenApp
 
-// I-S3a: `AudioEngine` port の test double（spec §6.3 CI-D1〜D3）。production からは参照されない。
+// ios-slice-playback-01: `AudioEngine` port の test double（spec §6.3 CI-D1〜D3）。production からは参照されない。
 //
 // 設計の要点（docs/trial-log/ios-scripted-session-lost-wakeup.md の教訓）:
 // - 到着の通知（消費者が次を要求した）と待受の登録を、必ず同じ `OSAllocatedUnfairLock` の区間で行う。
 //   別々の区間に置くと、通知が待受の登録より先に走って取りこぼす（lost wakeup）。
 // - continuation の resume はロックの外で行う（区間の中では resume する相手を取り出すだけ）。
-// - 呼出回数は公開しない（SG-C26）。公開するのは状態（isLoaded / hasPendingDeliver / currentChannel）だけ。
+// - 呼出回数は公開しない（ios-dec-07）。公開するのは状態（isLoaded / hasPendingDeliver / currentChannel）だけ。
 
 /// `yield(_:)` の結果（stale 事象の注入専用。待たない）。
 enum YieldResult: Equatable {

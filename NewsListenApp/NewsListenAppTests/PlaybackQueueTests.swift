@@ -134,7 +134,7 @@ final class PlaybackQueueTests: XCTestCase {
         var label: String
     }
 
-    // verifies: TA-V6
+    // verifies: ios-check-07
     func testQueueIsIndependentOfCallerArraysReturnedArraysAndCopies() {
         // (a) 渡した配列・要素の元の変数を後から書き換えても、キューの中身は変わらない。
         var source = [Track(id: "a", label: "alpha"), Track(id: "b", label: "bravo"), Track(id: "c", label: "charlie")]

@@ -1,9 +1,9 @@
 import XCTest
 @testable import NewsListenApp
 
-/// AppState の認証状態遷移（`AuthSession` 4 状態）とセッション保管のテスト（I-S2）。
+/// AppState の認証状態遷移（`AuthSession` 4 状態）とセッション保管のテスト（ios-slice-auth-01）。
 ///
-/// spec.md §5.1 CI-T14 / §5.5 T-T14-* に対応する。既存テスト（§6.1 の機械的書換え対象）は
+/// spec.md §5.1 ios-contract-20 / §5.5 T-T14-* に対応する。既存テスト（§6.1 の機械的書換え対象）は
 /// `authStatus` → `session` のパターンマッチへ、`currentUser` 直接代入（stored 廃止で
 /// コンパイル不可）→ `completeLogin(...)` へ置き換えた。
 @MainActor
@@ -18,13 +18,13 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertNil(store.token)
     }
 
-    // MARK: - T-T14-01（CI-T14.1）
+    // MARK: - T-T14-01（ios-contract-20.1）
 
-    // verifies: CI-T14.1
+    // verifies: ios-contract-20.1
     func testTT14_01_authSessionHasFourCasesAndStartsResolving() {
         let appState = makeSubjectAwareAppState()
 
-        // default 無しで 4 case を網羅してコンパイルされることも検証する（CI-T14.1）。
+        // default 無しで 4 case を網羅してコンパイルされることも検証する（ios-contract-20.1）。
         let described: String
         switch appState.session {
         case .resolving: described = "resolving"
@@ -37,9 +37,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertNil(appState.currentUser)
     }
 
-    // MARK: - T-T14-02（CI-T14.2）
+    // MARK: - T-T14-02（ios-contract-20.2）
 
-    // verifies: CI-T14.2
+    // verifies: ios-contract-20.2
     func testTT14_02_refreshAuthWithoutTokenBecomesAnonymous() async {
         let session = MockURLSession(data: Data(), statusCode: 200)
         let appState = makeSubjectAwareAppState(session: session)
@@ -50,7 +50,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertNil(session.lastRequest)
     }
 
-    // verifies: CI-T14.2
+    // verifies: ios-contract-20.2
     func testTT14_12_refreshAuthWhenAlreadyAuthenticatedIsNoOp() async {
         let session = MockURLSession(data: Data(), statusCode: 200)
         let appState = makeSubjectAwareAppState(session: session, sessionStore: InMemorySessionStore(token: "tA"))
@@ -64,9 +64,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertNil(session.lastRequest, "resolving 以外での refreshAuth は HTTP を送らないべき")
     }
 
-    // MARK: - T-T14-03（CI-T14.3）
+    // MARK: - T-T14-03（ios-contract-20.3）
 
-    // verifies: CI-T14.3
+    // verifies: ios-contract-20.3
     func testTT14_03_refreshAuthSuccessBecomesAuthenticated() async {
         let json = #"{"username":"alice","role":"user","display_name":"Alice"}"#
         let session = MockURLSession(data: Data(json.utf8), statusCode: 200)
@@ -79,9 +79,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(appState.currentUser?.username, "alice")
     }
 
-    // MARK: - T-T14-04（CI-T14.4, CI-T15.4）
+    // MARK: - T-T14-04（ios-contract-20.4, ios-contract-21.4）
 
-    // verifies: CI-T14.4, CI-T15.4
+    // verifies: ios-contract-20.4, ios-contract-21.4
     func testTT14_04_refreshAuthUnauthorizedBecomesAnonymousWithoutCleanup() async {
         let session = MockURLSession(data: Data(), statusCode: 401)
         let nowPlaying = NowPlayingCenterSpy()
@@ -98,9 +98,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(playback.stopForLogoutCallCount, 0)
     }
 
-    // MARK: - T-T14-05a〜d（CI-T14.5）
+    // MARK: - T-T14-05a〜d（ios-contract-20.5）
 
-    // verifies: CI-T14.5
+    // verifies: ios-contract-20.5
     func testTT14_05a_refreshAuthTransportErrorBecomesUnavailableNetwork() async {
         let session = MockURLSession(mode: .transportError(URLError(.notConnectedToInternet)))
         let store = InMemorySessionStore(token: "tA")
@@ -112,7 +112,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(store.token, "tA", "トークンは保持されるべき")
     }
 
-    // verifies: CI-T14.5
+    // verifies: ios-contract-20.5
     func testTT14_05b_refreshAuthServerErrorBecomesUnavailableServer() async {
         let session = MockURLSession(data: Data(), statusCode: 500)
         let store = InMemorySessionStore(token: "tA")
@@ -126,7 +126,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(store.token, "tA")
     }
 
-    // verifies: CI-T14.5
+    // verifies: ios-contract-20.5
     func testTT14_05c_refreshAuthInvalidJSONBecomesUnavailableDecoding() async {
         let session = MockURLSession(data: Data("not json".utf8), statusCode: 200)
         let store = InMemorySessionStore(token: "tA")
@@ -138,7 +138,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(store.token, "tA")
     }
 
-    // verifies: CI-T14.5
+    // verifies: ios-contract-20.5
     func testTT14_05d_cancellationKeepsResolving() async {
         let session = MockURLSession(mode: .transportError(CancellationError()))
         let store = InMemorySessionStore(token: "tA")
@@ -155,9 +155,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(playback.stopForLogoutCallCount, 0)
     }
 
-    // MARK: - T-T14-06（CI-T14.6）
+    // MARK: - T-T14-06（ios-contract-20.6）
 
-    // verifies: CI-T14.6
+    // verifies: ios-contract-20.6
     func testTT14_06_retryResolveOnlyFromUnavailable() async {
         let store = InMemorySessionStore(token: "tA")
         let appState = makeSubjectAwareAppState(session: MockURLSession(data: Data(), statusCode: 500), sessionStore: store)
@@ -179,9 +179,9 @@ final class AppStateAuthTests: XCTestCase {
         guard case .anonymous = anonymousAppState.session else { return XCTFail("anonymous からの retryResolve は no-op であるべき") }
     }
 
-    // MARK: - T-T14-07, T-T14-08（CI-T14.7）
+    // MARK: - T-T14-07, T-T14-08（ios-contract-20.7）
 
-    // verifies: CI-T14.7
+    // verifies: ios-contract-20.7
     func testTT14_07_handleIgnoredWhenNotAuthenticated() async {
         // resolving
         let nowPlaying1 = NowPlayingCenterSpy()
@@ -210,7 +210,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(nowPlaying3.clearCallCount, 0)
     }
 
-    // verifies: CI-T14.7
+    // verifies: ios-contract-20.7
     func testTT14_08_handleIgnoresNonUnauthorizedFailures() {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -229,9 +229,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(nowPlaying.clearCallCount, 0)
     }
 
-    // MARK: - T-T14-09, T-T14-10（CI-T14.8: APIClient observer）
+    // MARK: - T-T14-09, T-T14-10（ios-contract-20.8: APIClient observer）
 
-    // verifies: CI-T14.8
+    // verifies: ios-contract-20.8
     func testTT14_09_observerFiresOnceOnUnauthorizedWithAuthorization() async {
         var observerCallCount = 0
         let session = MockURLSession(data: Data(), statusCode: 401)
@@ -255,7 +255,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(observerCallCount, 1)
     }
 
-    // verifies: CI-T14.8
+    // verifies: ios-contract-20.8
     func testTT14_10a_observerDoesNotFireWithoutAuthorizationHeader() async {
         var observerCallCount = 0
         let session = MockURLSession(data: Data(), statusCode: 401)
@@ -277,7 +277,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(observerCallCount, 0, "Authorization 無しのリクエストでは observer は発火しない")
     }
 
-    // verifies: CI-T14.8
+    // verifies: ios-contract-20.8
     func testTT14_10b_observerDoesNotFireForDownloadAudio401() async {
         var observerCallCount = 0
         let session = MockURLSession(data: Data(), statusCode: 401)
@@ -299,7 +299,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(observerCallCount, 0, "downloadAudio は Authorization を付けないため observer は発火しない")
     }
 
-    // verifies: CI-T14.8
+    // verifies: ios-contract-20.8
     func testTT14_10c_observerDoesNotFireForNon401Failures() async {
         var observerCallCount = 0
         for statusCode in [403, 500] {
@@ -317,7 +317,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(observerCallCount, 0)
     }
 
-    // verifies: CI-T14.8
+    // verifies: ios-contract-20.8
     func testTT14_10d_observerDoesNotFireOnCancellationAndThrowValueUnchanged() async {
         var observerCallCount = 0
         let session = MockURLSession(mode: .transportError(CancellationError()))
@@ -339,9 +339,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(observerCallCount, 0)
     }
 
-    // MARK: - T-T14-11（CI-T14.10）
+    // MARK: - T-T14-11（ios-contract-20.10）
 
-    // verifies: CI-T14.10
+    // verifies: ios-contract-20.10
     func testTT14_11_completeLoginStoresTokenAndSession() {
         let store = InMemorySessionStore()
         let appState = makeSubjectAwareAppState(sessionStore: store)
@@ -359,9 +359,9 @@ final class AppStateAuthTests: XCTestCase {
         }
     }
 
-    // MARK: - T-T14-13a〜c（CI-T14.11）
+    // MARK: - T-T14-13a〜c（ios-contract-20.11）
 
-    // verifies: CI-T14.11
+    // verifies: ios-contract-20.11
     func testTT14_13a_updateCurrentUserAppliesWithOwnStamp() {
         let appState = makeSubjectAwareAppState(sessionStore: InMemorySessionStore(token: "tA"))
         appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
@@ -373,9 +373,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(appState.currentUser?.displayName, "Alice2")
     }
 
-    // verifies: CI-T14.11
+    // verifies: ios-contract-20.11
     func testTT14_13b_updateCurrentUserIgnoredWhenCapturedAnonymous() async {
-        // 前提: トークン無しで refreshAuth() し anonymous にする（HTTP は送らない: CI-T14.2）
+        // 前提: トークン無しで refreshAuth() し anonymous にする（HTTP は送らない: ios-contract-20.2）
         let appState = makeSubjectAwareAppState()
         await appState.refreshAuth()
         let stamp = appState.subjectStamp
@@ -386,7 +386,7 @@ final class AppStateAuthTests: XCTestCase {
         guard case .anonymous = appState.session else { return XCTFail("anonymous のまま変わらないべき") }
     }
 
-    // verifies: CI-T14.11
+    // verifies: ios-contract-20.11
     func testTT14_13c_updateCurrentUserIgnoredWhenSubjectChanged() async {
         let store = InMemorySessionStore(token: "tA")
         let appState = makeSubjectAwareAppState(sessionStore: store)
@@ -404,9 +404,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(store.token, "tB")
     }
 
-    // MARK: - T-T14-14（CI-T14.12）
+    // MARK: - T-T14-14（ios-contract-20.12）
 
-    // verifies: CI-T14.12
+    // verifies: ios-contract-20.12
     func testTT14_14_logoutClearsTokenAndSession() async {
         let store = InMemorySessionStore(token: "tok-1")
         let appState = makeSubjectAwareAppState(sessionStore: store)
@@ -419,9 +419,9 @@ final class AppStateAuthTests: XCTestCase {
         guard case .anonymous = appState.session else { return XCTFail("session は anonymous になるべき") }
     }
 
-    // MARK: - T-T14-16（CI-T14.15, CI-T14.7）
+    // MARK: - T-T14-16（ios-contract-20.15, ios-contract-20.7）
 
-    // verifies: CI-T14.15, CI-T14.7
+    // verifies: ios-contract-20.15, ios-contract-20.7
     func testTT14_16_handleIgnoresStaleAndMissingSentToken() {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -445,9 +445,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertNil(appState.lastCleanupIncomplete)
     }
 
-    // MARK: - T-T14-17a/b（CI-T14.16, G1）
+    // MARK: - T-T14-17a/b（ios-contract-20.16, G1）
 
-    // verifies: CI-T14.16
+    // verifies: ios-contract-20.16
     func testTT14_17a_refreshAuthDoesNotOverwriteLaterSubjectOnSuccess() async {
         let store = InMemorySessionStore(token: "tA")
         let scripted = ScriptedURLSession()
@@ -473,7 +473,7 @@ final class AppStateAuthTests: XCTestCase {
         )
     }
 
-    // verifies: CI-T14.16
+    // verifies: ios-contract-20.16
     func testTT14_17b_refreshAuthDoesNotOverwriteLaterSubjectOn401() async {
         let store = InMemorySessionStore(token: "tA")
         let scripted = ScriptedURLSession()
@@ -497,9 +497,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertTrue(scripted.sentRequests.filter { $0.httpMethod == "GET" && $0.url?.path == "/settings/preferences" }.isEmpty)
     }
 
-    // MARK: - T-T14-18（CI-T14.3, CI-T15.10, D-10）
+    // MARK: - T-T14-18（ios-contract-20.3, ios-contract-21.10, D-10）
 
-    // verifies: CI-T14.3, CI-T15.10
+    // verifies: ios-contract-20.3, ios-contract-21.10
     func testTT14_18_outerCancellationDoesNotCancelPreferencesSync() async {
         let store = InMemorySessionStore(token: "tA")
         let scripted = ScriptedURLSession()
@@ -525,9 +525,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertFalse(appState.preferencesSyncFailed)
     }
 
-    // MARK: - T-T14-19a〜c（CI-T14.16, G5〜G7）
+    // MARK: - T-T14-19a〜c（ios-contract-20.16, G5〜G7）
 
-    // verifies: CI-T14.16
+    // verifies: ios-contract-20.16
     func testTT14_19a_refreshListeningStreakGuardedBySubject() async {
         let store = InMemorySessionStore(token: "tA")
         let scripted = ScriptedURLSession()
@@ -554,7 +554,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(store.token, "tB")
     }
 
-    // verifies: CI-T14.16
+    // verifies: ios-contract-20.16
     func testTT14_19b_refreshOnboardingStatusGuardedBySubject() async {
         let store = InMemorySessionStore(token: "tA")
         let scripted = ScriptedURLSession()
@@ -576,7 +576,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(store.token, "tB")
     }
 
-    // verifies: CI-T14.16
+    // verifies: ios-contract-20.16
     func testTT14_19c_completeOnboardingGuardedBySubject() async {
         let store = InMemorySessionStore(token: "tA")
         let scripted = ScriptedURLSession()
@@ -598,9 +598,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(store.token, "tB")
     }
 
-    // MARK: - T-T14-20（CI-T14.12, A10）
+    // MARK: - T-T14-20（ios-contract-20.12, A10）
 
-    // verifies: CI-T14.12
+    // verifies: ios-contract-20.12
     func testTT14_20_logoutFromResolvingOnlyClearsTokenWithoutCleanup() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
@@ -617,9 +617,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(playback.stopForLogoutCallCount, 0)
     }
 
-    // MARK: - T-T14-21（CI-T14.16, G2, SR-12）
+    // MARK: - T-T14-21（ios-contract-20.16, G2, SR-12）
 
-    // verifies: CI-T14.16
+    // verifies: ios-contract-20.16
     func testTT14_21_refreshAuthDoesNotCancelLaterSubjectsDeviceTokenRegistration() async {
         let store = InMemorySessionStore(token: "tA")
         let scripted = ScriptedURLSession()
@@ -650,9 +650,9 @@ final class AppStateAuthTests: XCTestCase {
         scripted.release(method: "POST", path: "/notifications/device-tokens", status: 200)
     }
 
-    // MARK: - T-T14-22（CI-T14.17）
+    // MARK: - T-T14-22（ios-contract-20.17）
 
-    // verifies: CI-T14.17
+    // verifies: ios-contract-20.17
     func testTT14_22_isCurrentSubjectReflectsSessionAtCaptureTime() async {
         let store = InMemorySessionStore()
         let appState = makeSubjectAwareAppState(sessionStore: store)
@@ -678,9 +678,9 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertFalse(resolvingState.isCurrentSubject(sR), "resolving（非 authenticated）では常に false")
     }
 
-    // MARK: - T-T14-23（CI-T14.18）
+    // MARK: - T-T14-23（ios-contract-20.18）
 
-    // verifies: CI-T14.18
+    // verifies: ios-contract-20.18
     func testTT14_23_confirmWeeklyGoalSyncGuardedBySubject() async {
         let store = InMemorySessionStore(token: "tA")
         let appState = makeSubjectAwareAppState(sessionStore: store)

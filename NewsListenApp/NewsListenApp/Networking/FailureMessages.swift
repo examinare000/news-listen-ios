@@ -9,7 +9,7 @@
 
 import Foundation
 
-/// 文言を表示する画面群の分類（S1 で実在する呼出元。feed 2 / starred 2 / settings 4 / podcast 3）。
+/// 文言を表示する画面群の分類（ios-slice-failure-01 で実在する呼出元。feed 2 / starred 2 / settings 4 / podcast 3）。
 ///
 /// SG-S1-2 = (b) では context によって文言は変わらない。context 別の文言が将来必要になっても
 /// 変更は本ファイルの表と対応テストだけで済み、呼出側は変えなくてよい（spec §2.5）。

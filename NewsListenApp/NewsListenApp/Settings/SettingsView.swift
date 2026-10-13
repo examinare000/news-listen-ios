@@ -106,7 +106,7 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: appState.weeklyGoalEpisodes) { oldValue, newValue in
-                // 前の主体の応答で次の主体の値を書かない（I-S2）。
+                // 前の主体の応答で次の主体の値を書かない（ios-slice-auth-01）。
                 // stamp は最初の await より前（Task { の前）で捕捉する。
                 let stamp = appState.subjectStamp
                 // 新値がサーバーで既に確認済みなら同期をスキップ。
@@ -373,7 +373,7 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: appState.defaultDifficulty) { oldValue, newValue in
-                // 前の主体の応答で次の主体の値を書かない（I-S2）。
+                // 前の主体の応答で次の主体の値を書かない（ios-slice-auth-01）。
                 // stamp は最初の await より前（Task { の前）で捕捉する。
                 let stamp = appState.subjectStamp
                 // ユーザーが難易度を変更したとき、サーバーへ同期する。
@@ -396,7 +396,7 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: appState.defaultPlaybackSpeed) { oldValue, newValue in
-                // 前の主体の応答で次の主体の値を書かない（I-S2）。
+                // 前の主体の応答で次の主体の値を書かない（ios-slice-auth-01）。
                 // stamp は最初の await より前（Task { の前）で捕捉する。
                 let stamp = appState.subjectStamp
                 // ユーザーが再生速度を変更したとき、サーバーへ同期する。

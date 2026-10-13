@@ -158,7 +158,7 @@ final class StarredViewModelTests: XCTestCase {
         XCTAssertNotNil(vm.errorMessage)
     }
 
-    // T-T13-04（verifies: CI-T13, R-keep2）。
+    // T-T13-04（verifies: ios-contract-19, R-keep2）。
     func testUnstar404IsTreatedAsSuccess() async throws {
         let (client, _) = makeClient(json: "", statusCode: 404)
         let vm = StarredViewModel(apiClient: client)

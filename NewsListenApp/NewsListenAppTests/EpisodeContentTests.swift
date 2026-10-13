@@ -31,27 +31,27 @@ final class EpisodeContentTests: XCTestCase {
 
     // MARK: - displayTitle
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testDisplayTitleUsesTitleWhenPresent() {
         XCTAssertEqual(content(title: "速報タイトル", intro: "イントロテキスト").displayTitle, "速報タイトル")
     }
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testDisplayTitleFallsBackToIntroWhenTitleEmpty() {
         XCTAssertEqual(content(title: "", intro: "イントロテキスト").displayTitle, "イントロテキスト")
     }
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testDisplayTitleFallsBackToIntroWhenTitleIsWhitespaceOnly() {
         XCTAssertEqual(content(title: "   ", intro: "イントロテキスト").displayTitle, "イントロテキスト")
     }
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testDisplayTitleFallsBackToDefaultWhenBothEmpty() {
         XCTAssertEqual(content(title: "", intro: "").displayTitle, "ニュースポッドキャスト")
     }
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testDisplayTitleTrimsSurroundingWhitespaceAndNewlines() {
         XCTAssertEqual(content(title: " \n題 \n", intro: "i").displayTitle, "題")
         XCTAssertEqual(content(title: "", intro: "\n イントロ \n").displayTitle, "イントロ")
@@ -60,35 +60,35 @@ final class EpisodeContentTests: XCTestCase {
 
     // MARK: - has*（nil・空・非空）
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testHasTranscriptIsTrueOnlyForNonEmptySegments() {
         XCTAssertFalse(content(segments: nil).hasTranscript)
         XCTAssertFalse(content(segments: []).hasTranscript)
         XCTAssertTrue(content(segments: [segment]).hasTranscript)
     }
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testHasVocabularyIsTrueOnlyForNonEmptyVocabulary() {
         XCTAssertFalse(content(vocabulary: nil).hasVocabulary)
         XCTAssertFalse(content(vocabulary: []).hasVocabulary)
         XCTAssertTrue(content(vocabulary: [vocabularyEntry]).hasVocabulary)
     }
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testHasQuizIsTrueOnlyForNonEmptyQuiz() {
         XCTAssertFalse(content(quiz: nil).hasQuiz)
         XCTAssertFalse(content(quiz: []).hasQuiz)
         XCTAssertTrue(content(quiz: [quizQuestion]).hasQuiz)
     }
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testHasSourceArticlesIsTrueOnlyForNonEmptySourceArticles() {
         XCTAssertFalse(content(sourceArticles: nil).hasSourceArticles)
         XCTAssertFalse(content(sourceArticles: []).hasSourceArticles)
         XCTAssertTrue(content(sourceArticles: [article]).hasSourceArticles)
     }
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testHasFlagsAreIndependentOfEachOther() {
         let onlyQuiz = content(quiz: [quizQuestion])
         XCTAssertTrue(onlyQuiz.hasQuiz)
@@ -99,7 +99,7 @@ final class EpisodeContentTests: XCTestCase {
 
     // MARK: - showsCcBySaLicense
 
-    // verifies: TA-R-CT-3
+    // verifies: ios-rule-catalog-03
     func testShowsCcBySaLicenseIsTrueOnlyForExactFeatured() {
         XCTAssertTrue(content(sourceKind: "featured").showsCcBySaLicense)
         for kind in [nil, "user", "unknown", "Featured", "FEATURED", "", " featured", "featured "] as [String?] {
@@ -109,7 +109,7 @@ final class EpisodeContentTests: XCTestCase {
 
     // MARK: - PodcastSourceArticle.linkURL
 
-    // verifies: TA-R-CT-5
+    // verifies: ios-rule-catalog-05
     func testLinkURLAcceptsHttpAndHttpsRegardlessOfSchemeCase() {
         for url in ["http://example.com/b", "https://example.com/a", "HTTPS://example.com/c"] {
             let target = PodcastSourceArticle(articleId: "a", title: "t", url: url, source: "s")
@@ -117,7 +117,7 @@ final class EpisodeContentTests: XCTestCase {
         }
     }
 
-    // verifies: TA-R-CT-5
+    // verifies: ios-rule-catalog-05
     func testLinkURLRejectsNonWebSchemesAndInvalidStrings() {
         let cases = ["ftp://example.com/x", "javascript:alert(1)", "tel:000", "", "not a url", "/relative"]
         for url in cases {
