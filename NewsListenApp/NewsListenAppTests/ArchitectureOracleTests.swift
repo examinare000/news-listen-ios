@@ -14,14 +14,14 @@ final class ArchitectureOracleTests: XCTestCase {
 
     // MARK: - 走査の土台
 
-    private struct Hit {
-        let path: String
-        let line: Int
-        let text: String
-    }
-
     private var production: [URL] {
         SourceGrep.swiftFiles().sorted { SourceGrep.relativePath($0) < SourceGrep.relativePath($1) }
+    }
+
+    private var productionSources: [SourceFile] { ArchitectureScan.productionSources() }
+
+    private func sources(inLayer layer: ArchitectureLayer) -> [SourceFile] {
+        productionSources.filter { ArchitectureManifest.layer(of: $0.path) == layer }
     }
 
     private func filesInLayer(_ layer: ArchitectureLayer) -> [URL] {
@@ -54,6 +54,9 @@ final class ArchitectureOracleTests: XCTestCase {
 
     private var dtoNames: Set<String> { ArchitectureManifest.dtoTypeNames(in: adapterFiles) }
 
+    /// adapter の層のファイルの宣言から導いた具象型（literal の型名表に依らない）。
+    private var adapterConcrete: Set<String> { ArchitectureScan.adapterInventory(productionSources).concrete }
+
     private func relativePaths(_ files: [URL]) -> Set<String> { Set(files.map(SourceGrep.relativePath)) }
 
     /// 型名・属性名を単語境界で照合する正規表現（`@AppStorage` は属性として照合）。
@@ -81,53 +84,6 @@ final class ArchitectureOracleTests: XCTestCase {
         }
     }
 
-    // MARK: 条件コンパイルと #Preview の除外（ios-dep-13 と ios-check-04 だけで使う）
-
-    /// `#if DEBUG` の枝の中と `#Preview` ブロックの中の行（0 始まりの添字）。
-    /// 全種類の `#if` の深さを追う（`#if canImport(UIKit)` などで範囲を取り違えない）。
-    /// `#if DEBUG` の `#else` 側と、DEBUG 以外の条件の枝は除外しない。
-    private func debugAndPreviewExcludedLines(_ lines: [String]) -> Set<Int> {
-        var excluded: Set<Int> = []
-        var stack: [Bool] = []
-        var index = 0
-        while index < lines.count {
-            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("#if ") || trimmed == "#if" {
-                stack.append(conditionText(trimmed, directive: "#if") == "DEBUG")
-            } else if trimmed.hasPrefix("#elseif") {
-                if !stack.isEmpty { stack[stack.count - 1] = conditionText(trimmed, directive: "#elseif") == "DEBUG" }
-            } else if trimmed.hasPrefix("#else") {
-                if !stack.isEmpty { stack[stack.count - 1] = false }
-            } else if trimmed.hasPrefix("#endif") {
-                if !stack.isEmpty { stack.removeLast() }
-            }
-            if stack.contains(true) { excluded.insert(index) }
-            if trimmed.hasPrefix("#Preview") {
-                var depth = 0
-                var opened = false
-                var cursor = index
-                scan: while cursor < lines.count {
-                    excluded.insert(cursor)
-                    for character in lines[cursor] {
-                        if character == "{" { depth += 1; opened = true }
-                        if character == "}" { depth -= 1 }
-                    }
-                    if opened && depth <= 0 { break scan }
-                    cursor += 1
-                }
-                index = max(index, cursor)
-            }
-            index += 1
-        }
-        return excluded
-    }
-
-    private func conditionText(_ directiveLine: String, directive: String) -> String {
-        var rest = String(directiveLine.dropFirst(directive.count))
-        if let comment = rest.range(of: "//") { rest = String(rest[..<comment.lowerBound]) }
-        return rest.trimmingCharacters(in: .whitespaces)
-    }
-
     // MARK: 数え上げ
 
     /// 行ごとに照合する。`excludeComments`: コメント行（先頭の空白の後が `//`）を除く（`SourceGrep.matchingLines` は除かないので自前で除く）。
@@ -137,28 +93,28 @@ final class ArchitectureOracleTests: XCTestCase {
         excludeComments: Bool = true,
         excludeConditional: Bool = false,
         where isHit: (String) -> Bool
-    ) -> [Hit] {
-        var hits: [Hit] = []
+    ) -> [ScanHit] {
+        var hits: [ScanHit] = []
         for file in files {
             let path = SourceGrep.relativePath(file)
             let lines = SourceGrep.content(of: file).components(separatedBy: "\n")
-            let skipped = excludeConditional ? debugAndPreviewExcludedLines(lines) : []
+            let skipped = excludeConditional ? ArchitectureScan.debugAndPreviewExcludedLines(lines) : []
             for (offset, line) in lines.enumerated() {
                 if excludeComments && SourceGrep.isCommentLine(line) { continue }
                 if skipped.contains(offset) { continue }
-                if isHit(line) { hits.append(Hit(path: path, line: offset + 1, text: line)) }
+                if isHit(line) { hits.append(ScanHit(path: path, line: offset + 1, text: line)) }
             }
         }
         return hits.sorted { ($0.path, $0.line) < ($1.path, $1.line) }
     }
 
-    private func lineCounts(_ hits: [Hit]) -> [String: Int] {
+    private func lineCounts(_ hits: [ScanHit]) -> [String: Int] {
         var counts: [String: Int] = [:]
         for hit in hits { counts[hit.path, default: 0] += 1 }
         return counts
     }
 
-    private func describe(_ hits: [Hit]) -> String {
+    private func describe(_ hits: [ScanHit]) -> String {
         hits.map { "\($0.path):\($0.line): \($0.text.trimmingCharacters(in: .whitespaces))" }.joined(separator: "\n")
     }
 
@@ -177,7 +133,7 @@ final class ArchitectureOracleTests: XCTestCase {
         }
     }
 
-    private func assertContainsHit(_ hits: [Hit], path: String, fragment: String, _ label: String, file: StaticString = #filePath, line: UInt = #line) {
+    private func assertContainsHit(_ hits: [ScanHit], path: String, fragment: String, _ label: String, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(
             hits.contains { $0.path == path && $0.text.contains(fragment) },
             "\(label): 正の対照が除外の前の集合に無い: \(path) の `\(fragment)`",
@@ -191,7 +147,7 @@ final class ArchitectureOracleTests: XCTestCase {
     /// 一覧の行数が 0 以下の行は、写像の比較とは別に fail させる。比較は等号だけ。
     private func assertAllowlistMatches(
         rule: String,
-        measured hits: [Hit],
+        measured hits: [ScanHit],
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -216,7 +172,7 @@ final class ArchitectureOracleTests: XCTestCase {
         }
     }
 
-    private func assertNoHits(_ hits: [Hit], _ label: String, file: StaticString = #filePath, line: UInt = #line) {
+    private func assertNoHits(_ hits: [ScanHit], _ label: String, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(hits.isEmpty, "\(label) は 0 件であること。違反:\n\(describe(hits))", file: file, line: line)
     }
 
@@ -290,7 +246,12 @@ final class ArchitectureOracleTests: XCTestCase {
         let partKeys: Set<String> = [
             "ios-dep-02", "ios-dep-03", "ios-dep-04", "ios-dep-04/DTO", "ios-dep-05", "ios-dep-06", "ios-dep-06/DTO", "ios-dep-08", "ios-dep-11", "ios-dep-12", "ios-dep-13",
         ]
-        return partKeys.union(literalGroups.map(\.key)).union([vocabularyKey])
+        let ledgerQueryKeys = Set(ArchitectureManifest.operationLedger.compactMap { row -> String? in
+            if case .query(let id) = row.kind { return "ios-check-15/verifies/" + id }
+            return nil
+        })
+        let derivedKeys: Set<String> = ["ios-check-16", "ios-check-15/read-write"]
+        return partKeys.union(literalGroups.map(\.key)).union([vocabularyKey]).union(derivedKeys).union(ledgerQueryKeys)
     }
 
     // MARK: - ios-check-01
@@ -314,11 +275,13 @@ final class ArchitectureOracleTests: XCTestCase {
         let explicitMissing = ArchitectureManifest.explicitLayers.keys.filter { !paths.contains($0) }.sorted()
         XCTAssertTrue(explicitMissing.isEmpty, "明示の行の path が production に無い: \(explicitMissing)")
 
-        let ungoverned = all.map(SourceGrep.relativePath).filter { ArchitectureManifest.explicitLayers[$0] == nil }
-        let unmatched = ungoverned.filter { ArchitectureManifest.matchedLayers(of: $0).isEmpty }
-        let overlapped = ungoverned.filter { ArchitectureManifest.matchedLayers(of: $0).count >= 2 }
-        XCTAssertTrue(unmatched.isEmpty, "どの規則にも当たらないファイル: \(unmatched)")
-        XCTAssertTrue(overlapped.isEmpty, "2 つ以上の規則に当たるファイル: \(overlapped)")
+        let assignment = ArchitectureScan.layerAssignment(paths: all.map(SourceGrep.relativePath))
+        XCTAssertTrue(assignment.unclassified.isEmpty, "どの規則にも当たらないファイル: \(assignment.unclassified)")
+        XCTAssertTrue(assignment.overlapped.isEmpty, "2 つ以上の規則に当たるファイル: \(assignment.overlapped)")
+        // 正の対照: 純関数の経路でも、重複する path を足すと重複として返る（空の集合で合格しない）。
+        let withDuplicate = ArchitectureScan.layerAssignment(paths: all.map(SourceGrep.relativePath) + ["Podcast/Playback/DummyView.swift"])
+        XCTAssertEqual(withDuplicate.overlapped, ["Podcast/Playback/DummyView.swift"])
+        XCTAssertTrue(withDuplicate.unclassified.isEmpty)
 
         // 許可リストの構造の整合（行数の値は読まない。値は規則キーを検査するテストだけが見る）。
         let known = knownRuleKeys
@@ -338,7 +301,7 @@ final class ArchitectureOracleTests: XCTestCase {
             #"^\s*import\s+(?!Foundation\b)\w+"#,
             #"\b(Codable|Decodable|Encodable|CodingKeys?|UserDefaults|ObservableObject|URLSession|FileManager)\b"#,
             #"@Published\b"#,
-            wordPattern(ArchitectureManifest.adapterConcrete),
+            wordPattern(adapterConcrete),
         ]
         let isViolation = try matcher(patterns)
         // 正の対照: 禁止の import・属性に当たる。負の対照: Foundation の import と `CodingKeysFoo` に当たらない。
@@ -358,7 +321,7 @@ final class ArchitectureOracleTests: XCTestCase {
     func testIosTest055_applicationDependsOnlyOnAllowedFrameworksAndNames() throws {
         let patterns = [
             #"^\s*import\s+(?!(Foundation|Combine|os)\b)\w+"#,
-            wordPattern(ArchitectureManifest.adapterConcrete),
+            wordPattern(adapterConcrete),
         ] + uiFacilityPatterns + [wordPattern(dtoNames)]
         let isViolation = try matcher(patterns)
         // 負の対照: 許可された import に当たらない。
@@ -399,8 +362,6 @@ final class ArchitectureOracleTests: XCTestCase {
 
     // verifies: ios-check-01（ios-dep-13）
     func testIosTest057_adapterConcreteIsConstructedOnlyInCompositionRootOrDebug() throws {
-        let isConstruction = try matcher([constructionPattern(ArchitectureManifest.adapterConcrete)])
-
         // 合成テキスト: `#if DEBUG` と `#Preview` の中は数えず、`#if canImport` の `#else` の後と DEBUG の `#else` 側は数える。
         let synthetic = """
         #if DEBUG
@@ -425,14 +386,20 @@ final class ArchitectureOracleTests: XCTestCase {
         }
         let h = APIClient()
         """
-        let lines = synthetic.components(separatedBy: "\n")
-        let skipped = debugAndPreviewExcludedLines(lines)
-        let counted = lines.enumerated().filter { !skipped.contains($0.offset) && isConstruction($0.element) }.map { $0.element }
-        XCTAssertEqual(counted, ["let d = APIClient()", "let f = APIClient()", "let h = APIClient()"])
+        let syntheticFiles = [SourceFile(path: "Fixture/Application/Synthetic.swift", text: synthetic)]
+        let syntheticInventory = AdapterInventory(concrete: ["APIClient"], dto: [], pureValue: [], excludedPrivate: [], aliases: [:], factories: [])
+        let syntheticHits = ArchitectureScan.adapterConstructionHits(syntheticFiles, inventory: syntheticInventory)
+        XCTAssertEqual(syntheticHits.map(\.text), ["let d = APIClient()", "let f = APIClient()", "let h = APIClient()"])
 
-        let targets = production.filter { ArchitectureManifest.layer(of: SourceGrep.relativePath($0)) != .compositionRoot }
-        assertNonEmptyContents(targets, "compositionRoot 以外")
+        let sources = productionSources
+        assertNonEmptyContents(production, "production")
+        let inventory = ArchitectureScan.adapterInventory(sources)
+        XCTAssertFalse(inventory.concrete.isEmpty, "導出した具象型が空では生成を検出できない")
+        let hits = ArchitectureScan.adapterConstructionHits(sources, inventory: inventory)
+
         // 実ファイルの対照: 除外の前の集合に LearningView の Preview の行がある。
+        let isConstruction = try matcher([constructionPattern(inventory.concrete)])
+        let targets = production.filter { ArchitectureManifest.layer(of: SourceGrep.relativePath($0)) != .compositionRoot }
         let beforeExclusion = collectHits(in: targets, where: isConstruction)
         XCTAssertTrue(beforeExclusion.contains { $0.path == "Learning/LearningView.swift" }, "LearningView の Preview の行が除外の前の集合に無い")
         // 負の対照: コメント除外の前の集合に `///` で始まり生成の形を含む行があり、除外の後には同じファイルの `///` の行が無い。
@@ -441,12 +408,11 @@ final class ArchitectureOracleTests: XCTestCase {
             withComments.contains { $0.path == "Podcast/PodcastViewModel.swift" && $0.text.trimmingCharacters(in: .whitespaces).hasPrefix("///") && $0.text.contains("AudioCacheManager()") },
             "doc コメントの対照が除外の前の集合に無い"
         )
-        let afterExclusion = collectHits(in: targets, excludeConditional: true, where: isConstruction)
         XCTAssertFalse(
-            afterExclusion.contains { $0.path == "Podcast/PodcastViewModel.swift" && $0.text.trimmingCharacters(in: .whitespaces).hasPrefix("///") },
+            hits.contains { $0.path == "Podcast/PodcastViewModel.swift" && $0.text.trimmingCharacters(in: .whitespaces).hasPrefix("///") },
             "doc コメントが数えられている"
         )
-        assertAllowlistMatches(rule: "ios-dep-13", measured: afterExclusion)
+        assertAllowlistMatches(rule: "ios-dep-13", measured: hits)
     }
 
     // MARK: - ios-check-03
@@ -593,7 +559,7 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let viewMatcher = try matcher([#"\bAPIClient\b"#, #"\bApiFailure\b"#, #"\bUserDefaults\b"#, #"@AppStorage\b"#])
         let viewModelMatcher = try matcher(
-            [#"\bAPIClient\b"#, wordPattern(ArchitectureManifest.adapterConcrete)] + uiFacilityPatterns + [#"^\s*import\s+(UIKit|SwiftUI)\b"#]
+            [#"\bAPIClient\b"#, wordPattern(adapterConcrete)] + uiFacilityPatterns + [#"^\s*import\s+(UIKit|SwiftUI)\b"#]
         )
         let viewHits = collectHits(in: views, where: viewMatcher)
         let viewModelHits = collectHits(in: viewModels, where: viewModelMatcher)
@@ -633,7 +599,7 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let drafts = Set(ArchitectureManifest.publishedDraftAllowlist.map { $0.file + "\u{0}" + $0.name })
         let applicationHits = collectHits(in: application) { publishedName($0) != nil }
-        let viewModelHits = viewModels.flatMap { url -> [Hit] in
+        let viewModelHits = viewModels.flatMap { url -> [ScanHit] in
             let path = SourceGrep.relativePath(url)
             return collectHits(in: [url]) { line in
                 guard let name = publishedName(line) else { return false }
@@ -686,5 +652,193 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let outside = collectHits(in: all, excludeComments: false, where: isStatusCheck).filter { !$0.path.hasPrefix("Networking/") }
         assertNoHits(outside, "ios-check-10（Networking/ の外の HTTP ステータス比較）")
+    }
+
+    // MARK: - 導出した集合の検査（production を純関数へ渡す）
+
+    private var applicationSources: [SourceFile] { sources(inLayer: .application) }
+
+    private let applicationFileCounts: [(path: String, count: Int)] = [
+        ("AppState.swift", 39),
+        ("Auth/SubjectCleanup.swift", 6),
+        ("Podcast/Playback/AudioEngine.swift", 7),
+        ("Podcast/Playback/NowPlayingCenter.swift", 14),
+        ("Podcast/Playback/PlaybackLifecycle.swift", 1),
+        ("Podcast/Playback/PlayerPresentation.swift", 0),
+        ("Passkey/PasskeyAuthorizationProviding.swift", 2),
+    ]
+
+    private func kindCounts(_ ledger: [OperationRow]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for row in ledger {
+            switch row.kind {
+            case .command: counts["command", default: 0] += 1
+            case .query: counts["query", default: 0] += 1
+            case .port: counts["port", default: 0] += 1
+            case .internal: counts["internal", default: 0] += 1
+            case .readModel: counts["readModel", default: 0] += 1
+            case .factory: counts["factory", default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    // verifies: ios-check-01（ios-dep-13 の母集団）
+    func testIosCheck01_adapterInventoryIsDerivedFromAdapterDeclarations() {
+        let inventory = ArchitectureScan.adapterInventory(productionSources)
+        // 正の対照: 既知 9 型は分母ではなく、導出した集合に含まれることの確認にだけ使う。
+        let known: Set<String> = [
+            "APIClient", "KeychainSessionStore", "AudioCacheManager", "MediaPlayerNowPlaying",
+            "AVPlayerEngine", "NetworkMonitor", "PreferenceRegistry", "CrashReporter",
+            "ASAuthorizationPasskeyProvider",
+        ]
+        let summary = "concrete=\(inventory.concrete.count) dto=\(inventory.dto.count) pureValue=\(inventory.pureValue.count) excludedPrivate=\(inventory.excludedPrivate.count)\nconcrete: \(inventory.concrete.sorted())"
+
+        XCTAssertEqual(inventory.concrete.count, 11, summary)
+        XCTAssertTrue(inventory.concrete.isSuperset(of: known.union(["InMemorySessionStore", "StubNetworkMonitor"])), summary)
+        XCTAssertTrue(inventory.excludedPrivate.isSuperset(of: ["PasskeyRegistrationDelegate", "PasskeyAssertionDelegate"]), summary)
+        XCTAssertEqual(inventory.dto, dtoNames, summary)
+        XCTAssertEqual(inventory.dto.count, 39, summary)
+        XCTAssertTrue(inventory.aliases.isEmpty, summary)
+        XCTAssertTrue(inventory.factories.isEmpty, summary)
+        XCTAssertTrue(inventory.concrete.intersection(inventory.dto).isEmpty, "concrete と dto は重ならない")
+    }
+
+    // verifies: ios-check-01（ios-dep-11 の port のファイル）
+    func testIosCheck01_portDefiningFilesMatchPortFiles() {
+        let derived = ArchitectureScan.portDefiningFiles(productionSources)
+        XCTAssertFalse(derived.isEmpty, "導出した port のファイルが空")
+        XCTAssertEqual(
+            ArchitectureScan.registrationDiff(derived: derived, registered: ArchitectureManifest.portFiles),
+            RegistrationDiff(unregistered: [], stale: [])
+        )
+    }
+
+    // verifies: ios-check-01（ios-dep-09 の read model のファイル）
+    func testIosCheck01_readModelFilesMatchLedger() {
+        let derived = ArchitectureScan.readModelFiles(ledger: ArchitectureManifest.operationLedger)
+        XCTAssertEqual(
+            ArchitectureScan.registrationDiff(derived: derived, registered: ArchitectureManifest.readModelFiles),
+            RegistrationDiff(unregistered: [], stale: [])
+        )
+    }
+
+    // verifies: ios-check-15 (a)
+    func testIosCheck15_applicationPublicDeclarationsAreCountedAndSupported() {
+        let application = applicationSources
+        XCTAssertEqual(application.count, applicationFileCounts.count, "application の層のファイルの数")
+
+        let result = ArchitectureScan.publicDeclarations(application)
+
+        var perFile: [String: Int] = [:]
+        for declaration in result.declared { perFile[declaration.file, default: 0] += 1 }
+        for expected in applicationFileCounts {
+            XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
+        }
+        XCTAssertEqual(result.declared.count, 69)
+        XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
+    }
+
+    // verifies: ios-check-15 (a)
+    func testIosCheck15_ledgerMatchesApplicationPublicDeclarations() {
+        let ledger = ArchitectureManifest.operationLedger
+        let declared = ArchitectureScan.publicDeclarations(applicationSources).declared
+
+        let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
+
+        XCTAssertEqual(declared.count, 69)
+        XCTAssertEqual(ledger.count, 69)
+        XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
+        XCTAssertEqual(
+            kindCounts(ledger),
+            ["command": 15, "query": 21, "port": 17, "internal": 5, "readModel": 9, "factory": 2]
+        )
+        let ledgerIDs = Set(ledger.compactMap { row -> String? in
+            switch row.kind {
+            case .command(let id), .query(let id): return id
+            default: return nil
+            }
+        })
+        XCTAssertTrue(ledgerIDs.isSubset(of: ArchitectureManifest.specOperationIDs), "TA Spec §5 に無い ID: \(ledgerIDs.subtracting(ArchitectureManifest.specOperationIDs).sorted())")
+    }
+
+    // verifies: ios-check-15 (a)
+    func testIosCheck15_specOperationIDsMatchTargetArchitectureSection5() {
+        let ids = ArchitectureManifest.specOperationIDs
+        XCTAssertEqual(ids.count, 72)
+        XCTAssertEqual(ids.filter { $0.hasPrefix("ios-cmd-") }.count, 51)
+        XCTAssertEqual(ids.filter { $0.hasPrefix("ios-query-") }.count, 21)
+        XCTAssertTrue(ids.isSuperset(of: ["ios-query-account-03", "ios-cmd-account-10", "ios-cmd-account-11"]))
+    }
+
+    // verifies: ios-check-15 (b)
+    func testIosCheck15_everyLedgerQueryIsVerifiedByATestUsingRecordingDoubles() {
+        let ledger = ArchitectureManifest.operationLedger
+        let queryIDs = Set(ledger.compactMap { row -> String? in
+            if case .query(let id) = row.kind { return id }
+            return nil
+        })
+        XCTAssertEqual(queryIDs.count, 6, "台帳の query ID は 6 個")
+
+        let uncovered = ArchitectureScan.uncoveredQueryRows(
+            ledger: ledger,
+            testFiles: ArchitectureScan.testSources(),
+            doubleTypeNames: RecordingPorts.doubleTypeNames
+        )
+
+        XCTAssertEqual(uncovered.count, 5, "受けられていない query ID は 5 個: \(uncovered.keys.sorted())")
+        XCTAssertNil(uncovered["ios-query-account-01"], "本 slice で契約テストを書く query は受けられている")
+        let prefix = "ios-check-15/verifies/"
+        let allowedIDs = Set(ArchitectureManifest.allowlist.filter { $0.rule.hasPrefix(prefix) }.map { String($0.rule.dropFirst(prefix.count)) })
+        for id in Set(uncovered.keys).union(allowedIDs).sorted() {
+            assertAllowlistMatches(rule: prefix + id, measured: uncovered[id] ?? [])
+        }
+    }
+
+    // verifies: ios-check-15（読み書きの混在の追跡）
+    func testIosCheck15_readWriteMixedOperationsAreTracked() {
+        let declared = ArchitectureScan.publicDeclarations(applicationSources).declared
+
+        let hits = ArchitectureScan.readWriteMixedHits(declared: declared, operations: ArchitectureManifest.readWriteMixedOperations)
+
+        XCTAssertEqual(hits.count, 3)
+        assertAllowlistMatches(rule: "ios-check-15/read-write", measured: hits)
+        func ledgerKind(of name: String) -> OperationKind? {
+            ArchitectureManifest.operationLedger.first { $0.name == name }?.kind
+        }
+        XCTAssertEqual(ledgerKind(of: "refreshPreferences()"), .command("ios-cmd-prefs-04"))
+        XCTAssertEqual(ledgerKind(of: "refreshListeningStreak()"), .command("ios-cmd-learning-05"))
+        XCTAssertEqual(ledgerKind(of: "refreshOnboardingStatus()"), .query("ios-query-sources-02"))
+    }
+
+    // verifies: ios-check-16
+    func testIosCheck16_validatedDomainTypesAreSkippedOrRedWithAllowlist() {
+        XCTAssertEqual(ArchitectureManifest.validatedDomainTypes.count, 10)
+
+        let verdicts = ArchitectureScan.validatedTypeVerdicts(productionSources, types: ArchitectureManifest.validatedDomainTypes)
+
+        let red = verdicts.filter { $0.value.outcome == .red }
+        let skipped = verdicts.filter { $0.value.outcome == .skip }
+        let green = verdicts.filter { $0.value.outcome == .green }
+        XCTAssertEqual(Set(red.keys), ["PlayableEpisode", "ArticleOpenMode", "FeaturedCategory"])
+        XCTAssertEqual(skipped.count, 7, "skip: \(skipped.keys.sorted())")
+        XCTAssertEqual(green.count, 0)
+        XCTAssertEqual(verdicts.count, 10)
+        XCTAssertTrue(red["PlayableEpisode"]?.reasons.contains(.uncheckedInit) ?? false)
+        XCTAssertTrue(red["ArticleOpenMode"]?.reasons.contains(.notDomainStruct) ?? false)
+        XCTAssertTrue(red["FeaturedCategory"]?.reasons.contains(.notDomainStruct) ?? false)
+        assertAllowlistMatches(rule: "ios-check-16", measured: red.values.compactMap(\.declaration))
+    }
+
+    // verifies: ios-check-08
+    func testIosCheck08_noDomainOnlyTestFileIsUnregistered() {
+        let production = productionSources
+        let tests = ArchitectureScan.testSources()
+
+        let unregistered = ArchitectureScan.unregisteredDomainTests(production: production, tests: tests, registered: ArchitectureManifest.domainTestFiles)
+        let domainOnly = ArchitectureScan.unregisteredDomainTests(production: production, tests: tests, registered: [])
+
+        XCTAssertEqual(unregistered, [], "登録漏れ")
+        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift"], "domain だけを参照するテストファイル")
     }
 }

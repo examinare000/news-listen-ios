@@ -6,6 +6,19 @@ enum ArchitectureLayer: String, CaseIterable {
     case compositionRoot, domain, application, adapter, presentation
 }
 
+/// 公開操作の台帳（ios-check-15 (a)）の kind。`id` は TA Spec §5 の `ios-cmd-*`・`ios-query-*`。
+enum OperationKind: Equatable {
+    case command(String)
+    case query(String)
+    case port
+    case `internal`
+    case readModel
+    case factory
+}
+
+/// 台帳 1 行。型の直下の宣言 1 つに対応する。
+typealias OperationRow = (file: String, type: String, name: String, kind: OperationKind)
+
 enum ArchitectureManifest {
     /// §3.1 の所属表。5 つの規則を**全部**評価し、当たった規則の層で決める（順に当てて最初で止めない）。
     /// 正規表現は相対 path に対して照合する。5 規則と 5 層は 1 対 1 で、同じ規則の複数パターンは 1 層に数える。
@@ -66,6 +79,176 @@ enum ArchitectureManifest {
         "PlaybackQueueConformanceTests.swift",
         "EpisodeTests.swift",
         "EpisodeContentTests.swift",
+    ]
+
+    /// application の層の公開宣言の台帳（ios-check-15 (a)）。実コードと双方向に照合する。
+    static let operationLedger: [OperationRow] = [
+        (file: "AppState.swift", type: "ArticleOpenMode", name: "id", kind: .readModel),
+        (file: "AppState.swift", type: "ArticleOpenMode", name: "label", kind: .readModel),
+        (file: "AppState.swift", type: "AppState", name: "apiBaseURL", kind: .query("ios-query-account-03")),
+        (file: "AppState.swift", type: "AppState", name: "apiKey", kind: .query("ios-query-account-03")),
+        (file: "AppState.swift", type: "AppState", name: "session", kind: .query("ios-query-account-01")),
+        (file: "AppState.swift", type: "AppState", name: "currentUser", kind: .query("ios-query-account-01")),
+        (file: "AppState.swift", type: "AppState", name: "subjectStamp", kind: .query("ios-query-account-01")),
+        (file: "AppState.swift", type: "AppState", name: "isCurrentSubject(_:)", kind: .query("ios-query-account-01")),
+        (file: "AppState.swift", type: "AppState", name: "defaultDifficulty", kind: .query("ios-query-prefs-01")),
+        (file: "AppState.swift", type: "AppState", name: "defaultPlaybackSpeed", kind: .query("ios-query-prefs-01")),
+        (file: "AppState.swift", type: "AppState", name: "weeklyGoalEpisodes", kind: .query("ios-query-prefs-01")),
+        (file: "AppState.swift", type: "AppState", name: "lastConfirmedWeeklyGoalEpisodes", kind: .query("ios-query-prefs-01")),
+        (file: "AppState.swift", type: "AppState", name: "articleOpenMode", kind: .query("ios-query-prefs-01")),
+        (file: "AppState.swift", type: "AppState", name: "timeFormat", kind: .query("ios-query-prefs-01")),
+        (file: "AppState.swift", type: "AppState", name: "onboardingCompleted", kind: .query("ios-query-sources-02")),
+        (file: "AppState.swift", type: "AppState", name: "preferencesSyncFailed", kind: .query("ios-query-prefs-01")),
+        (file: "AppState.swift", type: "AppState", name: "listeningStreak", kind: .query("ios-query-learning-03")),
+        (file: "AppState.swift", type: "AppState", name: "listeningStreakLoadFailed", kind: .query("ios-query-learning-03")),
+        (file: "AppState.swift", type: "AppState", name: "selectedPodcastId", kind: .query("ios-query-notify-01")),
+        (file: "AppState.swift", type: "AppState", name: "lastCleanupIncomplete", kind: .query("ios-query-account-01")),
+        (file: "AppState.swift", type: "AppState", name: "apnsDeviceToken", kind: .internal),
+        (file: "AppState.swift", type: "AppState", name: "apiClient", kind: .query("ios-query-account-03")),
+        (file: "AppState.swift", type: "AppState", name: "isConfigured", kind: .query("ios-query-account-01")),
+        (file: "AppState.swift", type: "AppState", name: "completeLogin(_:)", kind: .command("ios-cmd-account-02")),
+        (file: "AppState.swift", type: "AppState", name: "updateCurrentUser(_:capturedAt:)", kind: .command("ios-cmd-account-10")),
+        (file: "AppState.swift", type: "AppState", name: "retryResolve()", kind: .command("ios-cmd-account-04")),
+        (file: "AppState.swift", type: "AppState", name: "handle(failure:sentToken:)", kind: .command("ios-cmd-account-04")),
+        (file: "AppState.swift", type: "AppState", name: "didRegisterDeviceToken(_:)", kind: .command("ios-cmd-notify-01")),
+        (file: "AppState.swift", type: "AppState", name: "registerDeviceTokenIfPossible()", kind: .command("ios-cmd-notify-01")),
+        (file: "AppState.swift", type: "AppState", name: "handleNotificationPodcastId(_:)", kind: .command("ios-cmd-notify-02")),
+        (file: "AppState.swift", type: "AppState", name: "refreshAuth()", kind: .command("ios-cmd-account-03")),
+        (file: "AppState.swift", type: "AppState", name: "refreshPreferences()", kind: .command("ios-cmd-prefs-04")),
+        (file: "AppState.swift", type: "AppState", name: "refreshListeningStreak()", kind: .command("ios-cmd-learning-05")),
+        (file: "AppState.swift", type: "AppState", name: "confirmWeeklyGoalSync(_:capturedAt:)", kind: .command("ios-cmd-prefs-01")),
+        (file: "AppState.swift", type: "AppState", name: "logout()", kind: .command("ios-cmd-account-04")),
+        (file: "AppState.swift", type: "AppState", name: "registerPlaybackLifecycle(_:)", kind: .command("ios-cmd-account-11")),
+        (file: "AppState.swift", type: "AppState", name: "refreshOnboardingStatus()", kind: .query("ios-query-sources-02")),
+        (file: "AppState.swift", type: "AppState", name: "completeOnboarding()", kind: .command("ios-cmd-sources-03")),
+        (file: "AppState.swift", type: "AppState", name: "init(sessionStore:apiClientOverride:apiClientFactory:preferences:nowPlayingCenter:clearOfflineLibrary:)", kind: .factory),
+        (file: "Auth/SubjectCleanup.swift", type: "CleanupIncomplete", name: "failedParts", kind: .readModel),
+        (file: "Auth/SubjectCleanup.swift", type: "SubjectCleanup", name: "playbackLifecycle", kind: .internal),
+        (file: "Auth/SubjectCleanup.swift", type: "SubjectCleanup", name: "nowPlayingCenter", kind: .internal),
+        (file: "Auth/SubjectCleanup.swift", type: "SubjectCleanup", name: "clearSubjectPreferences", kind: .internal),
+        (file: "Auth/SubjectCleanup.swift", type: "SubjectCleanup", name: "clearOfflineLibrary", kind: .internal),
+        (file: "Auth/SubjectCleanup.swift", type: "SubjectCleanup", name: "run()", kind: .command("ios-cmd-account-04")),
+        (file: "Podcast/Playback/AudioEngine.swift", type: "AudioEngine", name: "load(url:)", kind: .port),
+        (file: "Podcast/Playback/AudioEngine.swift", type: "AudioEngine", name: "play()", kind: .port),
+        (file: "Podcast/Playback/AudioEngine.swift", type: "AudioEngine", name: "pause()", kind: .port),
+        (file: "Podcast/Playback/AudioEngine.swift", type: "AudioEngine", name: "seek(to:)", kind: .port),
+        (file: "Podcast/Playback/AudioEngine.swift", type: "AudioEngine", name: "setRate(_:)", kind: .port),
+        (file: "Podcast/Playback/AudioEngine.swift", type: "AudioEngine", name: "stop()", kind: .port),
+        (file: "Podcast/Playback/AudioEngine.swift", type: "AudioEngine", name: "events", kind: .port),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "RemoteCommandRegistration", name: "init(removal:)", kind: .factory),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "RemoteCommandRegistration", name: "isCancelled", kind: .port),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "RemoteCommandRegistration", name: "cancel()", kind: .port),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingSnapshot", name: "title", kind: .readModel),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingSnapshot", name: "subtitle", kind: .readModel),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingSnapshot", name: "elapsed", kind: .readModel),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingSnapshot", name: "duration", kind: .readModel),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingSnapshot", name: "rate", kind: .readModel),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingSnapshot", name: "isPlaying", kind: .readModel),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingCenter", name: "update(_:)", kind: .port),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingCenter", name: "updateElapsed(_:duration:)", kind: .port),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingCenter", name: "clear()", kind: .port),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingCenter", name: "registerCommands(_:)", kind: .port),
+        (file: "Podcast/Playback/NowPlayingCenter.swift", type: "NowPlayingCenter", name: "unregister(_:)", kind: .port),
+        (file: "Podcast/Playback/PlaybackLifecycle.swift", type: "PlaybackLifecycle", name: "stopForLogout()", kind: .port),
+        (file: "Passkey/PasskeyAuthorizationProviding.swift", type: "PasskeyAuthorizationProviding", name: "createCredential(_:)", kind: .port),
+        (file: "Passkey/PasskeyAuthorizationProviding.swift", type: "PasskeyAuthorizationProviding", name: "assertCredential(_:)", kind: .port),
+    ]
+
+    /// TA Spec §5 の `ios-cmd-*`・`ios-query-*` の ID の全集合。
+    static let specOperationIDs: Set<String> = [
+        "ios-cmd-account-01",
+        "ios-cmd-account-02",
+        "ios-cmd-account-03",
+        "ios-cmd-account-04",
+        "ios-cmd-account-05",
+        "ios-cmd-account-06",
+        "ios-cmd-account-07",
+        "ios-cmd-account-08",
+        "ios-cmd-account-09",
+        "ios-cmd-account-10",
+        "ios-cmd-account-11",
+        "ios-cmd-catalog-01",
+        "ios-cmd-curation-01",
+        "ios-cmd-curation-02",
+        "ios-cmd-curation-03",
+        "ios-cmd-curation-04",
+        "ios-cmd-learning-01",
+        "ios-cmd-learning-02",
+        "ios-cmd-learning-03",
+        "ios-cmd-learning-04",
+        "ios-cmd-learning-05",
+        "ios-cmd-notify-01",
+        "ios-cmd-notify-02",
+        "ios-cmd-observe-01",
+        "ios-cmd-playback-01",
+        "ios-cmd-playback-02",
+        "ios-cmd-playback-03",
+        "ios-cmd-playback-04",
+        "ios-cmd-playback-05",
+        "ios-cmd-playback-06",
+        "ios-cmd-playback-07",
+        "ios-cmd-playback-08",
+        "ios-cmd-playback-09",
+        "ios-cmd-playback-10",
+        "ios-cmd-playback-11",
+        "ios-cmd-playback-12",
+        "ios-cmd-playback-13",
+        "ios-cmd-playback-14",
+        "ios-cmd-playback-15",
+        "ios-cmd-playback-16",
+        "ios-cmd-playback-17",
+        "ios-cmd-playback-18",
+        "ios-cmd-playback-19",
+        "ios-cmd-playback-20",
+        "ios-cmd-prefs-01",
+        "ios-cmd-prefs-02",
+        "ios-cmd-prefs-03",
+        "ios-cmd-prefs-04",
+        "ios-cmd-sources-01",
+        "ios-cmd-sources-02",
+        "ios-cmd-sources-03",
+        "ios-query-account-01",
+        "ios-query-account-02",
+        "ios-query-account-03",
+        "ios-query-catalog-01",
+        "ios-query-catalog-02",
+        "ios-query-curation-01",
+        "ios-query-curation-02",
+        "ios-query-curation-03",
+        "ios-query-learning-01",
+        "ios-query-learning-02",
+        "ios-query-learning-03",
+        "ios-query-learning-04",
+        "ios-query-learning-05",
+        "ios-query-notify-01",
+        "ios-query-playback-01",
+        "ios-query-playback-02",
+        "ios-query-playback-03",
+        "ios-query-playback-04",
+        "ios-query-prefs-01",
+        "ios-query-sources-01",
+        "ios-query-sources-02",
+    ]
+
+    /// 生成境界の検査（ios-check-16）の対象の型。
+    static let validatedDomainTypes: Set<String> = [
+        "PlayableEpisode",
+        "ArticleOpenMode",
+        "FeaturedCategory",
+        "SubjectKey",
+        "DifficultyLevel",
+        "WeeklyGoalTarget",
+        "TimeFormat",
+        "GenerationAllowance",
+        "VocabularyTest",
+        "QuizAttempt",
+    ]
+
+    /// 読み書きが混ざった操作（TA Spec §6）。実コードの公開宣言に今もある数を追跡する。
+    static let readWriteMixedOperations: [(file: String, type: String, name: String)] = [
+        (file: "AppState.swift", type: "AppState", name: "refreshPreferences()"),
+        (file: "AppState.swift", type: "AppState", name: "refreshListeningStreak()"),
+        (file: "AppState.swift", type: "AppState", name: "refreshOnboardingStatus()"),
     ]
 
     /// ios-dep-12 の恒久の許可リスト（入力の下書き 6 個）。
@@ -193,13 +376,18 @@ enum ArchitectureManifest {
         ("ios-dep-12", "Sessions/SessionsViewModel.swift", 2),
         ("ios-dep-12", "Settings/SettingsViewModel.swift", 4),
         ("ios-dep-12", "Starred/StarredViewModel.swift", 3),
-    ]
-
-    /// 型名の集合。`DTO` は adapter のファイルの宣言から毎回作る（`dtoTypeNames(in:)`）。
-    static let adapterConcrete: Set<String> = [
-        "APIClient", "KeychainSessionStore", "AudioCacheManager", "MediaPlayerNowPlaying",
-        "AVPlayerEngine", "NetworkMonitor", "PreferenceRegistry", "CrashReporter",
-        "ASAuthorizationPasskeyProvider",
+        // ios-check-16: 生成の入口が検査つきでない型（owner: ios-slice-foundation-03・ios-slice-prefs-01・ios-slice-periphery-02）。
+        ("ios-check-16", "AppState.swift", 1),
+        ("ios-check-16", "Catalog/Domain/Episode.swift", 1),
+        ("ios-check-16", "Models/FeaturedCategory.swift", 1),
+        // ios-check-15 (b): query の契約テストがまだ無い ID（owner: ios-slice-closure-01・ios-slice-prefs-01・ios-slice-periphery-02・ios-slice-learning-03）。
+        ("ios-check-15/verifies/ios-query-account-03", "AppState.swift", 3),
+        ("ios-check-15/verifies/ios-query-prefs-01", "AppState.swift", 7),
+        ("ios-check-15/verifies/ios-query-sources-02", "AppState.swift", 2),
+        ("ios-check-15/verifies/ios-query-learning-03", "AppState.swift", 2),
+        ("ios-check-15/verifies/ios-query-notify-01", "AppState.swift", 1),
+        // ios-check-15: 読み書きが混ざった操作（owner: ios-slice-prefs-01・ios-slice-learning-03・ios-slice-periphery-02）。
+        ("ios-check-15/read-write", "AppState.swift", 3),
     ]
 
     /// `@AppStorage` は属性として照合する（`@AppStorage\b`）。ほかは単語境界の型名。
@@ -207,10 +395,15 @@ enum ArchitectureManifest {
         "DSFeedback", "UIApplication", "UIAccessibility", "Timer", "UserDefaults", "@AppStorage",
     ]
 
+    /// DTO（Codable 適合の型宣言）を認識する正規表現。`dtoTypeNames(in:)` と `ArchitectureScan.adapterInventory` が共有する正本。
+    static let dtoDeclarationRegex = try! NSRegularExpression(
+        pattern: #"^\s*(struct|enum|final class|class)\s+(\w+)[^{]*:\s*[^{]*\b(Codable|Decodable|Encodable)\b"#
+    )
+
     /// 与えたファイルのコメント行以外にある `Codable`/`Decodable`/`Encodable` 適合の型宣言の型名。
+    /// adapter の具象型は `ArchitectureScan.adapterInventory` が同じファイルから導出する。
     static func dtoTypeNames(in files: [URL]) -> Set<String> {
-        let pattern = #"^\s*(struct|enum|final class|class)\s+(\w+)[^{]*:\s*[^{]*\b(Codable|Decodable|Encodable)\b"#
-        let regex = try! NSRegularExpression(pattern: pattern)
+        let regex = dtoDeclarationRegex
         var names: Set<String> = []
         for file in files {
             for line in SourceGrep.content(of: file).components(separatedBy: "\n") {
