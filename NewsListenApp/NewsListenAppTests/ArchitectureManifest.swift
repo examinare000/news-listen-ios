@@ -79,6 +79,7 @@ enum ArchitectureManifest {
         "PlaybackQueueConformanceTests.swift",
         "EpisodeTests.swift",
         "EpisodeContentTests.swift",
+        "PlayableEpisodeTests.swift",
     ]
 
     /// application の層の公開宣言の台帳（ios-check-15 (a)）。実コードと双方向に照合する。
@@ -376,9 +377,8 @@ enum ArchitectureManifest {
         ("ios-dep-12", "Sessions/SessionsViewModel.swift", 2),
         ("ios-dep-12", "Settings/SettingsViewModel.swift", 4),
         ("ios-dep-12", "Starred/StarredViewModel.swift", 3),
-        // ios-check-16: 生成の入口が検査つきでない型（owner: ios-slice-foundation-03・ios-slice-prefs-01・ios-slice-periphery-02）。
+        // ios-check-16: 生成の入口が検査つきでない型（owner: ios-slice-prefs-01・ios-slice-periphery-02）。
         ("ios-check-16", "AppState.swift", 1),
-        ("ios-check-16", "Catalog/Domain/Episode.swift", 1),
         ("ios-check-16", "Models/FeaturedCategory.swift", 1),
         // ios-check-15 (b): query の契約テストがまだ無い ID（owner: ios-slice-closure-01・ios-slice-prefs-01・ios-slice-periphery-02・ios-slice-learning-03）。
         ("ios-check-15/verifies/ios-query-account-03", "AppState.swift", 3),
