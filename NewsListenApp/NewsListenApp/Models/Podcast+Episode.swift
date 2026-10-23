@@ -13,7 +13,7 @@ import Foundation
 
 extension Podcast {
     /// `status` の文字列で 3 種別へ判別する（全域関数。矛盾した組は `.failed`）。
-    /// - `completed` かつ `audioUrl` 非空かつ `errorMessage` なし → `.playable`
+    /// - `completed` かつ `audioUrl` 非空（判定は `PlayableEpisode.init?`）かつ `errorMessage` なし → `.playable`
     /// - `processing` → `.generating`
     /// - それ以外（`failed` / `partial_failed` / 未知 / `completed` の矛盾）→ `.failed`
     func toEpisode() -> Episode {
@@ -31,12 +31,15 @@ extension Podcast {
             sourceKind: sourceKind
         )
         switch status {
-        case "completed" where !audioUrl.isEmpty && errorMessage == nil:
-            return .playable(PlayableEpisode(
+        case "completed" where errorMessage == nil:
+            guard let playable = PlayableEpisode(
                 content: content,
                 audioUrl: audioUrl,
                 serverPosition: playbackPositionSeconds
-            ))
+            ) else {
+                return .failed(FailedEpisode(content: content, reportedMessage: errorMessage))
+            }
+            return .playable(playable)
         case "processing":
             return .generating(GeneratingEpisode(content: content))
         default:

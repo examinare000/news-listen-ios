@@ -472,10 +472,13 @@ final class ArchitectureFixtureTests: XCTestCase {
         XCTAssertEqual(verdict(of: withExtension)?.outcome, .green, "extension の init は本体の外")
     }
 
-    func testInitDeclarationCountSeparatesPlaybackQueueFromPlayableEpisode() {
+    func testInitDeclarationCountCountsOnlyBodyInits() {
         let verdicts = ArchitectureScan.validatedTypeVerdicts(ArchitectureScan.productionSources(), types: ["PlaybackQueue", "PlayableEpisode"])
         XCTAssertEqual(verdicts["PlaybackQueue"]?.initDeclarationCount, 1)
-        XCTAssertEqual(verdicts["PlayableEpisode"]?.initDeclarationCount, 0)
+        XCTAssertEqual(verdicts["PlayableEpisode"]?.initDeclarationCount, 1)
+
+        let withoutInit = replacing(validatedFixtureText(), "    private init(name: String, count: Int) {", with: "    private func build(name: String, count: Int) {")
+        XCTAssertEqual(verdict(of: withoutInit)?.initDeclarationCount, 0, "init を消した型は 0")
     }
 
     // MARK: - ios-check-08: domain のテストの登録漏れ

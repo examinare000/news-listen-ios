@@ -820,11 +820,12 @@ final class ArchitectureOracleTests: XCTestCase {
         let red = verdicts.filter { $0.value.outcome == .red }
         let skipped = verdicts.filter { $0.value.outcome == .skip }
         let green = verdicts.filter { $0.value.outcome == .green }
-        XCTAssertEqual(Set(red.keys), ["PlayableEpisode", "ArticleOpenMode", "FeaturedCategory"])
+        XCTAssertEqual(Set(red.keys), ["ArticleOpenMode", "FeaturedCategory"])
         XCTAssertEqual(skipped.count, 7, "skip: \(skipped.keys.sorted())")
-        XCTAssertEqual(green.count, 0)
+        XCTAssertEqual(Set(green.keys), ["PlayableEpisode"])
         XCTAssertEqual(verdicts.count, 10)
-        XCTAssertTrue(red["PlayableEpisode"]?.reasons.contains(.uncheckedInit) ?? false)
+        XCTAssertNil(red["PlayableEpisode"])
+        XCTAssertEqual(green["PlayableEpisode"]?.initDeclarationCount, 1)
         XCTAssertTrue(red["ArticleOpenMode"]?.reasons.contains(.notDomainStruct) ?? false)
         XCTAssertTrue(red["FeaturedCategory"]?.reasons.contains(.notDomainStruct) ?? false)
         assertAllowlistMatches(rule: "ios-check-16", measured: red.values.compactMap(\.declaration))
@@ -839,6 +840,6 @@ final class ArchitectureOracleTests: XCTestCase {
         let domainOnly = ArchitectureScan.unregisteredDomainTests(production: production, tests: tests, registered: [])
 
         XCTAssertEqual(unregistered, [], "登録漏れ")
-        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift"], "domain だけを参照するテストファイル")
+        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift"], "domain だけを参照するテストファイル")
     }
 }

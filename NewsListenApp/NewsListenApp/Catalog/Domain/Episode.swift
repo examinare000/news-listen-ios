@@ -13,6 +13,14 @@ struct PlayableEpisode: Equatable {
     let audioUrl: String
     /// サーバーが保持する最後の再生位置（秒）。
     let serverPosition: Double
+
+    /// 空の音声 URL は再生できないため nil を返す。
+    init?(content: EpisodeContent, audioUrl: String, serverPosition: Double) {
+        guard !audioUrl.isEmpty else { return nil }
+        self.content = content
+        self.audioUrl = audioUrl
+        self.serverPosition = serverPosition
+    }
 }
 
 /// 生成中のエピソード。
