@@ -242,22 +242,53 @@ final class AudioEngineDouble: AudioEngine {
     /// 現在（直近）の load の channel。後で stop / load されても、取り出した channel は同じものを指す。
     private(set) var currentChannel: EngineChannel?
 
+    // 実 adapter と同じ振る舞いを観測できるようにする状態（呼出回数ではなく結果の状態だけを公開する）。
+    private(set) var loadedURL: URL?
+    private(set) var hasStartedPlayback = false
+    private(set) var rate: Float = 0
+    private(set) var lastSeekSeconds: Double?
+
     func load(url: URL) -> String? {
         currentChannel?.finish()
         currentChannel = EngineChannel()
         isLoaded = true
+        loadedURL = url
+        hasStartedPlayback = false
+        rate = 0
+        lastSeekSeconds = nil
         let warning = nextLoadWarning
         nextLoadWarning = nil
         return warning
     }
 
-    func play() {}
-    func pause() {}
-    func seek(to seconds: Double) {}
-    func setRate(_ rate: Float) {}
+    func play() {
+        guard isLoaded else { return }
+        hasStartedPlayback = true
+        // 実 adapter（AVPlayer.play()）と同じく、再生開始は速度を 1.0 に戻す。
+        rate = 1.0
+    }
+
+    func pause() {
+        guard isLoaded else { return }
+        rate = 0
+    }
+
+    func seek(to seconds: Double) {
+        guard isLoaded else { return }
+        lastSeekSeconds = seconds
+    }
+
+    func setRate(_ rate: Float) {
+        guard isLoaded else { return }
+        self.rate = rate
+    }
 
     func stop() {
         isLoaded = false
+        loadedURL = nil
+        hasStartedPlayback = false
+        rate = 0
+        lastSeekSeconds = nil
         currentChannel?.finish()
     }
 
@@ -280,6 +311,20 @@ final class AudioEngineDouble: AudioEngine {
             XCTFail("load されていない engine double へ送信した: \(event)", file: file, line: line)
             return
         }
+        // 実 adapter は `play()` で読み込みごとの監視を登録するので、それ以前に読み込みごとの事象は届かない。
+        if !hasStartedPlayback, Self.isPerLoadEvent(event) {
+            XCTFail("play() の前に読み込みごとの事象を送った（実 adapter では届かない）: \(event)", file: file, line: line)
+            return
+        }
         await channel.send(event, timeout: timeout, file: file, line: line)
+    }
+
+    private static func isPerLoadEvent(_ event: EngineEvent) -> Bool {
+        switch event {
+        case .ready, .buffering, .resumed, .paused, .ended, .failed, .timeUpdate:
+            return true
+        case .interrupted, .interruptionEnded, .outputDeviceLost:
+            return false
+        }
     }
 }

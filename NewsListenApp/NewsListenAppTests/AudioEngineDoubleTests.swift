@@ -31,6 +31,7 @@ final class AudioEngineDoubleTests: XCTestCase {
     func testD02_sendReturnsOnlyAfterConsumerProcessedTheEventAndNeverHangs() async {
         let engine = AudioEngineDouble()
         _ = engine.load(url: url)
+        engine.play()
         let stream = engine.events
         let processed = OSAllocatedUnfairLock(initialState: 0)
         let consumer = Task {
@@ -95,6 +96,7 @@ final class AudioEngineDoubleTests: XCTestCase {
     func testD04_cancellingTheConsumerEndsTheStreamAndLaterDeliverReturnsFalseWithoutWaiting() async throws {
         let engine = AudioEngineDouble()
         _ = engine.load(url: url)
+        engine.play()
         let channel = try XCTUnwrap(engine.currentChannel)
         let stream = engine.events
         let consumer = Task {
@@ -148,5 +150,70 @@ final class AudioEngineDoubleTests: XCTestCase {
         let result = await waiting.value
         XCTAssertFalse(result, "取り出される前に終了したので false")
         XCTAssertLessThan(Date().timeIntervalSince(start), 1, "終了で待受を起こす（timeout まで待たない）")
+    }
+
+    // verifies: ios-contract-01（ios-test-077 の土台。ios-deriv-02）
+    func testD06_perLoadEventsBeforePlayAreRejectedAndConnectionEventsAreNot() async throws {
+        let engine = AudioEngineDouble()
+        _ = engine.load(url: url)
+        XCTAssertFalse(engine.hasStartedPlayback)
+
+        // play() の前の読み込みごとの事象は届かず、失敗として記録される（実 adapter は play() で監視を登録する）。
+        XCTExpectFailure("play() の前に読み込みごとの事象を送ると XCTFail する")
+        await engine.send(.ready)
+
+        // 割り込み系の事象は読み込み済みならいつでも送れる（XCTFail しない。消費者がいないので deliver は timeout で false）。
+        let channel = try XCTUnwrap(engine.currentChannel)
+        let delivered = await channel.deliver(.interrupted, timeout: 0.05)
+        XCTAssertFalse(delivered, "消費者がいないので timeout で false（double の既存規則）")
+    }
+
+    // verifies: ios-contract-01（ios-test-077 の土台。ios-deriv-02）
+    func testD07_loadedURLRateAndLastSeekFollowTheOperationsAndPlayResetsRateToOne() {
+        let engine = AudioEngineDouble()
+        XCTAssertNil(engine.loadedURL)
+        XCTAssertFalse(engine.hasStartedPlayback)
+        XCTAssertEqual(engine.rate, 0)
+        XCTAssertNil(engine.lastSeekSeconds)
+
+        // 読み込み済みでないとき、操作は状態を変えない。
+        engine.play()
+        engine.setRate(2.0)
+        engine.seek(to: 5)
+        XCTAssertFalse(engine.hasStartedPlayback)
+        XCTAssertEqual(engine.rate, 0)
+        XCTAssertNil(engine.lastSeekSeconds)
+
+        _ = engine.load(url: url)
+        XCTAssertEqual(engine.loadedURL, url)
+        XCTAssertFalse(engine.hasStartedPlayback)
+        XCTAssertEqual(engine.rate, 0)
+        XCTAssertNil(engine.lastSeekSeconds)
+
+        engine.seek(to: 12.5)
+        XCTAssertEqual(engine.lastSeekSeconds, 12.5)
+
+        engine.setRate(1.5)
+        engine.play()
+        XCTAssertTrue(engine.hasStartedPlayback)
+        XCTAssertEqual(engine.rate, 1.0, "play() は速度を 1.0 に戻す（実 adapter と同じ）")
+
+        engine.setRate(1.5)
+        XCTAssertEqual(engine.rate, 1.5)
+        engine.pause()
+        XCTAssertEqual(engine.rate, 0)
+
+        let other = URL(string: "https://storage.example.com/other.mp3")!
+        _ = engine.load(url: other)
+        XCTAssertEqual(engine.loadedURL, other)
+        XCTAssertFalse(engine.hasStartedPlayback, "load で未開始に戻る")
+        XCTAssertNil(engine.lastSeekSeconds, "load で seek の記録が消える")
+
+        engine.play()
+        engine.stop()
+        XCTAssertNil(engine.loadedURL)
+        XCTAssertFalse(engine.hasStartedPlayback)
+        XCTAssertEqual(engine.rate, 0)
+        XCTAssertNil(engine.lastSeekSeconds)
     }
 }

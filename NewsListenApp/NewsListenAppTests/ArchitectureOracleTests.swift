@@ -611,9 +611,8 @@ final class ArchitectureOracleTests: XCTestCase {
     }
 
     // verifies: ios-check-06（ios-dep-09）
-    func testIosTest066_readModelFilesAreEmptyForNow() {
-        // 初版は対象 0 本。リードモデルを足す slice で、この assert を各ファイルの検査へ改める。
-        XCTAssertTrue(ArchitectureManifest.readModelFiles.isEmpty)
+    func testIosTest066_readModelFilesMatchNowPlaying() {
+        XCTAssertEqual(ArchitectureManifest.readModelFiles, ["Podcast/Playback/NowPlaying.swift"])
     }
 
     // MARK: - ios-check-08
@@ -666,6 +665,12 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Podcast/Playback/PlaybackLifecycle.swift", 1),
         ("Podcast/Playback/PlayerPresentation.swift", 0),
         ("Passkey/PasskeyAuthorizationProviding.swift", 2),
+        ("Podcast/Playback/PlaybackSession.swift", 11),
+        ("Podcast/Playback/PlaybackCoordinator.swift", 26),
+        ("Podcast/Playback/PlaybackCoordinator+Preview.swift", 1),
+        ("Podcast/Playback/NowPlaying.swift", 21),
+        ("Podcast/Playback/PositionReporter.swift", 5),
+        ("Podcast/Playback/OfflineLibrary.swift", 15),
     ]
 
     private func kindCounts(_ ledger: [OperationRow]) -> [String: Int] {
@@ -735,7 +740,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 69)
+        XCTAssertEqual(result.declared.count, 148)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -746,12 +751,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 69)
-        XCTAssertEqual(ledger.count, 69)
+        XCTAssertEqual(declared.count, 148)
+        XCTAssertEqual(ledger.count, 148)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 15, "query": 21, "port": 17, "internal": 5, "readModel": 9, "factory": 2]
+            ["command": 33, "query": 31, "port": 23, "internal": 24, "readModel": 30, "factory": 7]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -765,9 +770,9 @@ final class ArchitectureOracleTests: XCTestCase {
     // verifies: ios-check-15 (a)
     func testIosCheck15_specOperationIDsMatchTargetArchitectureSection5() {
         let ids = ArchitectureManifest.specOperationIDs
-        XCTAssertEqual(ids.count, 72)
-        XCTAssertEqual(ids.filter { $0.hasPrefix("ios-cmd-") }.count, 51)
-        XCTAssertEqual(ids.filter { $0.hasPrefix("ios-query-") }.count, 21)
+        XCTAssertEqual(ids.count, 74)
+        XCTAssertEqual(ids.filter { $0.hasPrefix("ios-cmd-") }.count, 52)
+        XCTAssertEqual(ids.filter { $0.hasPrefix("ios-query-") }.count, 22)
         XCTAssertTrue(ids.isSuperset(of: ["ios-query-account-03", "ios-cmd-account-10", "ios-cmd-account-11"]))
     }
 
@@ -778,7 +783,7 @@ final class ArchitectureOracleTests: XCTestCase {
             if case .query(let id) = row.kind { return id }
             return nil
         })
-        XCTAssertEqual(queryIDs.count, 6, "台帳の query ID は 6 個")
+        XCTAssertEqual(queryIDs.count, 11, "台帳の query ID は 11 個")
 
         let uncovered = ArchitectureScan.uncoveredQueryRows(
             ledger: ledger,
@@ -840,6 +845,6 @@ final class ArchitectureOracleTests: XCTestCase {
         let domainOnly = ArchitectureScan.unregisteredDomainTests(production: production, tests: tests, registered: [])
 
         XCTAssertEqual(unregistered, [], "登録漏れ")
-        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift"], "domain だけを参照するテストファイル")
+        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift"], "domain だけを参照するテストファイル")
     }
 }

@@ -177,6 +177,37 @@ final class RecordingClearOfflineLibrary {
     }
 }
 
+/// 再生の gateway（`PositionReporter` の `updatePosition`・`markCompleted`、`PlaybackCoordinator` の `fetchEpisode`）の記録 double。
+/// `updatePosition`・`markCompleted` は呼ばれるたびに数える（同値も数える）。`fetchEpisode` は読みなので数えない。
+/// `RecordingPorts` の struct（`AppState` の継ぎ目の束）には入れない。
+final class RecordingPlaybackGateway {
+    private let response: (String) -> Episode
+    private let counter = WriteCounter()
+
+    init(response: @escaping (String) -> Episode) {
+        self.response = response
+    }
+
+    var writeCount: Int { counter.count }
+
+    func resetCounts() { counter.reset() }
+
+    var updatePosition: (String, Double) async throws -> Episode {
+        { [self] id, _ in
+            counter.increment()
+            return response(id)
+        }
+    }
+
+    var markCompleted: (String) async throws -> Void {
+        { [self] _ in counter.increment() }
+    }
+
+    var fetchEpisode: (String) async throws -> Episode {
+        { [self] id in response(id) }
+    }
+}
+
 /// 5 つの double を既存の継ぎ目に合わせて束ねる。
 struct RecordingPorts {
     /// ios-check-15 (b) の静的検査が、テストファイルの参照を数えるときに使う型名。
@@ -186,6 +217,7 @@ struct RecordingPorts {
         "RecordingURLSession",
         "RecordingFileManager",
         "RecordingClearOfflineLibrary",
+        "RecordingPlaybackGateway",
     ]
 
     let suiteName: String
