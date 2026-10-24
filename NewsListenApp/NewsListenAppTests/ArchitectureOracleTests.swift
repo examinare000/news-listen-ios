@@ -671,6 +671,7 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Podcast/Playback/NowPlaying.swift", 21),
         ("Podcast/Playback/PositionReporter.swift", 5),
         ("Podcast/Playback/OfflineLibrary.swift", 15),
+        ("Podcast/Playback/OfflineDownloads.swift", 7),
     ]
 
     private func kindCounts(_ ledger: [OperationRow]) -> [String: Int] {
@@ -740,7 +741,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 148)
+        XCTAssertEqual(result.declared.count, 155)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -751,12 +752,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 148)
-        XCTAssertEqual(ledger.count, 148)
+        XCTAssertEqual(declared.count, 155)
+        XCTAssertEqual(ledger.count, 155)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 33, "query": 31, "port": 23, "internal": 24, "readModel": 30, "factory": 7]
+            ["command": 37, "query": 33, "port": 23, "internal": 24, "readModel": 30, "factory": 8]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
