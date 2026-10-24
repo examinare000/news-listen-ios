@@ -236,6 +236,13 @@ enum ArchitectureManifest {
         (file: "Podcast/Playback/OfflineLibrary.swift", type: "OfflineLibrary", name: "remove(_:)", kind: .internal),
         (file: "Podcast/Playback/OfflineLibrary.swift", type: "OfflineLibrary", name: "clearAll()", kind: .internal),
         (file: "Podcast/Playback/OfflineLibrary.swift", type: "OfflineLibrary", name: "refresh(candidateIds:)", kind: .command("ios-cmd-playback-21")),
+        (file: "Podcast/Playback/OfflineDownloads.swift", type: "OfflineDownloads", name: "downloadingIds", kind: .query("ios-query-playback-04")),
+        (file: "Podcast/Playback/OfflineDownloads.swift", type: "OfflineDownloads", name: "init(library:fetchEpisode:downloadAudio:)", kind: .factory),
+        (file: "Podcast/Playback/OfflineDownloads.swift", type: "OfflineDownloads", name: "download(episodeId:)", kind: .command("ios-cmd-playback-18")),
+        (file: "Podcast/Playback/OfflineDownloads.swift", type: "OfflineDownloads", name: "remove(episodeId:)", kind: .command("ios-cmd-playback-19")),
+        (file: "Podcast/Playback/OfflineDownloads.swift", type: "OfflineDownloads", name: "removeAll()", kind: .command("ios-cmd-playback-19")),
+        (file: "Podcast/Playback/OfflineDownloads.swift", type: "OfflineDownloads", name: "cancelAll()", kind: .command("ios-cmd-playback-20")),
+        (file: "Podcast/Playback/OfflineDownloads.swift", type: "OfflineDownloads", name: "state(for:)", kind: .query("ios-query-playback-04")),
     ]
 
     /// TA Spec §5 の `ios-cmd-*`・`ios-query-*` の ID の全集合。

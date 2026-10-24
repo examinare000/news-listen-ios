@@ -27,9 +27,23 @@ final class PlaybackQueryContractTests: XCTestCase {
     private var files: RecordingFileManager!
     private var gateway: RecordingPlaybackGateway!
     private var library: OfflineLibrary!
+    private var downloads: OfflineDownloads!
+    private var downloadCalls: ClosureCallCounter!
     private var reporter: PositionReporter!
     private var coordinator: PlaybackCoordinator!
     private var cancellables: Set<AnyCancellable> = []
+
+    /// `OfflineDownloads` に渡す取り直し・取得の closure の呼出を数える（closure は非 isolated なのでロックで守る）。
+    private final class ClosureCallCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var fetches = 0
+        private var downloads = 0
+        var fetchCount: Int { lock.withLock { fetches } }
+        var downloadCount: Int { lock.withLock { downloads } }
+        func recordFetch() { lock.withLock { fetches += 1 } }
+        func recordDownload() { lock.withLock { downloads += 1 } }
+        func reset() { lock.withLock { fetches = 0; downloads = 0 } }
+    }
 
     private func episode(_ id: String) throws -> Episode {
         let content = EpisodeContent(
@@ -48,10 +62,19 @@ final class PlaybackQueryContractTests: XCTestCase {
         let library = OfflineLibrary(store: .live(cacheManager: AudioCacheManager(fileManager: files)))
         let a = try episode("a")
         let b = try episode("b")
+        let c = try episode("c")
         let gateway = RecordingPlaybackGateway(response: { id in
             // 取り直しの応答は使われない（キャッシュ済みで始める）。同じ内容を返す。
             id == "a" ? a : b
         })
+        let downloadCalls = ClosureCallCounter()
+        let downloads = OfflineDownloads(
+            library: library,
+            fetchEpisode: { _ in downloadCalls.recordFetch(); return c },
+            downloadAudio: { _ in downloadCalls.recordDownload(); return Data([4, 5, 6]) }
+        )
+        XCTAssertEqual(files.writeCount, 0, "Given: OfflineDownloads を組んだだけでは保存庫に書かない")
+        XCTAssertEqual(downloadCalls.fetchCount + downloadCalls.downloadCount, 0, "Given: 組んだだけでは closure を呼ばない")
         let reporter = PositionReporter(
             updatePosition: gateway.updatePosition,
             markCompleted: gateway.markCompleted,
@@ -75,6 +98,8 @@ final class PlaybackQueryContractTests: XCTestCase {
         self.files = files
         self.gateway = gateway
         self.library = library
+        self.downloads = downloads
+        self.downloadCalls = downloadCalls
         self.reporter = reporter
         self.coordinator = coordinator
 
@@ -84,8 +109,11 @@ final class PlaybackQueryContractTests: XCTestCase {
         await engine.send(.timeUpdate(seconds: 12, duration: 300))
         await coordinator.addToQueue(b)
         XCTAssertEqual(coordinator.session.episodeId, "a", "Given: 再生中（playing）まで進めた")
+        let receipt: DownloadReceipt = try await downloads.download(episodeId: "c")
+        XCTAssertEqual(receipt, .saved, "Given: c を保存済みにした（state(for:) の downloaded の読みを含める）")
         gateway.resetCounts()
         files.resetCounts()
+        downloadCalls.reset()
     }
 
     override func tearDown() async throws {
@@ -93,6 +121,8 @@ final class PlaybackQueryContractTests: XCTestCase {
         coordinator = nil
         reporter = nil
         library = nil
+        downloads = nil
+        downloadCalls = nil
         gateway = nil
         files = nil
         spy = nil
@@ -123,6 +153,9 @@ final class PlaybackQueryContractTests: XCTestCase {
         _ = library.savedIds
         _ = library.usage()
         _ = reporter.lastSyncFailure
+        _ = downloads.state(for: "a")
+        _ = downloads.state(for: "c")
+        _ = downloads.downloadingIds
     }
 
     private func assertNoWritesAndUnchanged(
@@ -130,8 +163,11 @@ final class PlaybackQueryContractTests: XCTestCase {
     ) {
         let gateway: RecordingPlaybackGateway = self.gateway
         let files: RecordingFileManager = self.files
+        let downloadCalls: ClosureCallCounter = self.downloadCalls
         XCTAssertEqual(gateway.writeCount, 0, "gateway の書込み（位置・完聴）が 0", file: file, line: line)
         XCTAssertEqual(files.writeCount, 0, "保存庫の書込みが 0", file: file, line: line)
+        XCTAssertEqual(downloadCalls.fetchCount, 0, "OfflineDownloads の取り直しの呼出が 0", file: file, line: line)
+        XCTAssertEqual(downloadCalls.downloadCount, 0, "OfflineDownloads の取得の呼出が 0", file: file, line: line)
         XCTAssertEqual(observation(), before, "engine とロック画面の状態が不変", file: file, line: line)
     }
 
@@ -168,6 +204,9 @@ final class PlaybackQueryContractTests: XCTestCase {
             .sink { [unowned self] _ in self.readAllQueries() }
             .store(in: &cancellables)
         reporter.objectWillChange
+            .sink { [unowned self] _ in self.readAllQueries() }
+            .store(in: &cancellables)
+        downloads.objectWillChange
             .sink { [unowned self] _ in self.readAllQueries() }
             .store(in: &cancellables)
         let before = observation()
