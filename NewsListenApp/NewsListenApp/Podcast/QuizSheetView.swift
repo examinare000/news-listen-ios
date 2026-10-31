@@ -7,9 +7,9 @@
 
 import SwiftUI
 
-/// Podcast の公開設問を提示し、サーバー採点結果を表示するシート。
+/// 再生中エピソードの公開設問を提示し、サーバー採点結果を表示するシート。
 struct QuizSheetView: View {
-    let podcast: Podcast
+    let nowPlaying: NowPlaying
     let submit: @MainActor ([Int]) async throws -> QuizAnswerResponse
 
     @Environment(\.dismiss) private var dismiss
@@ -20,18 +20,18 @@ struct QuizSheetView: View {
     @State private var isUnavailable = false
 
     init(
-        podcast: Podcast,
+        nowPlaying: NowPlaying,
         submit: @escaping @MainActor ([Int]) async throws -> QuizAnswerResponse
     ) {
-        self.podcast = podcast
+        self.nowPlaying = nowPlaying
         self.submit = submit
-        _selections = State(initialValue: Array(repeating: nil, count: podcast.quiz?.count ?? 0))
+        _selections = State(initialValue: Array(repeating: nil, count: nowPlaying.quiz?.count ?? 0))
     }
 
     var body: some View {
         NavigationStack {
             Group {
-                if isUnavailable || !podcast.hasQuiz {
+                if isUnavailable || !nowPlaying.hasQuiz {
                     ContentUnavailableView(
                         "クイズを利用できません",
                         systemImage: "questionmark.circle",
@@ -59,14 +59,14 @@ struct QuizSheetView: View {
                 if let grade {
                     scoreHeader(grade)
                 } else {
-                    let quizCount = podcast.quiz?.count ?? 0
+                    let quizCount = nowPlaying.quiz?.count ?? 0
                     Text("本編の内容を\(quizCount)問で振り返ります")
                         .font(DSFont.meta)
                         .foregroundStyle(DSColor.inkSecondary)
                         .accessibilityLabel("本編の内容を\(quizCount)問で振り返ります")
                 }
 
-                ForEach(Array((podcast.quiz ?? []).enumerated()), id: \.offset) { questionIndex, question in
+                ForEach(Array((nowPlaying.quiz ?? []).enumerated()), id: \.offset) { questionIndex, question in
                     questionCard(question, index: questionIndex)
                 }
 
@@ -226,27 +226,32 @@ struct QuizSheetView: View {
 }
 
 #if DEBUG
-private let quizPreviewPodcast: Podcast = {
-    let data = Data("""
-    {
-        "id":"preview-quiz",
-        "type":"single",
-        "article_ids":["a1"],
-        "difficulty":"toeic_900",
-        "audio_url":"https://example.com/audio.mp3",
-        "japanese_intro_text":"コンテナ技術について振り返ります。",
-        "duration_seconds":180,
-        "created_at":"2026-07-29T00:00:00Z",
-        "status":"completed",
-        "quiz":[
-            {"question":"What changed deployment?","options":["Containerization","Paper","Audio","Ink"]},
-            {"question":"How many options are shown?","options":["One","Two","Three","Four"]},
-            {"question":"Where is grading performed?","options":["Device","Server","Player","Cache"]}
-        ]
-    }
-    """.utf8)
-    return try! JSONDecoder().decode(Podcast.self, from: data)
-}()
+private let quizPreviewNowPlaying = NowPlaying(
+    episodeId: "preview-quiz",
+    displayTitle: "コンテナ技術について振り返ります。",
+    japaneseIntroText: "コンテナ技術について振り返ります。",
+    segments: nil,
+    vocabulary: nil,
+    quiz: [
+        QuizQuestion(question: "What changed deployment?", options: ["Containerization", "Paper", "Audio", "Ink"]),
+        QuizQuestion(question: "How many options are shown?", options: ["One", "Two", "Three", "Four"]),
+        QuizQuestion(question: "Where is grading performed?", options: ["Device", "Server", "Player", "Cache"])
+    ],
+    difficulty: "toeic_900",
+    sourceArticles: nil,
+    sourceKind: nil,
+    hasTranscript: false,
+    hasVocabulary: false,
+    hasQuiz: true,
+    hasSourceArticles: false,
+    showsCcBySaLicense: false,
+    queueEntry: QueueEntry(
+        episodeId: "preview-quiz",
+        introText: "コンテナ技術について振り返ります。",
+        difficulty: "toeic_900",
+        durationSeconds: 180
+    )
+)
 
 private func quizPreviewSubmit(_ answers: [Int]) async throws -> QuizAnswerResponse {
     let correctIndices = [0, 3, 1]
@@ -267,11 +272,11 @@ private func quizPreviewSubmit(_ answers: [Int]) async throws -> QuizAnswerRespo
 }
 
 #Preview("Quiz / Light") {
-    QuizSheetView(podcast: quizPreviewPodcast, submit: quizPreviewSubmit)
+    QuizSheetView(nowPlaying: quizPreviewNowPlaying, submit: quizPreviewSubmit)
 }
 
 #Preview("Quiz / Dark") {
-    QuizSheetView(podcast: quizPreviewPodcast, submit: quizPreviewSubmit)
+    QuizSheetView(nowPlaying: quizPreviewNowPlaying, submit: quizPreviewSubmit)
         .preferredColorScheme(.dark)
 }
 #endif

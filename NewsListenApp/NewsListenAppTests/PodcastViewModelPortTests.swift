@@ -36,8 +36,8 @@ final class PodcastViewModelPortTests: XCTestCase {
 
         await rig.engine.send(.timeUpdate(seconds: 12, duration: 300))
 
-        XCTAssertEqual(rig.viewModel.currentTime, 12)
-        XCTAssertEqual(rig.viewModel.duration, 300)
+        XCTAssertEqual(rig.viewModel.session.position, 12)
+        XCTAssertEqual(rig.viewModel.session.duration, 300)
         let elapsed = try XCTUnwrap(rig.spy.lastElapsedUpdate)
         XCTAssertEqual(elapsed.elapsed, 12)
         XCTAssertEqual(elapsed.duration, 300)
@@ -124,7 +124,7 @@ final class PodcastViewModelPortTests: XCTestCase {
         let handedOff = oldChannel.yield(.failed(description: "stale"))
         XCTAssertEqual(handedOff, .handedOff, "Given の成立: 待機中の消費者へ直接手渡した")
         // await を挟まずに stop → 次の再生（手渡された事象を処理する Task A はまだ走っていない）
-        rig.viewModel.stopPlayback()
+        rig.viewModel.stop()
         await rig.viewModel.startEpisode(podcast("b"))
         await rig.engine.send(.ready)  // b の channel で処理を待つ
 
@@ -144,9 +144,9 @@ final class PodcastViewModelPortTests: XCTestCase {
     // verifies: CI-V9
     // kills: `isAudioLoaded` ガードの削除／戻り値の取り違え（`.noSuchContent` と `.commandFailed`）
     func testN08_remoteCommandsReturnTheDocumentedResultsForLoadedAndUnloadedStates() async throws {
-        // (a) 開始 → stopPlayback の後（読み込みなし。登録は残る）: 現行の `player == nil` と同じ戻り値。
+        // (a) 開始 → stop() の後（読み込みなし。登録は残る）: 現行の `player == nil` と同じ戻り値。
         let unloaded = try await playingRig()
-        unloaded.viewModel.stopPlayback()
+        unloaded.viewModel.stop()
         XCTAssertEqual(unloaded.spy.activeRegistrationCount, 1, "Given: handler は有効なまま")
         let notLoaded: [(RemoteCommand, RemoteCommandResult)] = [
             (.play, .noSuchContent), (.pause, .noSuchContent), (.togglePlayPause, .noSuchContent),
@@ -157,7 +157,7 @@ final class PodcastViewModelPortTests: XCTestCase {
             XCTAssertEqual(unloaded.spy.invoke(command), expected, "読み込みなし: \(command)")
         }
         XCTAssertFalse(unloaded.viewModel.isPlaying)
-        XCTAssertEqual(unloaded.viewModel.currentTime, 0)
+        XCTAssertEqual(unloaded.viewModel.session.position, 0)
         XCTAssertEqual(unloaded.viewModel.playbackSpeed, 1.0)
 
         // (b) 再生中: `.success` で、状態が現行どおり変わる。
@@ -176,22 +176,22 @@ final class PodcastViewModelPortTests: XCTestCase {
         let back = try await playingRig()
         back.viewModel.seek(to: 100)
         XCTAssertEqual(back.spy.invoke(.skipBackward), .success)
-        XCTAssertEqual(back.viewModel.currentTime, 100 - PlaybackConstants.skipBackwardSeconds)
+        XCTAssertEqual(back.viewModel.session.position, 100 - PlaybackConstants.skipBackwardSeconds)
         back.viewModel.seek(to: 5)
         XCTAssertEqual(back.spy.invoke(.skipBackward), .success)
-        XCTAssertEqual(back.viewModel.currentTime, 0, "0 未満には戻らない（clamp）")
+        XCTAssertEqual(back.viewModel.session.position, 0, "0 未満には戻らない（clamp）")
 
         let forward = try await playingRig()
         await forward.engine.send(.timeUpdate(seconds: 100, duration: 300))
         XCTAssertEqual(forward.spy.invoke(.skipForward), .success)
-        XCTAssertEqual(forward.viewModel.currentTime, 100 + PlaybackConstants.skipForwardSeconds)
+        XCTAssertEqual(forward.viewModel.session.position, 100 + PlaybackConstants.skipForwardSeconds)
         forward.viewModel.seek(to: 290)
         XCTAssertEqual(forward.spy.invoke(.skipForward), .success)
-        XCTAssertEqual(forward.viewModel.currentTime, 300, "duration を超えない（clamp）")
+        XCTAssertEqual(forward.viewModel.session.position, 300, "duration を超えない（clamp）")
 
         let position = try await playingRig()
         XCTAssertEqual(position.spy.invoke(.changePosition(42)), .success)
-        XCTAssertEqual(position.viewModel.currentTime, 42)
+        XCTAssertEqual(position.viewModel.session.position, 42)
 
         let rate = try await playingRig()
         XCTAssertEqual(rate.spy.invoke(.changeRate(1.5)), .success)
@@ -208,7 +208,7 @@ final class PodcastViewModelPortTests: XCTestCase {
         await rig.viewModel.startEpisode(podcast("a"))
         XCTAssertNotNil(rig.spy.currentInfo)
 
-        rig.viewModel.stopPlayback()
+        rig.viewModel.stop()
         XCTAssertNil(rig.spy.currentInfo)
     }
 
@@ -256,30 +256,30 @@ final class PodcastViewModelPortTests: XCTestCase {
         await eventually { rig.spy.currentInfo == nil }  // キュー空 → 収束（ロック画面を消す）
         XCTAssertNil(rig.spy.currentInfo)
 
-        await rig.viewModel.replayCurrentEpisode()
+        await rig.viewModel.replayCurrent()
 
         XCTAssertNil(rig.spy.currentInfo, "seek していないので全体更新も起きない")
-        XCTAssertEqual(rig.viewModel.currentTime, 300)
+        XCTAssertEqual(rig.viewModel.session.position, 300)
         XCTAssertNil(rig.engine.lastSeekSeconds, "オフラインで未キャッシュなら engine に seek しない")
     }
 
     // verifies: CI-V14（読み込み済みの経路。TV-4）
-    // kills: 「今回の play が成功したときだけ seek する」（currentTime が 42 のまま）／
-    // 早期 return の経路で `stopPlayback` / `engine.stop` を呼ぶ（isLoaded が偽）
+    // kills: 「今回の play が成功したときだけ seek する」（位置が 42 のまま）／
+    // 早期 return の経路で `stop()` / `engine.stop` を呼ぶ（isLoaded が偽）
     func testN13_replayWhenLoadedButUnresolvableKeepsEngineAndSeeksToZero() async throws {
         let rig = PlaybackEntryRig(online: false)
         try await rig.play("a")  // キャッシュから解決して読み込む
         XCTAssertTrue(rig.engine.isLoaded)
         XCTAssertNil(rig.viewModel.errorMessage)
         rig.viewModel.seek(to: 42)
-        XCTAssertEqual(rig.viewModel.currentTime, 42)
+        XCTAssertEqual(rig.viewModel.session.position, 42)
         try rig.library.remove("a")
 
-        await rig.viewModel.replayCurrentEpisode()
+        await rig.viewModel.replayCurrent()
 
         XCTAssertEqual(rig.viewModel.errorMessage, "Offline and not cached")
         XCTAssertTrue(rig.engine.isLoaded, "URL を解決できずに return しても engine は止めない")
-        XCTAssertEqual(rig.viewModel.currentTime, 42, "開始できない replay は通知だけで、位置を動かさない")
+        XCTAssertEqual(rig.viewModel.session.position, 42, "開始できない replay は通知だけで、位置を動かさない")
         XCTAssertTrue(rig.viewModel.isPlaying)
     }
 

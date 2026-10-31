@@ -51,6 +51,10 @@ private final class CallRecordingSession: URLSessionProtocol {
 @MainActor
 final class SettingsViewModelTests: XCTestCase {
 
+    private func makeLibrary() -> OfflineLibrary {
+        OfflineLibrary(store: .live(cacheManager: AudioCacheManager()))
+    }
+
     private func makeClient(session: URLSessionProtocol) -> APIClient {
         APIClient(
             baseURL: URL(string: "https://api.example.com")!,
@@ -70,7 +74,7 @@ final class SettingsViewModelTests: XCTestCase {
             {"name":"Zenn","url":"https://zenn.dev/feed"}
         ]}
         """#
-        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+        let vm = SettingsViewModel(apiClient: makeClient(json: json), library: makeLibrary())
 
         await vm.loadSources()
 
@@ -85,7 +89,7 @@ final class SettingsViewModelTests: XCTestCase {
         let afterAddJSON = #"{"sources": [{"name":"TechCrunch","url":"https://techcrunch.com/feed/"}]}"#.data(using: .utf8)!
 
         // 1回目（load）→空、2回目（add）→追加後のリスト。
-        let vm = SettingsViewModel(apiClient: makeClient(session: SequentialSession([initialJSON, afterAddJSON])))
+        let vm = SettingsViewModel(apiClient: makeClient(session: SequentialSession([initialJSON, afterAddJSON])), library: makeLibrary())
         await vm.loadSources()
         await vm.addSource(name: "TechCrunch", url: "https://techcrunch.com/feed/")
 
@@ -94,7 +98,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testLoadSourcesSetsErrorMessageOnFailure() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         await vm.loadSources()
 
@@ -106,7 +110,7 @@ final class SettingsViewModelTests: XCTestCase {
     // 現行文言の固定。SG-S1-2 = (b) により置換後も期待値を変えない。
 
     func testLoadSources500SetsHTTPErrorMessage() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         await vm.loadSources()
 
@@ -125,7 +129,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testLoadSourcesCancelledURLErrorKeepsCurrentDisplay() async throws {
-        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)), library: makeLibrary())
 
         await vm.loadSources()
 
@@ -133,7 +137,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testLoadSourcesRawCancellationErrorKeepsCurrentDisplay() async throws {
-        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(CancellationError()))
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(CancellationError()), library: makeLibrary())
 
         await vm.loadSources()
 
@@ -141,7 +145,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testAddSourceCancelledURLErrorKeepsCurrentDisplay() async throws {
-        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)), library: makeLibrary())
 
         await vm.addSource(name: "n", url: "https://example.com/feed")
 
@@ -149,7 +153,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testUpdateSourceCancelledURLErrorKeepsCurrentDisplay() async throws {
-        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)), library: makeLibrary())
 
         await vm.updateSource(oldURL: "https://example.com/old", name: "n", url: "https://example.com/new")
 
@@ -157,7 +161,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testRemoveSourceCancelledURLErrorKeepsCurrentDisplay() async throws {
-        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)))
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.cancelled)), library: makeLibrary())
 
         await vm.removeSource(url: "https://example.com/feed")
 
@@ -168,7 +172,7 @@ final class SettingsViewModelTests: XCTestCase {
     // 現行表示の固定。置換後も期待値を変えない。11 箇所の `ApiFailure` 節の付け忘れを検出する。
 
     func testAddSource500SetsHTTPErrorMessage() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         await vm.addSource(name: "n", url: "https://example.com/feed")
 
@@ -176,7 +180,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testUpdateSource500SetsHTTPErrorMessage() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         await vm.updateSource(oldURL: "https://example.com/old", name: "n", url: "https://example.com/new")
 
@@ -184,7 +188,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testRemoveSource500SetsHTTPErrorMessage() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         await vm.removeSource(url: "https://example.com/feed")
 
@@ -192,7 +196,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testLoadSourcesTransportFailureSetsURLErrorMessage() async throws {
-        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.notConnectedToInternet)))
+        let vm = SettingsViewModel(apiClient: makeTransportErrorClient(URLError(.notConnectedToInternet)), library: makeLibrary())
 
         await vm.loadSources()
 
@@ -206,7 +210,7 @@ final class SettingsViewModelTests: XCTestCase {
             {"id":"techcrunch","name":"TechCrunch","url":"https://techcrunch.com/feed/","thumbnail_url":null,"description":null}
         ]}
         """#
-        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+        let vm = SettingsViewModel(apiClient: makeClient(json: json), library: makeLibrary())
 
         await vm.loadFeaturedSites()
 
@@ -218,7 +222,7 @@ final class SettingsViewModelTests: XCTestCase {
     func testSubscribeFeaturedUpdatesSourcesViaAddSource() async throws {
         // おすすめ購読は既存 addSource を再利用し、サーバが返す最新一覧で sources を更新する。
         let afterAddJSON = #"{"sources": [{"name":"TechCrunch","url":"https://techcrunch.com/feed/"}]}"#.data(using: .utf8)!
-        let vm = SettingsViewModel(apiClient: makeClient(session: SequentialSession([afterAddJSON])))
+        let vm = SettingsViewModel(apiClient: makeClient(session: SequentialSession([afterAddJSON])), library: makeLibrary())
 
         await vm.addSource(name: "TechCrunch", url: "https://techcrunch.com/feed/")
 
@@ -242,7 +246,7 @@ final class SettingsViewModelTests: XCTestCase {
             {"name":"Zenn","url":"https://zenn.dev/feed"}
         ]}
         """#.data(using: .utf8)!
-        let vm = SettingsViewModel(apiClient: makeClient(session: SequentialSession([initialJSON, afterUpdateJSON])))
+        let vm = SettingsViewModel(apiClient: makeClient(session: SequentialSession([initialJSON, afterUpdateJSON])), library: makeLibrary())
         await vm.loadSources()
 
         await vm.updateSource(
@@ -265,7 +269,7 @@ final class SettingsViewModelTests: XCTestCase {
         {"sources": [{"name":"HackerNews","url":"https://hnrss.org/frontpage"}]}
         """#.data(using: .utf8)!
         let session = SequentialSession(results: [(initialJSON, 200), (Data(), 500)])
-        let vm = SettingsViewModel(apiClient: makeClient(session: session))
+        let vm = SettingsViewModel(apiClient: makeClient(session: session), library: makeLibrary())
         await vm.loadSources()
 
         await vm.updateSource(
@@ -282,7 +286,7 @@ final class SettingsViewModelTests: XCTestCase {
 
     func testLoadFeaturedSitesSilentOnFailure() async throws {
         // 取得失敗時は featuredSites を空にし、errorMessage は汚さない（おすすめ欄は非表示になるだけ）。
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         await vm.loadFeaturedSites()
 
@@ -293,7 +297,7 @@ final class SettingsViewModelTests: XCTestCase {
     // MARK: - おすすめサイト取得失敗の可視化 (issue #164)
 
     func testLoadFeaturedSitesSetsLoadFailedFlagOnFailure() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         await vm.loadFeaturedSites()
 
@@ -302,7 +306,7 @@ final class SettingsViewModelTests: XCTestCase {
 
     func testLoadFeaturedSitesClearsLoadFailedFlagOnSuccess() async throws {
         let json = #"{"sites": []}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+        let vm = SettingsViewModel(apiClient: makeClient(json: json), library: makeLibrary())
 
         await vm.loadFeaturedSites()
 
@@ -312,7 +316,7 @@ final class SettingsViewModelTests: XCTestCase {
     // MARK: - デフォルト難易度・再生速度のサーバー同期失敗の可視化 (issue #164)
 
     func testSyncDefaultDifficultySetsErrorMessageOnFailure() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         let ok = await vm.syncDefaultDifficulty("toeic_600")
 
@@ -322,7 +326,7 @@ final class SettingsViewModelTests: XCTestCase {
 
     func testSyncDefaultDifficultySucceedsAndClearsErrorMessage() async throws {
         let json = #"{"default_difficulty":"toeic_600","default_playback_speed":null}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+        let vm = SettingsViewModel(apiClient: makeClient(json: json), library: makeLibrary())
 
         let ok = await vm.syncDefaultDifficulty("toeic_600")
 
@@ -331,7 +335,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testSyncDefaultPlaybackSpeedSetsErrorMessageOnFailure() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         let ok = await vm.syncDefaultPlaybackSpeed(1.5)
 
@@ -341,7 +345,7 @@ final class SettingsViewModelTests: XCTestCase {
 
     func testSyncDefaultPlaybackSpeedSucceedsAndClearsErrorMessage() async throws {
         let json = #"{"default_difficulty":null,"default_playback_speed":1.5}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+        let vm = SettingsViewModel(apiClient: makeClient(json: json), library: makeLibrary())
 
         let ok = await vm.syncDefaultPlaybackSpeed(1.5)
 
@@ -355,7 +359,7 @@ final class SettingsViewModelTests: XCTestCase {
         let json = #"""
         {"limit":5,"used":2,"remaining":3,"reset_at":"2026-07-07T00:00:00Z"}
         """#
-        let vm = SettingsViewModel(apiClient: makeClient(json: json))
+        let vm = SettingsViewModel(apiClient: makeClient(json: json), library: makeLibrary())
 
         await vm.loadGenerationQuota()
 
@@ -365,7 +369,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testLoadGenerationQuotaSetsFailedFlagOnFailure() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         await vm.loadGenerationQuota()
 
@@ -376,7 +380,7 @@ final class SettingsViewModelTests: XCTestCase {
     // T-T13-04（verifies: ios-contract-19, R-keep2）。
     func testLoadGenerationQuota404GracefulDegradation() async throws {
         // 404 時は graceful degradation: 生成残回数セクションを非表示（failed=false）
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 404))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 404), library: makeLibrary())
 
         await vm.loadGenerationQuota()
 
@@ -393,7 +397,7 @@ final class SettingsViewModelTests: XCTestCase {
             (Data(), 500),  // 1番目：失敗レスポンス
             (#"{"default_difficulty":"toeic_900","default_playback_speed":null}"#.data(using: .utf8)!, 200) // 2番目：成功レスポンス
         ])
-        let vm = SettingsViewModel(apiClient: makeClient(session: session))
+        let vm = SettingsViewModel(apiClient: makeClient(session: session), library: makeLibrary())
 
         // 1番目のリクエスト（失敗）
         let ok1 = await vm.syncDefaultDifficulty("toeic_600")
@@ -413,7 +417,7 @@ final class SettingsViewModelTests: XCTestCase {
             (Data(), 500),  // 1番目：失敗
             (#"{"default_difficulty":null,"default_playback_speed":1.5}"#.data(using: .utf8)!, 200) // 2番目：成功
         ])
-        let vm = SettingsViewModel(apiClient: makeClient(session: session))
+        let vm = SettingsViewModel(apiClient: makeClient(session: session), library: makeLibrary())
 
         // 1番目（失敗）
         _ = await vm.syncDefaultPlaybackSpeed(1.0)
@@ -463,7 +467,7 @@ final class SettingsViewModelTests: XCTestCase {
     func testSyncDifficultySuccessMultipleTimes() async throws {
         // 単一の成功ケースを複数回実行してレース対策ロジックが正常に動作することを確認。
         let successJSON = #"{"default_difficulty":"toeic_900","default_playback_speed":null}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON))
+        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON), library: makeLibrary())
 
         let ok1 = await vm.syncDefaultDifficulty("toeic_600")
         XCTAssertTrue(ok1)
@@ -476,7 +480,7 @@ final class SettingsViewModelTests: XCTestCase {
 
     func testSyncWeeklyGoalValidation() async {
         let successJSON = #"{"weekly_goal_episodes":5}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON))
+        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON), library: makeLibrary())
 
         let ok = await vm.syncWeeklyGoal(5)
         XCTAssertTrue(ok)
@@ -488,7 +492,7 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     func testSyncWeeklyGoalFailureMessage() async {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: makeLibrary())
 
         let ok = await vm.syncWeeklyGoal(7)
         XCTAssertFalse(ok)
@@ -509,7 +513,8 @@ final class SettingsViewModelTests: XCTestCase {
                         (successJSON, 200)    // リクエスト 2（新しい成功）
                     ]
                 )
-            )
+            ),
+            library: makeLibrary()
         )
 
         // リクエスト 1 を開始（失敗）
@@ -530,7 +535,7 @@ final class SettingsViewModelTests: XCTestCase {
     func testSyncWeeklyGoalMultipleSuccessNoLoop() async {
         // 複数の syncWeeklyGoal が連続実行される場合、revert ループが発生しないことを確認。
         let successJSON = #"{"weekly_goal_episodes":5}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON))
+        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON), library: makeLibrary())
 
         let ok1 = await vm.syncWeeklyGoal(5)
         XCTAssertTrue(ok1)

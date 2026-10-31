@@ -36,7 +36,7 @@ struct PodcastView: View {
                 // 再生待ち一覧（キュー）を開く。待機数をバッジ的に併記する。
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showQueue = true } label: {
-                        Label("再生待ち\(viewModel.queue.upNext.isEmpty ? "" : "（\(viewModel.queue.upNext.count)）")", systemImage: "list.bullet")
+                        Label("再生待ち\(viewModel.upNext().isEmpty ? "" : "（\(viewModel.upNext().count)）")", systemImage: "list.bullet")
                     }
                     .accessibilityLabel("再生待ちキュー")
                 }
@@ -44,7 +44,7 @@ struct PodcastView: View {
             .alert("エラー", isPresented: errorBinding) {
                 Button("OK") { viewModel.dismissError() }
             } message: {
-                Text(viewModel.errorMessage ?? "")
+                Text(viewModel.alertMessage ?? "")
             }
         }
         .task { await viewModel.loadPodcasts() }
@@ -100,7 +100,7 @@ struct PodcastView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 Task {
-                    await viewModel.playNow(podcast)
+                    await viewModel.startEpisode(podcast)
                 }
             }
             .accessibilityHint("タップで再生を開始します")

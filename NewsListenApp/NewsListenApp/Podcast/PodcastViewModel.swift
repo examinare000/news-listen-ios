@@ -88,7 +88,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
                 if case .loading = state { self?.listErrorMessage = nil }
             }
             .store(in: &cancellables)
-        // `nowPlaying()`・`upNext()`・`queue`・`downloadedIds` は読み取りなので、元の変化で View を再描画させる。
+        // `nowPlaying()`・`upNext()`・`downloadState(for:)` は読み取りなので、元の変化で View を再描画させる。
         coordinator.objectWillChange
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
@@ -121,6 +121,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
         ListDisplayState.shouldPresentAlert(errorMessage: errorMessage, displayState: displayState)
     }
 
+    /// alert に出す文言。出す条件（`shouldPresentErrorAlert`）を満たさないときは nil。
+    var alertMessage: String? { shouldPresentErrorAlert ? errorMessage : nil }
+
     /// 聴き終えて、次へ自動で進む途中でもないか。
     var isFinished: Bool {
         session.isEnded && !coordinator.isAdvancing
@@ -142,8 +145,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - ios-temp-03（旧公開プロパティ）
-    // owner: user／導入: ios-slice-playback-03／削除条件: ios-slice-playback-04 で View が `nowPlaying()`・`session` を直接読むようになった時。
+    // MARK: - 再生の表示値（Coordinator の状態からの導出）
 
     var isPlaying: Bool {
         switch session {
@@ -157,26 +159,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
         return false
     }
 
-    var currentTime: Double { session.position }
-
-    var duration: Double { session.duration }
-
     var playbackSpeed: Float { session.speed ?? defaultSpeed() }
-
-    var currentPodcast: Podcast? {
-        guard coordinator.nowPlaying() != nil else { return nil }
-        return coordinator.queue.current?.toDisplayPodcast()
-    }
-
-    var queue: PlaybackQueue<Podcast> {
-        PlaybackQueue(
-            items: coordinator.queue.items.map { $0.toDisplayPodcast() },
-            currentIndex: coordinator.queue.currentIndex)
-    }
-
-    var didFinishCurrentEpisode: Bool { isFinished }
-
-    var downloadedIds: Set<String> { library.savedIds }
 
     // MARK: - Data
 
@@ -294,47 +277,6 @@ final class PodcastViewModel: NSObject, ObservableObject {
     /// 背景遷移などの直前に、現在の位置を送る。
     func flushPosition() { positionReporter.flush() }
 
-    // MARK: - forwarder（削除は ios-slice-playback-04）
-
-    func playNow(_ podcast: Podcast) async { await startEpisode(podcast) }
-
-    func playById(_ id: String) async { await startEpisode(id: id) }
-
-    func replayCurrentEpisode() async { await replayCurrent() }
-
-    func stopPlayback() { stop() }
-
-    func flushPlaybackPosition() { flushPosition() }
-
-    /// - Parameter endedId: 終了した episode の id。`nil` なら現在のもの。どちらも無ければ何もしない。
-    func handlePlaybackEnded(endedId: String? = nil) async {
-        guard let id = endedId ?? coordinator.nowPlaying()?.episodeId else { return }
-        await coordinator.onEnded(endedId: id)
-    }
-
-#if DEBUG
-    func previewMarkFinished() {}
-#endif
-
-    /// 指定 Podcast の再生 URL を解決する。
-    ///
-    /// - キャッシュ有：ローカルファイル URL を返す。
-    /// - キャッシュ無+オンライン：podcast.audioUrl を URL(string:) で解析して返す。
-    /// - キャッシュ無+オフライン：nil を返す。
-    static func resolvePlaybackURL(for podcast: Podcast, isOnline: Bool, cacheManager: AudioCacheManager) -> URL? {
-        if cacheManager.isCached(podcast.id) {
-            return cacheManager.cachedURL(for: podcast.id)
-        }
-        if isOnline {
-            return URL(string: podcast.audioUrl)
-        }
-        return nil
-    }
-
-    func syncDownloadedState() {
-        library.refresh(candidateIds: podcasts.map(\.id))
-    }
-
     // MARK: - 学習
 
     /// 現在のクイズ回答をサーバーへ送り、採点結果を返す。
@@ -375,12 +317,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
     }
 }
 
-// MARK: - PlaybackLifecycle（ios-temp-04）
+// MARK: - 主体離脱
 
-extension PodcastViewModel: PlaybackLifecycle {
-    /// ios-temp-04（owner: user／導入: ios-slice-auth-01 2026-09-28／削除条件: ios-slice-playback-03 で `PlaybackCoordinator` が
-    /// `PlaybackLifecycle` の実装を引き継いだ時点。コードの物理削除は ios-slice-playback-04）。
-    ///
+extension PodcastViewModel {
     /// 主体離脱時の再生停止。位置は送らない。冪等。
     func stopForLogout() {
         coordinator.stopForLogout()

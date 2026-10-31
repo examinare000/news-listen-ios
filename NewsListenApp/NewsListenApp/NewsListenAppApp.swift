@@ -249,14 +249,14 @@ struct ContentView: View {
             await appState.refreshOnboardingStatus()
             await appState.refreshListeningStreak()
         }
-        // 主体離脱時の再生停止 port を登録する（ios-slice-auth-01 / ios-contract-21.9・ios-temp-04）。
+        // 主体離脱時の再生停止 port を登録する（ios-slice-auth-01 / ios-contract-21.9。実体は `PlaybackCoordinator`）。
         .onAppear { appState.registerPlaybackLifecycle(playerViewModel.playbackLifecycle) }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
                 Task { await appState.refreshListeningStreak() }
             case .background, .inactive:
-                // タブ離脱で stopPlayback() を呼ばなくなったため、アプリ離脱直前の
+                // タブ離脱で再生を止めなくなったため、アプリ離脱直前の
                 // 再生位置をここで同期する（15秒毎の定期同期の取りこぼし補完）。
                 playerViewModel.flushPosition()
             @unknown default:
@@ -273,7 +273,7 @@ struct ContentView: View {
     private func consumeDeepLink() async {
         guard let id = appState.selectedPodcastId else { return }
         selectedTab = 1
-        await playerViewModel.playById(id)
+        await playerViewModel.startEpisode(id: id)
         // await 中に新しい通知タップで id が変わり得るため、自分が消費した id のときだけクリアする。
         if appState.selectedPodcastId == id {
             appState.selectedPodcastId = nil

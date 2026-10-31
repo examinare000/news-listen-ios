@@ -195,44 +195,26 @@ final class EpisodeTests: XCTestCase {
         XCTAssertEqual(episode, source.toEpisode())
     }
 
-    // MARK: - 表示用 Podcast への戻し
+    // MARK: - 種別ごとの値
 
     // verifies: ios-contract-17
-    // kills: 種別から status を作り間違え再生できない行が再生できる表示になる／content の写し漏れ／位置・URL の既定値の誤り
-    func testToDisplayPodcastCopiesContentAndRoundTripsEachKind() throws {
+    // kills: 状態の種別の分類誤り／content の写し漏れ／位置・URL・失敗文の既定値の誤り
+    func testEachEpisodeKindCarriesContentAndKindSpecificValues() throws {
         let playable = podcast(status: "completed", audioUrl: audio, errorMessage: nil).toEpisode()
         let generating = podcast(status: "processing", audioUrl: audio, errorMessage: nil).toEpisode()
         let failed = podcast(status: "failed", audioUrl: audio, errorMessage: "boom").toEpisode()
-        let cases: [(episode: Episode, status: String, errorMessage: String?, position: Double, audioUrl: String)] = [
-            (playable, "completed", nil, 12.5, audio),
-            (generating, "processing", nil, 0, ""),
-            (failed, "failed", "boom", 0, ""),
-        ]
 
-        for row in cases {
-            let display = row.episode.toDisplayPodcast()
-            let label = row.status
-            XCTAssertEqual(display.status, row.status, label)
-            XCTAssertEqual(display.errorMessage, row.errorMessage, label)
-            XCTAssertEqual(display.playbackPositionSeconds, row.position, label)
-            XCTAssertEqual(display.audioUrl, row.audioUrl, label)
-            XCTAssertEqual(display.type, "", label)
-            XCTAssertTrue(display.articleIds.isEmpty, label)
+        guard case .playable(let playableEpisode) = playable else { return XCTFail("completed は playable") }
+        XCTAssertEqual(playableEpisode.audioUrl, audio)
+        XCTAssertEqual(playableEpisode.serverPosition, 12.5)
 
-            let content = expectedContent()
-            XCTAssertEqual(display.id, content.id, label)
-            XCTAssertEqual(display.title, content.title, label)
-            XCTAssertEqual(display.japaneseIntroText, content.japaneseIntroText, label)
-            XCTAssertEqual(display.difficulty, content.difficulty, label)
-            XCTAssertEqual(display.durationSeconds, content.durationSeconds, label)
-            XCTAssertEqual(display.createdAt, content.createdAt, label)
-            XCTAssertEqual(display.segments, content.segments, label)
-            XCTAssertEqual(display.vocabulary, content.vocabulary, label)
-            XCTAssertEqual(display.quiz, content.quiz, label)
-            XCTAssertEqual(display.sourceArticles, content.sourceArticles, label)
-            XCTAssertEqual(display.sourceKind, content.sourceKind, label)
+        guard case .generating = generating else { return XCTFail("processing は generating") }
 
-            XCTAssertEqual(display.toEpisode(), row.episode, "往復で種別が戻る: \(label)")
+        guard case .failed(let failedEpisode) = failed else { return XCTFail("failed は failed") }
+        XCTAssertEqual(failedEpisode.reportedMessage, "boom")
+
+        for (label, episode) in [("playable", playable), ("generating", generating), ("failed", failed)] {
+            XCTAssertEqual(episode.content, expectedContent(), label)
         }
     }
 }

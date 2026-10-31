@@ -21,7 +21,7 @@ struct MiniPlayerView: View {
         VStack(spacing: 0) {
             progressBar
             HStack(spacing: DSSpacing.m) {
-                Text(vm.currentPodcast?.displayTitle ?? "")
+                Text(vm.nowPlaying()?.displayTitle ?? "")
                     .font(DSFont.meta)
                     .foregroundStyle(DSColor.ink)
                     .lineLimit(1)
@@ -41,7 +41,7 @@ struct MiniPlayerView: View {
         .contentShape(Rectangle())
         .onTapGesture { vm.expandPlayer() }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("再生中: \(vm.currentPodcast?.displayTitle ?? "")")
+        .accessibilityLabel("再生中: \(vm.nowPlaying()?.displayTitle ?? "")")
         .accessibilityHint("タップでプレイヤーを開きます")
     }
 
@@ -62,9 +62,9 @@ struct MiniPlayerView: View {
     private var controlButton: some View {
         if vm.isBuffering {
             ProgressView()
-        } else if vm.didFinishCurrentEpisode {
+        } else if vm.isFinished {
             Button {
-                Task { await vm.replayCurrentEpisode() }
+                Task { await vm.replayCurrent() }
             } label: {
                 Image(systemName: "arrow.counterclockwise")
                     .font(.title3)
@@ -85,8 +85,8 @@ struct MiniPlayerView: View {
 
     /// 0...1 の再生進捗。duration 未確定（0）の間は 0 を返す。
     private var progressFraction: CGFloat {
-        guard vm.duration > 0 else { return 0 }
-        return CGFloat(min(max(vm.currentTime / vm.duration, 0), 1))
+        guard vm.session.duration > 0 else { return 0 }
+        return CGFloat(min(max(vm.session.position / vm.session.duration, 0), 1))
     }
 }
 

@@ -19,24 +19,24 @@ struct QueueSheet: View {
         NavigationStack {
             List {
                 // 再生中はミニプレイヤーが開いているときのみ表示する（終端後の残留表示を避ける）。
-                if viewModel.nowPlaying() != nil, let current = viewModel.queue.current {
+                if let current = viewModel.nowPlaying()?.queueEntry {
                     Section("再生中") {
-                        QueueRow(podcast: current)
+                        QueueRow(entry: current)
                     }
                 }
 
                 Section("再生待ち") {
-                    if viewModel.queue.upNext.isEmpty {
+                    if viewModel.upNext().isEmpty {
                         Text("キューは空です")
                             .font(DSFont.caption)
                             .foregroundStyle(DSColor.inkSecondary)
                     } else {
-                        ForEach(viewModel.queue.upNext) { podcast in
-                            QueueRow(podcast: podcast)
+                        ForEach(viewModel.upNext()) { entry in
+                            QueueRow(entry: entry)
                         }
                         .onDelete { offsets in
                             // 削除でインデックスがずれるため、先に id をスナップショットしてから消す。
-                            let ids = offsets.map { viewModel.queue.upNext[$0].id }
+                            let ids = offsets.map { viewModel.upNext()[$0].id }
                             ids.forEach { viewModel.removeFromQueue(id: $0) }
                         }
                         .onMove { source, destination in
@@ -64,19 +64,24 @@ struct QueueSheet: View {
 
 /// キュー内の 1 行（タイトル＝日本語イントロ要約・難易度・長さ）。
 private struct QueueRow: View {
-    let podcast: Podcast
+    let entry: QueueEntry
 
     var body: some View {
         VStack(alignment: .leading, spacing: DSSpacing.xs) {
-            Text(podcast.japaneseIntroText)
+            Text(entry.introText)
                 .font(DSFont.body)
                 .foregroundStyle(DSColor.ink)
                 .lineLimit(2)
-            Text("\(podcast.difficulty) · \(podcast.formattedDuration)")
+            Text("\(entry.difficulty) · \(formattedDuration(entry.durationSeconds))")
                 .font(DSFont.caption)
                 .foregroundStyle(DSColor.inkTertiary)
         }
         .listRowBackground(DSColor.paper)
         .accessibilityElement(children: .combine)
     }
+}
+
+/// 秒数を `分:秒`（例: `3:05`）の表示用文字列へ整形する。
+private func formattedDuration(_ seconds: Int) -> String {
+    String(format: "%d:%02d", seconds / 60, seconds % 60)
 }

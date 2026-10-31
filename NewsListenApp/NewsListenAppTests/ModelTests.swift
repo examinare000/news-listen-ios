@@ -813,6 +813,33 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(podcast.hasSourceArticles)
     }
 
+    /// 再生中の値を、`Podcast` を変換した `Episode` の content から組む（`PlaybackCoordinator.nowPlaying()` と同じ写し方）。
+    private func nowPlaying(from podcast: Podcast) -> NowPlaying {
+        let content = podcast.toEpisode().content
+        return NowPlaying(
+            episodeId: content.id,
+            displayTitle: content.displayTitle,
+            japaneseIntroText: content.japaneseIntroText,
+            segments: content.segments,
+            vocabulary: content.vocabulary,
+            quiz: content.quiz,
+            difficulty: content.difficulty,
+            sourceArticles: content.sourceArticles,
+            sourceKind: content.sourceKind,
+            hasTranscript: content.hasTranscript,
+            hasVocabulary: content.hasVocabulary,
+            hasQuiz: content.hasQuiz,
+            hasSourceArticles: content.hasSourceArticles,
+            showsCcBySaLicense: content.showsCcBySaLicense,
+            queueEntry: QueueEntry(
+                episodeId: content.id,
+                introText: content.japaneseIntroText,
+                difficulty: content.difficulty,
+                durationSeconds: content.durationSeconds
+            )
+        )
+    }
+
     /// featured 由来なら source_articles が欠落・null・空配列でも、出典一覧は出さず
     /// CC BY-SA 4.0 の帰属表示だけを維持する（issue #240）。
     func testFeaturedPodcastWithoutSourceArticlesStillShowsLicenseNotice() throws {
@@ -840,7 +867,7 @@ final class ModelTests: XCTestCase {
             """.data(using: .utf8)!
 
             let podcast = try JSONDecoder().decode(Podcast.self, from: json)
-            let content = PodcastAttributionContent(podcast: podcast)
+            let content = PodcastAttributionContent(nowPlaying: nowPlaying(from: podcast))
 
             XCTAssertFalse(content.showsSourceArticleList, "case=\(caseName)")
             XCTAssertEqual(
@@ -1052,31 +1079,22 @@ final class ModelTests: XCTestCase {
         XCTAssertThrowsError(try decoder.decode(PodcastSourceArticle.self, from: Data(#"{"article_id":"a","title":"t","url":"u"}"#.utf8)))
     }
 
-    // MARK: - 推定タイミングの移行用の入口
+    // MARK: - 推定タイミング
 
     // verifies: ios-rule-catalog-04
-    func testTranscriptSourceMirrorsPodcastFieldsAndLegacyEntryPointAgrees() throws {
+    func testEstimatedTimingFromTranscriptSourceBuiltFromFields() throws {
         let segments = [
             TranscriptSegment(speaker: "A", text: "ab"),
             TranscriptSegment(speaker: "B", text: "cd"),
         ]
-        let podcast = Podcast(
-            id: "p", type: "single", articleIds: [], difficulty: "toeic_900",
-            audioUrl: "https://example.com/p.mp3", title: "t",
-            japaneseIntroText: "導入",
-            durationSeconds: 80, createdAt: "2026-05-31T06:00:00Z", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0, segments: segments
-        )
-
-        XCTAssertEqual(
-            podcast.transcriptSource,
-            TranscriptSource(introText: "導入", segments: segments, durationSeconds: 80)
-        )
 
         let timing: TranscriptTimingProviding = EstimatedTranscriptTiming()
-        let viaPodcast = try XCTUnwrap(timing.segmentStartOffsets(for: podcast))
-        let viaSource = try XCTUnwrap(timing.segmentStartOffsets(for: podcast.transcriptSource))
-        XCTAssertEqual(viaPodcast, viaSource)
-        XCTAssertEqual(viaPodcast, [40, 60])
+        let offsets = try XCTUnwrap(
+            timing.segmentStartOffsets(
+                for: TranscriptSource(introText: "導入", segments: segments, durationSeconds: 80)
+            )
+        )
+
+        XCTAssertEqual(offsets, [40, 60])
     }
 }

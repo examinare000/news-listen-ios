@@ -15,10 +15,10 @@ struct PodcastAttributionContent {
     let showsSourceArticleList: Bool
     let licenseNotice: AttributedString?
 
-    init(podcast: Podcast) {
-        showsSourceArticleList = podcast.hasSourceArticles
-        sourceArticles = podcast.sourceArticles ?? []
-        licenseNotice = podcast.showsCcBySaLicense ? Podcast.ccBySaLicenseNotice : nil
+    init(nowPlaying: NowPlaying) {
+        showsSourceArticleList = nowPlaying.hasSourceArticles
+        sourceArticles = nowPlaying.sourceArticles ?? []
+        licenseNotice = nowPlaying.showsCcBySaLicense ? Podcast.ccBySaLicenseNotice : nil
     }
 
     var isVisible: Bool {
@@ -54,8 +54,8 @@ struct AudioPlayerView: View {
     @State private var transcriptResumeTask: Task<Void, Never>?
     /// 語彙グロッサリの開閉状態。
     @State private var isVocabularyExpanded = false
-    /// クイズ導線タップ時の Podcast スナップショット。
-    @State private var quizPodcast: Podcast?
+    /// クイズ導線タップ時の再生中エピソードのスナップショット。
+    @State private var quizTarget: NowPlaying?
     /// 現在の Podcast で個人語彙帳へ登録済みの正規化語。
     @State private var registeredTerms: Set<String> = []
     /// 保存リクエスト中の語。連打を抑止し冪等 API への不要な重複送信を避ける。
@@ -70,7 +70,7 @@ struct AudioPlayerView: View {
         //      .sheet(item:) / .task(id:) / .alert が乗る修飾子ごと入れ替わり、完了の瞬間に
         //      表示中のクイズシートが強制 dismiss される（AudioPlayerView 自体は差し替えない）。
         VStack(spacing: DSSpacing.l) {
-            if vm.didFinishCurrentEpisode {
+            if vm.isFinished {
                 finishedContent
             } else {
                 playingContent
@@ -86,28 +86,32 @@ struct AudioPlayerView: View {
         )
         .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: -2)
         .padding(DSSpacing.l)
-        .sheet(item: $quizPodcast) { podcast in
-            QuizSheetView(podcast: podcast) { answers in
-                try await vm.submitQuizAnswers(podcastId: podcast.id, answers: answers)
+        .sheet(item: $quizTarget) { target in
+            QuizSheetView(nowPlaying: target) { answers in
+                try await vm.submitQuizAnswers(podcastId: target.episodeId, answers: answers)
             }
         }
-        .task(id: vm.currentPodcast?.id) {
-            guard let podcast = vm.currentPodcast else { return }
+        .task(id: vm.nowPlaying()?.episodeId) {
+            guard let nowPlaying = vm.nowPlaying() else { return }
             registeredTerms = []
             // エピソード切替でトランスクリプト同期状態を再構築する。
             // WHY: キュー自動遷移は expandsPlayer: false で本 View を生かしたまま次エピソードへ
             //      移るため、手動スクロール中の一時停止状態を持ち越すと新エピソードの自動追従が
             //      最大3秒抑止される。追従状態も併せてリセットする。
             resetTranscriptAutoScrollPause()
-            segmentOffsets = transcriptTiming.segmentStartOffsets(for: podcast)
+            segmentOffsets = transcriptTiming.segmentStartOffsets(
+                for: TranscriptSource(
+                    introText: nowPlaying.japaneseIntroText,
+                    segments: nowPlaying.segments,
+                    durationSeconds: nowPlaying.queueEntry.durationSeconds))
             activeTranscriptIndex = nil
-            await loadSavedVocabulary(for: podcast)
+            await loadSavedVocabulary(episodeId: nowPlaying.episodeId)
         }
         .onDisappear {
             // View が階層から外れたら復帰待ちの Task を残さない。
             resetTranscriptAutoScrollPause()
         }
-        .onChange(of: vm.currentTime) { _, time in
+        .onChange(of: vm.session.position) { _, time in
             // periodicTimeObserver（0.5秒毎）駆動。index が変わったときだけ書き込み、
             // ハイライト・自動スクロールの不要な再評価を避ける。
             guard let offsets = segmentOffsets else { return }
@@ -121,7 +125,7 @@ struct AudioPlayerView: View {
         } message: {
             Text(vocabularySaveError ?? "")
         }
-        .onChange(of: vm.didFinishCurrentEpisode) { _, finished in
+        .onChange(of: vm.isFinished) { _, finished in
             // WHY: finished/playing 双方向の遷移でリセットする。
             //      finished→playing（replay）時に展開状態を持ち越さないため。
             //      VoiceOver通知は finished=true 遷移時のみ（レイアウト確定後の読み上げが必要）。
@@ -140,8 +144,8 @@ struct AudioPlayerView: View {
         VStack(spacing: DSSpacing.s) {
             Text("再生中")
                 .dsEyebrow()
-            if let podcast = vm.currentPodcast, !podcast.japaneseIntroText.isEmpty {
-                Text(podcast.japaneseIntroText)
+            if let nowPlaying = vm.nowPlaying(), !nowPlaying.japaneseIntroText.isEmpty {
+                Text(nowPlaying.japaneseIntroText)
                     .font(DSFont.body)
                     .foregroundStyle(DSColor.ink)
                     .multilineTextAlignment(.center)
@@ -153,13 +157,13 @@ struct AudioPlayerView: View {
         // トランスクリプト（折りたたみ）
         // WHY: segments が無い（旧エピソード・未デプロイ環境）場合は何も描画しない
         //      グレースフルデグレードにより、レイアウトを不変に保つ（issue #162）。
-        if let podcast = vm.currentPodcast, podcast.hasTranscript {
-            transcriptSection(segments: podcast.segments ?? [])
+        if let nowPlaying = vm.nowPlaying(), nowPlaying.hasTranscript {
+            transcriptSection(segments: nowPlaying.segments ?? [])
                 .padding(.horizontal)
         }
 
-        if let podcast = vm.currentPodcast, podcast.hasVocabulary || podcast.hasQuiz {
-            learningSections(podcast)
+        if let nowPlaying = vm.nowPlaying(), nowPlaying.hasVocabulary || nowPlaying.hasQuiz {
+            learningSections(nowPlaying)
                 .padding(.horizontal)
         }
 
@@ -167,16 +171,16 @@ struct AudioPlayerView: View {
         VStack(spacing: DSSpacing.xs) {
             Slider(
                 value: Binding(
-                    get: { vm.currentTime },
+                    get: { vm.session.position },
                     set: { vm.seek(to: $0) }
                 ),
-                in: 0...max(vm.duration, 1)
+                in: 0...max(vm.session.duration, 1)
             )
             .tint(DSColor.accent)
             HStack {
-                Text(formatTime(vm.currentTime))
+                Text(formatTime(vm.session.position))
                 Spacer()
-                Text(formatTime(vm.duration))
+                Text(formatTime(vm.session.duration))
             }
             .font(DSFont.caption.monospacedDigit())
             .foregroundStyle(DSColor.inkSecondary)
@@ -201,7 +205,7 @@ struct AudioPlayerView: View {
         // 再生コントロール
         HStack(spacing: DSSpacing.xxl + DSSpacing.s) {
             Button {
-                vm.seek(to: max(0, vm.currentTime - PlaybackConstants.skipBackwardSeconds))
+                vm.seek(to: vm.session.position - PlaybackConstants.skipBackwardSeconds)
             } label: {
                 Image(systemName: "gobackward.15")
                     .font(.title2)
@@ -222,7 +226,7 @@ struct AudioPlayerView: View {
             .accessibilityHint(vm.isPlaying ? "再生を一時停止します" : "再生を開始します")
 
             Button {
-                vm.seek(to: min(vm.duration, vm.currentTime + PlaybackConstants.skipForwardSeconds))
+                vm.seek(to: vm.session.position + PlaybackConstants.skipForwardSeconds)
             } label: {
                 Image(systemName: "goforward.30")
                     .font(.title2)
@@ -247,9 +251,9 @@ struct AudioPlayerView: View {
 
         // 出典・ライセンス表示（ADR-095 / issue #240）。
         // WHY: プレイヤー操作（シークバー・再生ボタン）の位置を押し下げないよう末尾に置く。
-        if let podcast = vm.currentPodcast,
-           PodcastAttributionContent(podcast: podcast).isVisible {
-            attributionSection(podcast)
+        if let nowPlaying = vm.nowPlaying(),
+           PodcastAttributionContent(nowPlaying: nowPlaying).isVisible {
+            attributionSection(nowPlaying)
                 .padding(.horizontal)
         }
     }
@@ -262,8 +266,8 @@ struct AudioPlayerView: View {
         VStack(spacing: DSSpacing.s) {
             Text("聴き終わりました")
                 .dsEyebrow()
-            if let podcast = vm.currentPodcast, !podcast.japaneseIntroText.isEmpty {
-                Text(podcast.japaneseIntroText)
+            if let nowPlaying = vm.nowPlaying(), !nowPlaying.japaneseIntroText.isEmpty {
+                Text(nowPlaying.japaneseIntroText)
                     .font(DSFont.body)
                     .foregroundStyle(DSColor.ink)
                     .multilineTextAlignment(.center)
@@ -272,13 +276,13 @@ struct AudioPlayerView: View {
         }
         .padding(.horizontal)
 
-        if let podcast = vm.currentPodcast, podcast.hasVocabulary || podcast.hasQuiz {
-            learningSections(podcast)
+        if let nowPlaying = vm.nowPlaying(), nowPlaying.hasVocabulary || nowPlaying.hasQuiz {
+            learningSections(nowPlaying)
                 .padding(.horizontal)
         }
 
         Button {
-            Task { await vm.replayCurrentEpisode() }
+            Task { await vm.replayCurrent() }
         } label: {
             Label("もう一度聴く", systemImage: "arrow.counterclockwise")
                 .font(DSFont.body.weight(.semibold))
@@ -291,9 +295,9 @@ struct AudioPlayerView: View {
         .accessibilityHint("このエピソードを先頭から再生します")
 
         // 出典・ライセンス表示（ADR-095 / issue #240）。
-        if let podcast = vm.currentPodcast,
-           PodcastAttributionContent(podcast: podcast).isVisible {
-            attributionSection(podcast)
+        if let nowPlaying = vm.nowPlaying(),
+           PodcastAttributionContent(nowPlaying: nowPlaying).isVisible {
+            attributionSection(nowPlaying)
                 .padding(.horizontal)
         }
     }
@@ -420,14 +424,14 @@ struct AudioPlayerView: View {
 
     /// 語彙グロッサリと理解度クイズへの導線を近接配置する。
     @ViewBuilder
-    private func learningSections(_ podcast: Podcast) -> some View {
+    private func learningSections(_ nowPlaying: NowPlaying) -> some View {
         VStack(alignment: .leading, spacing: DSSpacing.m) {
-            if podcast.hasVocabulary {
-                vocabularySection(entries: podcast.vocabulary ?? [])
+            if nowPlaying.hasVocabulary {
+                vocabularySection(entries: nowPlaying.vocabulary ?? [])
             }
-            if podcast.hasQuiz {
+            if nowPlaying.hasQuiz {
                 Button {
-                    quizPodcast = podcast
+                    quizTarget = nowPlaying
                 } label: {
                     Label("聴き終わったら試す", systemImage: "questionmark.bubble")
                         .font(DSFont.body.weight(.semibold))
@@ -436,7 +440,7 @@ struct AudioPlayerView: View {
                 .buttonStyle(.bordered)
                 .tint(DSColor.accent)
                 .accessibilityLabel("聴き終わったら試す")
-                .accessibilityHint("このエピソードの\(podcast.quiz?.count ?? 0)問クイズを開きます")
+                .accessibilityHint("このエピソードの\(nowPlaying.quiz?.count ?? 0)問クイズを開きます")
             }
         }
     }
@@ -467,8 +471,8 @@ struct AudioPlayerView: View {
                             .accessibilityElement(children: .combine)
                             Spacer(minLength: DSSpacing.s)
                             Button(buttonText) {
-                                guard let podcast = vm.currentPodcast else { return }
-                                Task { await save(entry, for: podcast) }
+                                guard let episodeId = vm.nowPlaying()?.episodeId else { return }
+                                Task { await save(entry, episodeId: episodeId) }
                             }
                             .buttonStyle(.bordered)
                             .tint(isRegistered || isSaving ? DSColor.inkSecondary : DSColor.accent)
@@ -500,8 +504,8 @@ struct AudioPlayerView: View {
     /// 出典（ソース名・記事タイトル・原文リンク）と、`featured` のときだけの CC BY-SA 4.0 表示。
     /// web `page.tsx` と同一文言・同一構造（ADR-095 / issue #240）。
     @ViewBuilder
-    private func attributionSection(_ podcast: Podcast) -> some View {
-        let content = PodcastAttributionContent(podcast: podcast)
+    private func attributionSection(_ nowPlaying: NowPlaying) -> some View {
+        let content = PodcastAttributionContent(nowPlaying: nowPlaying)
         VStack(alignment: .leading, spacing: DSSpacing.xs) {
             if content.showsSourceArticleList {
                 Text("出典")
@@ -542,24 +546,24 @@ struct AudioPlayerView: View {
     }
 
     /// 初期状態は best-effort。旧 server やオフライン時もプレイヤーをエラーにしない。
-    private func loadSavedVocabulary(for podcast: Podcast) async {
+    private func loadSavedVocabulary(episodeId: String) async {
         guard let response = try? await vm.fetchSavedVocabulary() else { return }
-        guard !Task.isCancelled, vm.currentPodcast?.id == podcast.id else { return }
+        guard !Task.isCancelled, vm.nowPlaying()?.episodeId == episodeId else { return }
         registeredTerms = Set(
             response.vocabulary
-                .filter { $0.podcastId == podcast.id }
+                .filter { $0.podcastId == episodeId }
                 .map { normalizedTerm($0.term) }
         )
     }
 
-    private func save(_ entry: VocabularyEntry, for podcast: Podcast) async {
+    private func save(_ entry: VocabularyEntry, episodeId: String) async {
         let key = normalizedTerm(entry.term)
         guard !registeredTerms.contains(key), !savingTerms.contains(key) else { return }
         savingTerms.insert(key)
         defer { savingTerms.remove(key) }
         do {
-            _ = try await vm.saveVocabulary(podcastId: podcast.id, term: entry.term)
-            if vm.currentPodcast?.id == podcast.id {
+            _ = try await vm.saveVocabulary(podcastId: episodeId, term: entry.term)
+            if vm.nowPlaying()?.episodeId == episodeId {
                 registeredTerms.insert(key)
             }
         } catch {

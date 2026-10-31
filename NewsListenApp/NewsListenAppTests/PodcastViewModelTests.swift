@@ -10,8 +10,8 @@ import os
 @MainActor
 final class PodcastViewModelTests: XCTestCase {
 
-    // WHY: 完了ハンドラの順序入れ替え（PodcastViewModel §handlePlaybackEnded）以降、
-    //      markCompleted と stopPlayback() 由来の /position 同期 Task が並行して
+    // WHY: 完了ハンドラの順序入れ替え（Coordinator の終端処理）以降、
+    //      markCompleted と stop() 由来の /position 同期 Task が並行して
     //      `data(for:)` を呼び得るため、`requests` への追記を `OSAllocatedUnfairLock` で直列化する
     //      （actor 化すると呼び出し側の同期アクセス `session.requests.last` が壊れるため不採用。
     //      `NSLock` は async 文脈からの直接呼び出しが Swift 6 で警告/エラーになるため使わない）。
@@ -150,8 +150,8 @@ final class PodcastViewModelTests: XCTestCase {
         let rig = PlaybackEntryRig()
         let vm = rig.viewModel
         try await enqueue(rig, queuePodcast("a"))
-        XCTAssertEqual(vm.currentPodcast?.id, "a")
-        XCTAssertEqual(vm.queue.current?.id, "a")
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "a")
+        XCTAssertEqual(rig.coordinator.queue.current?.id, "a")
     }
 
     func testAutoAdvancePlaysNextOnEnd() async throws {
@@ -161,9 +161,9 @@ final class PodcastViewModelTests: XCTestCase {
         try await enqueue(rig, queuePodcast("b"))   // b をキュー
         await rig.engine.send(.ready)
         await endCurrent(rig)                       // a 終了 → 自動で b へ
-        await waitUntil { vm.currentPodcast?.id == "b" }
-        XCTAssertEqual(vm.queue.current?.id, "b")
-        XCTAssertEqual(vm.currentPodcast?.id, "b")
+        await waitUntil { vm.nowPlaying()?.episodeId == "b" }
+        XCTAssertEqual(rig.coordinator.queue.current?.id, "b")
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "b")
     }
 
     func testStopsWhenQueueExhaustedOnEnd() async throws {
@@ -171,10 +171,10 @@ final class PodcastViewModelTests: XCTestCase {
         let vm = rig.viewModel
         try await enqueue(rig, queuePodcast("a"))   // a を再生（キューは [a] のみ）
         await rig.engine.send(.ready)
-        await endCurrent(rig)                       // 次が無い → 停止しつつ currentPodcast は保持
-        XCTAssertEqual(vm.currentPodcast?.id, "a")
+        await endCurrent(rig)                       // 次が無い → 停止しつつ nowPlaying() は保持
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "a")
         XCTAssertFalse(vm.isPlaying)
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertTrue(vm.isFinished)
     }
 
     func testPlaybackEndedPreservesPodcastForQuizWhenQueueExhausted() async throws {
@@ -186,13 +186,13 @@ final class PodcastViewModelTests: XCTestCase {
 
         await endCurrent(rig)
 
-        // 自然終端後も currentPodcast が保持されているため、語彙/クイズ導線が残る
-        XCTAssertEqual(vm.currentPodcast?.id, "completed-podcast")
+        // 自然終端後も nowPlaying() が保持されているため、語彙/クイズ導線が残る
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "completed-podcast")
         // 再生は停止
         XCTAssertFalse(vm.isPlaying)
         // キューは末尾要素を指したまま（再聴・ジャンプ可能な状態を保つ）
-        XCTAssertEqual(vm.queue.current?.id, "completed-podcast")
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertEqual(rig.coordinator.queue.current?.id, "completed-podcast")
+        XCTAssertTrue(vm.isFinished)
     }
 
     func testPlaybackEndedMarksCapturedPodcastBeforeAutoAdvanceAndRefreshesStreak() async throws {
@@ -224,17 +224,17 @@ final class PodcastViewModelTests: XCTestCase {
         await endCurrent(rig)
         // 完聴の記録は待たれない非同期 Task で走るので、ストリーク更新まで済んだ後を観測する。
         await waitUntil { rig.completions.count == 1 }
-        await waitUntil { vm.currentPodcast?.id == "next-id" }
+        await waitUntil { vm.nowPlaying()?.episodeId == "next-id" }
 
-        // WHY: handlePlaybackEnded の順序入れ替え（UI収束を先行させる）により、
-        //      stopPlayback() 由来の /position 同期 Task が /completed より先に
+        // WHY: 終端処理の順序入れ替え（UI収束を先行させる）により、
+        //      stop() 由来の /position 同期 Task が /completed より先に
         //      enqueue され得るため、リクエスト**順序**ではなく含有で検証する。
         let completedRequest = try XCTUnwrap(
             session.requests.first { $0.url?.path == "/podcasts/completed-id/completed" }
         )
         XCTAssertEqual(completedRequest.httpMethod, "POST")
         XCTAssertNil(completedRequest.httpBody)
-        XCTAssertEqual(vm.currentPodcast?.id, "next-id")
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "next-id")
         XCTAssertEqual(refreshCount, 1)
         // 順序非依存: ストリーク更新は完聴記録の後、という契約のみを検証する。
         XCTAssertTrue(completedSentBeforeRefresh)
@@ -256,11 +256,11 @@ final class PodcastViewModelTests: XCTestCase {
         await endCurrent(rig)
         // 完聴の記録は待たれない非同期 Task で走るので、失敗して終わった後を観測する。
         await waitUntil { rig.completions.count == 1 }
-        await waitUntil { vm.currentPodcast?.id == "still-plays" }
+        await waitUntil { vm.nowPlaying()?.episodeId == "still-plays" }
 
         // 順序非依存: /completed リクエストが送られたことのみを検証する（§理由は上記テスト参照）。
         XCTAssertTrue(session.requests.contains { $0.url?.path == "/podcasts/failed-completion/completed" })
-        XCTAssertEqual(vm.currentPodcast?.id, "still-plays")
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "still-plays")
     }
 
     func testPlayNextInsertsAfterCurrent() async throws {
@@ -270,7 +270,7 @@ final class PodcastViewModelTests: XCTestCase {
         try await enqueue(rig, queuePodcast("b"))   // [a, b]
         await vm.playNext(queuePodcast("c"))        // a の次に c
 
-        XCTAssertEqual(vm.queue.upNext.map { $0.id }, ["c", "b"])
+        XCTAssertEqual(rig.coordinator.queue.upNext.map { $0.id }, ["c", "b"])
     }
 
     func testRemoveFromQueue() async throws {
@@ -280,7 +280,7 @@ final class PodcastViewModelTests: XCTestCase {
         try await enqueue(rig, queuePodcast("b"))
 
         vm.removeFromQueue(id: "b")
-        XCTAssertEqual(vm.queue.items.map { $0.id }, ["a"])
+        XCTAssertEqual(rig.coordinator.queue.items.map { $0.id }, ["a"])
     }
 
     func testLoadPodcastsPopulatesList() async throws {
@@ -349,7 +349,7 @@ final class PodcastViewModelTests: XCTestCase {
         let vm = rig.viewModel
         rig.fetch.fail("p1", with: URLError(.cancelled))
 
-        await vm.playById("p1")
+        await vm.startEpisode(id: "p1")
 
         XCTAssertNil(vm.errorMessage)
     }
@@ -378,7 +378,7 @@ final class PodcastViewModelTests: XCTestCase {
         let vm = rig.viewModel
         rig.fetch.fail("p1", with: ApiFailure.server(status: 500))
 
-        await vm.playById("p1")
+        await vm.startEpisode(id: "p1")
 
         XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
     }
@@ -450,60 +450,39 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(vm.playbackSpeed, 1.25)
     }
 
-    // MARK: - T4: resolvePlaybackURL
+    // MARK: - 開始時の再生 URL の解決（保存済み／オンライン／オフライン）
 
-    func testResolvePlaybackURLReturnsCachedURL() {
-        let podcast = Podcast(
-            id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/p1.mp3", title: "",
-            japaneseIntroText: "test",
-            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
-            playbackPositionSeconds: 0.0, segments: nil
-        )
-        let mockFile = MockFileManager()
-        mockFile.directories.insert("/mock-caches/NewsListenApp/audio-cache")
-        let cache = AudioCacheManager(fileManager: mockFile)
+    func testStartEpisodeLoadsSavedFileWhenCached() async throws {
+        let rig = PlaybackEntryRig(online: true)
+        let vm = rig.viewModel
+        try rig.cached("p1")
 
-        // キャッシュにファイルを追加
-        try? mockFile.write("audio".data(using: .utf8)!, to: cache.cachedURL(for: "p1"))
+        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
 
-        let url = PodcastViewModel.resolvePlaybackURL(for: podcast, isOnline: true, cacheManager: cache)
-
-        XCTAssertNotNil(url)
-        XCTAssertTrue(url!.path.hasSuffix("audio-cache/p1.mp3"))
+        let loaded = try XCTUnwrap(rig.engine.loadedURL)
+        XCTAssertEqual(loaded, rig.library.url("p1"))
+        XCTAssertTrue(loaded.isFileURL)
+        XCTAssertTrue(loaded.path.hasSuffix("audio-cache/p1.mp3"))
     }
 
-    func testResolvePlaybackURLReturnsAudioURLWhenOnlineNoCached() {
-        let podcast = Podcast(
-            id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/p1.mp3", title: "",
-            japaneseIntroText: "test",
-            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
-            playbackPositionSeconds: 0.0, segments: nil
-        )
-        let mockFile = MockFileManager()
-        let cache = AudioCacheManager(fileManager: mockFile)
+    func testStartEpisodeLoadsAudioURLWhenOnlineAndNotCached() async throws {
+        let rig = PlaybackEntryRig(online: true)
+        let vm = rig.viewModel
+        rig.serve(EntryFixture.playable("p1", url: "https://storage.example.com/p1.mp3"))
 
-        let url = PodcastViewModel.resolvePlaybackURL(for: podcast, isOnline: true, cacheManager: cache)
+        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
 
-        XCTAssertNotNil(url)
-        XCTAssertEqual(url?.absoluteString, "https://storage.example.com/p1.mp3")
+        XCTAssertEqual(rig.engine.loadedURL?.absoluteString, "https://storage.example.com/p1.mp3")
     }
 
-    func testResolvePlaybackURLReturnsNilOfflineNoCached() {
-        let podcast = Podcast(
-            id: "p1", type: "single", articleIds: ["a1"], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/p1.mp3", title: "",
-            japaneseIntroText: "test",
-            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed", errorMessage: nil,
-            playbackPositionSeconds: 0.0, segments: nil
-        )
-        let mockFile = MockFileManager()
-        let cache = AudioCacheManager(fileManager: mockFile)
+    func testStartEpisodeLoadsNothingWhenOfflineAndNotCached() async throws {
+        let rig = PlaybackEntryRig(online: false)
+        let vm = rig.viewModel
 
-        let url = PodcastViewModel.resolvePlaybackURL(for: podcast, isOnline: false, cacheManager: cache)
+        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
 
-        XCTAssertNil(url)
+        XCTAssertNil(rig.engine.loadedURL)
+        XCTAssertNotNil(vm.errorMessage)
     }
 
     // MARK: - T5: Download & State
@@ -517,7 +496,7 @@ final class PodcastViewModelTests: XCTestCase {
 
         await vm.download(podcast: podcast)
 
-        XCTAssertTrue(vm.downloadedIds.contains("p1"))
+        XCTAssertTrue(rig.library.savedIds.contains("p1"))
         XCTAssertFalse(rig.downloads.downloadingIds.contains("p1"))
     }
 
@@ -565,13 +544,13 @@ final class PodcastViewModelTests: XCTestCase {
         // p1 の音声は保存庫にあるが、保存済み集合は空（loadPodcasts が写し直すことを観測する）。
         try rig.cached("p1")
         rig.library.refresh(candidateIds: [])
-        XCTAssertTrue(vm.downloadedIds.isEmpty)
+        XCTAssertTrue(rig.library.savedIds.isEmpty)
 
         await vm.loadPodcasts()
 
-        // syncDownloadedState は loadPodcasts の末尾で呼ばれる
-        XCTAssertTrue(vm.downloadedIds.contains("p1"))
-        XCTAssertFalse(vm.downloadedIds.contains("p2"))
+        // loadPodcasts の末尾で保存済みの集合が一覧に合わせて写し直される
+        XCTAssertTrue(rig.library.savedIds.contains("p1"))
+        XCTAssertFalse(rig.library.savedIds.contains("p2"))
     }
 
     // MARK: - T6: play()
@@ -583,7 +562,7 @@ final class PodcastViewModelTests: XCTestCase {
         await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
 
         XCTAssertNotNil(vm.errorMessage)
-        XCTAssertNil(vm.currentPodcast)
+        XCTAssertNil(vm.nowPlaying())
     }
 
     func testPlayOnlineNoCachedResolvesAudioURL() async throws {
@@ -593,8 +572,8 @@ final class PodcastViewModelTests: XCTestCase {
 
         await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
 
-        // オンライン + キャッシュなし = 再生開始（currentPodcast = podcast）
-        XCTAssertEqual(vm.currentPodcast?.id, "p1")
+        // オンライン + キャッシュなし = 再生開始（nowPlaying() が podcast）
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "p1")
     }
 
     // MARK: - issue #58: play() 成功時に前回のエラーメッセージを持ち越さない
@@ -660,6 +639,45 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertFalse(vm.shouldPresentErrorAlert)
     }
 
+    // MARK: - alert の文言（facade の読み取り専用の値）
+
+    // verifies: ios-deriv-31
+    // kills: 一覧が非空なのに通知の文言を返さない／errorMessage と別の文言を作る
+    func testAlertMessageIsNoticeTextWhenListIsShown() async throws {
+        let rig = PlaybackEntryRig(
+            online: false,
+            session: MockURLSession(data: try EntryFixture.podcastListJSON([queuePodcast("p1")]), statusCode: 200))
+        let vm = rig.viewModel
+        await vm.loadPodcasts()
+        await vm.startEpisode(queuePodcast("p1"))
+
+        XCTAssertEqual(vm.displayState, .content)
+        XCTAssertEqual(vm.alertMessage, "Offline and not cached")
+        XCTAssertEqual(vm.alertMessage, vm.errorMessage)
+    }
+
+    // verifies: ios-dec-60
+    // kills: インラインエラーの間も alert の文言を返す（二重表示）
+    func testAlertMessageIsNilWhileInlineErrorIsShown() async throws {
+        let rig = PlaybackEntryRig(session: MockURLSession(data: Data(), statusCode: 500))
+        let vm = rig.viewModel
+
+        await vm.loadPodcasts()
+
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertEqual(vm.displayState, .error(message: vm.errorMessage ?? ""))
+        XCTAssertNil(vm.alertMessage)
+    }
+
+    // verifies: ios-dec-60
+    func testAlertMessageIsNilWhenNothingToReport() {
+        let rig = PlaybackEntryRig()
+        let vm = rig.viewModel
+
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertNil(vm.alertMessage)
+    }
+
     // MARK: - リモートコマンド経路と同じ再生制御メソッドの状態遷移（issue #79）
 
     func testTogglePlayPauseFlipsIsPlayingAfterPlay() async throws {
@@ -679,7 +697,7 @@ final class PodcastViewModelTests: XCTestCase {
 
         // スキップコマンドは seek(to:) を経由する。
         vm.seek(to: 42)
-        XCTAssertEqual(vm.currentTime, 42)
+        XCTAssertEqual(vm.session.position, 42)
     }
 
     func testSetSpeedUpdatesPlaybackSpeedAfterPlay() async throws {
@@ -693,9 +711,9 @@ final class PodcastViewModelTests: XCTestCase {
     func testStopPlaybackResetsState() async throws {
         let vm = try await playingRig().viewModel
 
-        vm.stopPlayback()
+        vm.stop()
         XCTAssertFalse(vm.isPlaying)
-        XCTAssertEqual(vm.currentTime, 0)
+        XCTAssertEqual(vm.session.position, 0)
     }
 
     // MARK: - issue #54: オフライン時の事前無効化
@@ -772,12 +790,12 @@ final class PodcastViewModelTests: XCTestCase {
         await rig.engine.send(.buffering)
         XCTAssertTrue(vm.isBuffering)
 
-        vm.stopPlayback()
+        vm.stop()
 
         XCTAssertFalse(vm.isBuffering)
     }
 
-    // MARK: - issue #50: stopPlayback 時の再生位置同期が 0 で上書きされる不具合
+    // MARK: - issue #50: stop() 時の再生位置同期が 0 で上書きされる不具合
 
     func testStopPlaybackSyncsPositionAtStopTimeNotZero() async throws {
         let rig = PlaybackEntryRig()
@@ -787,7 +805,7 @@ final class PodcastViewModelTests: XCTestCase {
         await rig.engine.send(.ready)
         vm.seek(to: 42)
 
-        vm.stopPlayback()
+        vm.stop()
 
         // 位置の送信は非同期 Task で行うため、記録されるまで待つ。
         await waitUntil { rig.gateway.updates.contains { $0.seconds == 42 } }
@@ -804,7 +822,7 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(vm.presentation, .hidden)
 
         try rig.cached("a")
-        await vm.playNow(queuePodcast("a"))
+        await vm.startEpisode(queuePodcast("a"))
 
         XCTAssertEqual(vm.presentation, .expanded)
     }
@@ -822,7 +840,7 @@ final class PodcastViewModelTests: XCTestCase {
     }
 
     func testQueueEndKeepsMiniPresentationForFinishedState() async throws {
-        // WHY: キュー終端でも currentPodcast は保持される（語彙/クイズ導線）ため、
+        // WHY: キュー終端でも nowPlaying() は保持される（語彙/クイズ導線）ため、
         //      ミニプレイヤーも finished 状態のまま残す（hidden へ落とさない）。
         let rig = PlaybackEntryRig()
         let vm = rig.viewModel
@@ -833,7 +851,7 @@ final class PodcastViewModelTests: XCTestCase {
         await endCurrent(rig)
 
         XCTAssertEqual(vm.presentation, .mini)
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertTrue(vm.isFinished)
     }
 
     func testAutoAdvanceKeepsCurrentPresentation() async throws {
@@ -847,9 +865,9 @@ final class PodcastViewModelTests: XCTestCase {
         vm.minimizePlayer()
 
         await endCurrent(rig)                       // a 終了 → 自動で b へ
-        await waitUntil { vm.currentPodcast?.id == "b" }
+        await waitUntil { vm.nowPlaying()?.episodeId == "b" }
 
-        XCTAssertEqual(vm.currentPodcast?.id, "b")
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "b")
         XCTAssertEqual(vm.presentation, .mini)
     }
 
@@ -863,23 +881,23 @@ final class PodcastViewModelTests: XCTestCase {
         await rig.engine.send(.ready)
         vm.seek(to: 42)
 
-        vm.flushPlaybackPosition()
+        vm.flushPosition()
 
         // 位置の送信は非同期 Task で行うため、記録されるまで待つ。
         await waitUntil { rig.gateway.updates.contains { $0.seconds == 42 } }
 
         XCTAssertEqual(rig.gateway.updates.last?.id, "p1")
         XCTAssertEqual(rig.gateway.updates.last?.seconds, 42)
-        // stopPlayback と異なり再生状態は解放しない（バックグラウンド再生を継続させる）。
+        // stop() と異なり再生状態は解放しない（バックグラウンド再生を継続させる）。
         XCTAssertTrue(rig.engine.isLoaded)
-        XCTAssertEqual(vm.currentTime, 42)
+        XCTAssertEqual(vm.session.position, 42)
     }
 
     func testFlushPlaybackPositionWithoutCurrentPodcastSendsNothing() async throws {
         let rig = PlaybackEntryRig()
         let vm = rig.viewModel
 
-        vm.flushPlaybackPosition()
+        vm.flushPosition()
         try await Task.sleep(nanoseconds: 100_000_000)
 
         XCTAssertTrue(rig.gateway.updates.isEmpty)
@@ -895,8 +913,8 @@ final class PodcastViewModelTests: XCTestCase {
 
         await endCurrent(rig)
 
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
-        XCTAssertEqual(vm.currentPodcast?.id, "a")
+        XCTAssertTrue(vm.isFinished)
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "a")
         XCTAssertFalse(vm.isPlaying)
     }
 
@@ -908,10 +926,10 @@ final class PodcastViewModelTests: XCTestCase {
         await rig.engine.send(.ready)
 
         await endCurrent(rig)                       // a 終了 → 自動で b へ
-        await waitUntil { vm.currentPodcast?.id == "b" }
+        await waitUntil { vm.nowPlaying()?.episodeId == "b" }
 
-        XCTAssertFalse(vm.didFinishCurrentEpisode)
-        XCTAssertEqual(vm.currentPodcast?.id, "b")
+        XCTAssertFalse(vm.isFinished)
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "b")
     }
 
     func testReplayCurrentEpisodeClearsFinishedStateAndPlaysFromZero() async throws {
@@ -920,40 +938,40 @@ final class PodcastViewModelTests: XCTestCase {
         try await enqueue(rig, queuePodcast("a"))
         await rig.engine.send(.ready)
         await endCurrent(rig)
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertTrue(vm.isFinished)
 
-        await vm.replayCurrentEpisode()
+        await vm.replayCurrent()
 
-        XCTAssertFalse(vm.didFinishCurrentEpisode)
-        XCTAssertEqual(vm.currentPodcast?.id, "a")
+        XCTAssertFalse(vm.isFinished)
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "a")
         XCTAssertTrue(vm.isPlaying)
-        XCTAssertEqual(vm.currentTime, 0)
+        XCTAssertEqual(vm.session.position, 0)
     }
 
     func testReplayCurrentEpisodeOverridesMidPositionRestore() async throws {
         // WHY: finished 状態への復帰時に、サーバーから復元された途中位置（playbackPositionSeconds: 120）
-        //      を replayCurrentEpisode() が seek(to: 0) で明示的に上書きすることを検証。
-        //      修正対象: replayCurrentEpisode() 内の seek(to: 0) を削ると、このテストは RED になる。
+        //      を replayCurrent() が seek(to: 0) で明示的に上書きすることを検証。
+        //      修正対象: replayCurrent() 内の seek(to: 0) を削ると、このテストは RED になる。
         let rig = PlaybackEntryRig()
         let vm = rig.viewModel
         let podcast = queuePodcast("mid-position", playbackPositionSeconds: 120, durationSeconds: 300)
         try await start(rig, podcast)
         await rig.engine.send(.ready)
         await endCurrent(rig)
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertTrue(vm.isFinished)
 
-        await vm.replayCurrentEpisode()
+        await vm.replayCurrent()
 
-        XCTAssertFalse(vm.didFinishCurrentEpisode)
-        XCTAssertEqual(vm.currentTime, 0)  // 途中位置 120s を上書き
+        XCTAssertFalse(vm.isFinished)
+        XCTAssertEqual(vm.session.position, 0)  // 途中位置 120s を上書き
     }
 
     func testReplayCurrentEpisodeIsNoOpWithoutCurrentPodcast() async throws {
         let vm = PlaybackEntryRig().viewModel
 
-        await vm.replayCurrentEpisode()
+        await vm.replayCurrent()
 
-        XCTAssertNil(vm.currentPodcast)
+        XCTAssertNil(vm.nowPlaying())
         XCTAssertFalse(vm.isPlaying)
     }
 
@@ -965,21 +983,21 @@ final class PodcastViewModelTests: XCTestCase {
         await vm.startEpisode(queuePodcast("offline-episode"))
         await rig.engine.send(.ready)
         await endCurrent(rig)                       // キュー空 → 収束
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertTrue(vm.isFinished)
         rig.network.isOnline = false
 
-        await vm.replayCurrentEpisode()
+        await vm.replayCurrent()
 
         XCTAssertNotNil(vm.errorMessage)
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertTrue(vm.isFinished)
     }
 
     func testStopPlaybackDoesNotSetFinishedState() async throws {
         let vm = try await playingRig().viewModel
 
-        vm.stopPlayback()
+        vm.stop()
 
-        XCTAssertFalse(vm.didFinishCurrentEpisode)
+        XCTAssertFalse(vm.isFinished)
     }
 
     func testStopPlaybackAfterFinishPreservesFinishedState() async throws {
@@ -988,12 +1006,12 @@ final class PodcastViewModelTests: XCTestCase {
         try await enqueue(rig, queuePodcast("a"))
         await rig.engine.send(.ready)
         await endCurrent(rig)
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertTrue(vm.isFinished)
 
-        vm.stopPlayback()                        // タブ離脱を想定
+        vm.stop()                        // タブ離脱を想定
 
-        XCTAssertFalse(vm.didFinishCurrentEpisode)
-        XCTAssertNil(vm.currentPodcast)
+        XCTAssertFalse(vm.isFinished)
+        XCTAssertNil(vm.nowPlaying())
     }
 
     func testPlayDifferentEpisodeClearsFinishedState() async throws {
@@ -1002,13 +1020,13 @@ final class PodcastViewModelTests: XCTestCase {
         try await enqueue(rig, queuePodcast("a"))
         await rig.engine.send(.ready)
         await endCurrent(rig)
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
+        XCTAssertTrue(vm.isFinished)
 
         try rig.cached("b")
-        await vm.playNow(queuePodcast("b"))
+        await vm.startEpisode(queuePodcast("b"))
 
-        XCTAssertFalse(vm.didFinishCurrentEpisode)
-        XCTAssertEqual(vm.currentPodcast?.id, "b")
+        XCTAssertFalse(vm.isFinished)
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "b")
     }
 
     func testPlayWithEndPositionStartsFromZero() async throws {
@@ -1020,7 +1038,7 @@ final class PodcastViewModelTests: XCTestCase {
 
         try await start(rig, podcast)
 
-        XCTAssertEqual(vm.currentTime, 0)
+        XCTAssertEqual(vm.session.position, 0)
     }
 
     func testPlayWithMidPositionRestoresPosition() async throws {
@@ -1031,7 +1049,7 @@ final class PodcastViewModelTests: XCTestCase {
 
         try await start(rig, podcast)
 
-        XCTAssertEqual(vm.currentTime, 120)
+        XCTAssertEqual(vm.session.position, 120)
     }
 
     func testPlayWithZeroDurationRestoresPosition() async throws {
@@ -1043,15 +1061,15 @@ final class PodcastViewModelTests: XCTestCase {
 
         try await start(rig, podcast)
 
-        XCTAssertEqual(vm.currentTime, 30)
+        XCTAssertEqual(vm.session.position, 30)
     }
 
     func testEndOfPlaybackObserverCapturesEndedIdAtRegistrationNotAtFireTime() async throws {
         // PR #74 レビュー指摘: 終了通知(didPlayToEndTimeNotification)は queue: .main 経由で
-        // 非同期配信されるため、クロージャ発火時点で self.currentPodcast を読むと、
-        // 登録〜発火の間に利用者が別エピソードへ切り替えた場合、新しい currentPodcast の ID を
-        // 「終了した episode の ID」として誤って渡してしまい、handlePlaybackEnded 側の
-        // stale ガード（currentPodcast?.id != endedId）が素通りする。
+        // 非同期配信されるため、クロージャ発火時点で現在の episode を読むと、
+        // 登録〜発火の間に利用者が別エピソードへ切り替えた場合、新しい現在の episode の ID を
+        // 「終了した episode の ID」として誤って渡してしまい、終端処理側の
+        // stale ガード（現在の episode の id と終了した id の不一致）が素通りする。
         // ここでは a の channel に終了事象を手渡した直後（消費者が処理する前）に b を開始することで、
         // 「観測は a の item を指したまま、現在のエピソードだけ b に変わった」状況を再現する。
         let rig = PlaybackEntryRig()
@@ -1066,14 +1084,14 @@ final class PodcastViewModelTests: XCTestCase {
         try await Task.sleep(nanoseconds: 300_000_000)
 
         // a の stale な終了通知が b に誤適用されていないこと。
-        XCTAssertEqual(vm.currentPodcast?.id, "b")
-        XCTAssertFalse(vm.didFinishCurrentEpisode)
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "b")
+        XCTAssertFalse(vm.isFinished)
         XCTAssertFalse(rig.gateway.marks.contains("b"))
     }
 
     func testEndOfPlaybackObserverTriggersConvergenceForCurrentEpisode() async throws {
         // 上の stale テストの正方向対照（positive control）。これが無いと、オブザーバが
-        // handlePlaybackEnded を一切呼ばないミュータントでも stale テストは green のまま通り、
+        // 終端処理を一切呼ばないミュータントでも stale テストは green のまま通り、
         // 「ガードが効いている」ことと「オブザーバが死んでいる」ことを区別できない
         // （敵対的検証のミューテーションテストで実証済み）。
         // engine の終了事象が、現エピソードの収束と完聴記録を起こすことを固定する。
@@ -1086,32 +1104,15 @@ final class PodcastViewModelTests: XCTestCase {
         await waitUntil { rig.gateway.marks.contains("a") }
 
         // キュー終端: 収束フラグが立ち、a の完聴が記録される。
-        XCTAssertTrue(vm.didFinishCurrentEpisode)
-        XCTAssertEqual(vm.currentPodcast?.id, "a")
+        XCTAssertTrue(vm.isFinished)
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "a")
         XCTAssertTrue(rig.gateway.marks.contains("a"))
     }
 
-    func testHandlePlaybackEndedIgnoresStaleEndedId() async throws {
-        // 終了通知の endedId が、その間に利用者が切り替えた現在の episode と一致しなければ
-        // 収束もキュー遷移も起こさない（issue #59 の shouldProcessPlayerItemCallback と同型のガード）。
-        let rig = PlaybackEntryRig()
-        let vm = rig.viewModel
-        try await enqueue(rig, queuePodcast("a"))
-        try await enqueue(rig, queuePodcast("b"))
-        try rig.cached("b")
-        await vm.playNow(queuePodcast("b"))
+    // MARK: - 主体離脱（ios-contract-21.7・ios-slice-auth-01）
 
-        await vm.handlePlaybackEnded(endedId: "a")
-
-        XCTAssertEqual(vm.currentPodcast?.id, "b")
-        XCTAssertFalse(vm.didFinishCurrentEpisode)
-    }
-
-    // MARK: - T-T15-09, T-T15-10（ios-contract-21.7・ios-slice-auth-01 ios-temp-04: PlaybackLifecycle 暫定実装）
-
-    // ios-temp-04（owner: user／導入: ios-slice-auth-01 2026-09-28／削除条件: ios-slice-playback-03 で PlaybackCoordinator が
-    // PlaybackLifecycle の実装を引き継いだ時点。物理削除は ios-slice-playback-04）。
-    // `stopForLogout()` は位置同期を送らずに停止する（C1: `stopPlayback()` の同期部分を呼ばない）。
+    // `PlaybackLifecycle` は `PlaybackCoordinator` が実装し、facade の `stopForLogout()` はそれを中継するだけ。
+    // `stopForLogout()` は位置同期を送らずに停止する（`stop()` の同期部分を呼ばない）。
 
     // verifies: ios-contract-21.7
     func testTT15_09_stopForLogoutResetsPlaybackWithoutSyncingPosition() async throws {
@@ -1126,8 +1127,8 @@ final class PodcastViewModelTests: XCTestCase {
         vm.stopForLogout()
         for _ in 0..<3 { await Task.yield() }
 
-        XCTAssertNil(vm.currentPodcast)
-        XCTAssertTrue(vm.queue.isEmpty)
+        XCTAssertNil(vm.nowPlaying())
+        XCTAssertTrue(rig.coordinator.queue.isEmpty)
         XCTAssertEqual(vm.presentation, .hidden)
         XCTAssertFalse(rig.engine.isLoaded)
         XCTAssertFalse(vm.isPlaying)
@@ -1150,8 +1151,8 @@ final class PodcastViewModelTests: XCTestCase {
         vm.stopForLogout()
         for _ in 0..<3 { await Task.yield() }
 
-        XCTAssertNil(vm.currentPodcast)
-        XCTAssertTrue(vm.queue.isEmpty)
+        XCTAssertNil(vm.nowPlaying())
+        XCTAssertTrue(rig.coordinator.queue.isEmpty)
         XCTAssertEqual(vm.presentation, .hidden)
         XCTAssertFalse(rig.engine.isLoaded)
         XCTAssertFalse(vm.isPlaying)
