@@ -204,7 +204,7 @@ struct SettingsView: View {
                     }
                 } else {
                     ForEach(viewModel.sources) { source in
-                        if appState.currentUser?.isAdmin == true {
+                        if appState.currentSubject?.role.isAdmin == true {
                             Button {
                                 editingSource = source
                             } label: {

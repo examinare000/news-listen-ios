@@ -56,7 +56,7 @@ final class GrepOracleTests: XCTestCase {
             "appState.registerPlaybackLifecycle(": 1,
             "appState.retryResolve(": 1,
             "appState.selectedPodcastId = ": 1,
-            "appState.updateCurrentUser(": 1,
+            "appState.updateCurrentSubject(": 1,
             "appState.weeklyGoalEpisodes = ": 1,
         ]
         XCTAssertEqual(o8Counts, expectedO8, "主体ガード表 §3.1 の外部行と一致しない（表に無い書き手があれば RJ-5 により表を先に直す）")

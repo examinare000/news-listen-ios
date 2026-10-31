@@ -47,8 +47,8 @@ struct AccountSettingsView: View {
 
     var body: some View {
         Section("アカウント") {
-            if let user = appState.currentUser {
-                LabeledContent("ログイン中", value: "\(user.displayName)（\(user.username) / \(user.role)）")
+            if let user = appState.currentSubject {
+                LabeledContent("ログイン中", value: "\(user.displayName)（\(user.username) / \(user.role.rawValue)）")
             }
 
             // 表示名の更新
@@ -68,7 +68,7 @@ struct AccountSettingsView: View {
             }
 
             // 管理者のみ: ユーザー管理画面
-            if appState.currentUser?.isAdmin == true {
+            if appState.currentSubject?.role.isAdmin == true {
                 NavigationLink("ユーザー管理") {
                     AdminUsersView(apiClient: appState.apiClient)
                 }
@@ -78,7 +78,7 @@ struct AccountSettingsView: View {
                 Task { await appState.logout() }
             }
         }
-        .onAppear { displayName = appState.currentUser?.displayName ?? "" }
+        .onAppear { displayName = appState.currentSubject?.displayName ?? "" }
 
         // Passkey 管理セクション（ログイン済みで API クライアント有効時のみ表示）
         if appState.apiClient != nil {
@@ -309,7 +309,7 @@ struct AccountSettingsView: View {
         let stamp = appState.subjectStamp
         do {
             let updated = try await client.updateProfile(displayName: displayName)
-            appState.updateCurrentUser(updated, capturedAt: stamp)
+            appState.updateCurrentSubject(updated.toSubject(), capturedAt: stamp)
             message = "表示名を更新しました"
         } catch {
             message = "表示名の更新に失敗しました"

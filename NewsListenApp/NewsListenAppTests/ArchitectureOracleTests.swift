@@ -208,7 +208,7 @@ final class ArchitectureOracleTests: XCTestCase {
                          controlPath: "Settings/AccountSettingsView.swift", controlFragment: "newPassword.count >= 8"),
             LiteralGroup(key: "ios-rule-account-05", pattern: #""(admin|user)""#,
                          isCanonical: exact("Auth/Domain/Subject.swift"), excludesPath: { $0 == "Passkey/PasskeyOptionsDecoder.swift" },
-                         controlPath: "Models/AuthModels.swift", controlFragment: #"role == "admin""#),
+                         controlPath: "Admin/AdminUsersViewModel.swift", controlFragment: #""user" : "admin""#),
             LiteralGroup(key: "ios-rule-account-06・ios-rule-curation-04・ios-rule-sources-02・ios-rule-learning-08", pattern: #"catch\s+ApiFailure\.(notFound\(subject|conflict\b)"#,
                          isCanonical: { path, layer in layer == .application || path.hasPrefix("Networking/") }, excludesPath: never,
                          controlPath: "AppState.swift", controlFragment: "catch ApiFailure.notFound(subject: .streak)"),
@@ -662,8 +662,8 @@ final class ArchitectureOracleTests: XCTestCase {
     private var applicationSources: [SourceFile] { sources(inLayer: .application) }
 
     private let applicationFileCounts: [(path: String, count: Int)] = [
-        ("AppState.swift", 39),
-        ("Auth/SubjectCleanup.swift", 6),
+        ("AppState.swift", 41),
+        ("Auth/SubjectCleanup.swift", 5),
         ("Podcast/Playback/AudioEngine.swift", 7),
         ("Podcast/Playback/NowPlayingCenter.swift", 14),
         ("Podcast/Playback/PlaybackLifecycle.swift", 1),
@@ -747,7 +747,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 169)
+        XCTAssertEqual(result.declared.count, 170)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -758,12 +758,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 169)
-        XCTAssertEqual(ledger.count, 169)
+        XCTAssertEqual(declared.count, 170)
+        XCTAssertEqual(ledger.count, 170)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 39, "query": 36, "port": 24, "internal": 24, "readModel": 37, "factory": 9]
+            ["command": 39, "query": 36, "port": 24, "internal": 24, "readModel": 38, "factory": 9]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -833,8 +833,8 @@ final class ArchitectureOracleTests: XCTestCase {
         let skipped = verdicts.filter { $0.value.outcome == .skip }
         let green = verdicts.filter { $0.value.outcome == .green }
         XCTAssertEqual(Set(red.keys), ["ArticleOpenMode", "FeaturedCategory"])
-        XCTAssertEqual(skipped.count, 7, "skip: \(skipped.keys.sorted())")
-        XCTAssertEqual(Set(green.keys), ["PlayableEpisode"])
+        XCTAssertEqual(skipped.count, 6, "skip: \(skipped.keys.sorted())")
+        XCTAssertEqual(Set(green.keys), ["PlayableEpisode", "SubjectKey"])
         XCTAssertEqual(verdicts.count, 10)
         XCTAssertNil(red["PlayableEpisode"])
         XCTAssertEqual(green["PlayableEpisode"]?.initDeclarationCount, 1)
@@ -852,6 +852,6 @@ final class ArchitectureOracleTests: XCTestCase {
         let domainOnly = ArchitectureScan.unregisteredDomainTests(production: production, tests: tests, registered: [])
 
         XCTAssertEqual(unregistered, [], "登録漏れ")
-        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift"], "domain だけを参照するテストファイル")
+        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift", "SubjectTests.swift"], "domain だけを参照するテストファイル")
     }
 }

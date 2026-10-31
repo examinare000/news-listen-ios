@@ -15,7 +15,7 @@ final class LoginViewModelTests: XCTestCase {
 
     func testSuccessCallsOnSuccessWithResponse() async {
         let json = #"{"token":"tok","user":{"username":"alice","role":"user","display_name":"Alice"}}"#.data(using: .utf8)!
-        var captured: LoginResponse?
+        var captured: LoginReceipt?
         let vm = LoginViewModel(apiClient: makeClient(data: json, status: 200)) { captured = $0 }
         vm.username = "alice"
         vm.password = "pw"
@@ -23,7 +23,7 @@ final class LoginViewModelTests: XCTestCase {
         await vm.submit()
 
         XCTAssertEqual(captured?.token, "tok")
-        XCTAssertEqual(captured?.user.username, "alice")
+        XCTAssertEqual(captured?.subject.username, "alice")
         XCTAssertNil(vm.errorMessage)
     }
 

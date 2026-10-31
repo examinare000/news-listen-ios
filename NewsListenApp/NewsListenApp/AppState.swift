@@ -29,16 +29,10 @@ enum ArticleOpenMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// 認証状態（ios-slice-auth-01 / spec §3.1）。判別共用体で 4 状態のみを表す。
-enum AuthSession: Equatable {
-    /// 保存済みトークンで `/auth/me` を解決中（初期値）。
-    case resolving
-    /// ログイン済み。
-    case authenticated(AuthUser)
-    /// 未ログイン（トークン無し、または `fetchMe` が `unauthorized`）。
-    case anonymous
-    /// `/auth/me` が `unauthorized` 以外の理由で失敗（トークンは保持）。
-    case unavailable(ApiFailure)
+/// ログイン成功の結果（ios-cmd-account-01 の receipt）。ログイン VM が応答から作り、`completeLogin` へ渡す。
+struct LoginReceipt: Equatable {
+    let token: String
+    let subject: Subject
 }
 
 /// 主体の照合値（ios-slice-auth-01）。`AppState` の外で await をまたいで状態を書く呼出元が、await の前に
@@ -68,8 +62,8 @@ final class AppState: ObservableObject {
     @Published private(set) var session: AuthSession = .resolving
 
     /// ログイン中ユーザー。`session` からの導出値（stored ではない: 同じ事実を二重に持たない）。
-    var currentUser: AuthUser? {
-        if case .authenticated(let user) = session { return user }
+    var currentSubject: Subject? {
+        if case .authenticated(let subject) = session { return subject }
         return nil
     }
 
@@ -216,22 +210,22 @@ final class AppState: ObservableObject {
     // MARK: - 認証
 
     /// ログイン成功を受けてトークンを Keychain に保存し、ユーザー状態を更新する。
-    /// - Parameter response: ログイン API のレスポンス。
-    func completeLogin(_ response: LoginResponse) {
-        sessionStore.token = response.token
-        session = .authenticated(response.user)
+    /// - Parameter receipt: ログイン成功の結果（トークンと主体）。
+    func completeLogin(_ receipt: LoginReceipt) {
+        sessionStore.token = receipt.token
+        session = .authenticated(receipt.subject)
         // ログイン直後、取得済みトークンがあれば backend に登録する。
         scheduleDeviceTokenRegistration()
     }
 
     /// `AccountSettingsView.saveProfile()` 等、AppState の外で await した後にプロフィールを
-    /// 差し替える呼出元向けの API（ios-slice-auth-01 / G9）。`capturedAt` は await の前に捕捉した stamp。
+    /// 差し替える呼出元向けの API（ios-slice-auth-01）。`capturedAt` は await の前に捕捉した stamp。
     /// - Parameters:
-    ///   - user: 差し替え後のユーザー情報。
+    ///   - subject: 差し替え後の主体。
     ///   - stamp: await の前に捕捉した `subjectStamp`。
-    func updateCurrentUser(_ user: AuthUser, capturedAt stamp: SubjectStamp) {
+    func updateCurrentSubject(_ subject: Subject, capturedAt stamp: SubjectStamp) {
         guard isCurrentSubject(stamp) else { return }
-        session = .authenticated(user)
+        session = .authenticated(subject)
     }
 
     /// `unavailable` から再解決を試みる（`retryResolve()`）。`unavailable` 以外からは no-op。
@@ -305,7 +299,7 @@ final class AppState: ObservableObject {
         do {
             let user = try await apiClient.fetchMe()
             guard case .resolving = session, sessionStore.token == t0 else { return }
-            session = .authenticated(user)
+            session = .authenticated(user.toSubject())
             // 起動時の preferences 同期は AppState 保持の非構造化 Task で行う。呼び出し元
             // （`ProgressView.task`）がキャンセルされても、この同期は中断されない（D-10）。
             let syncTask = Task<Void, Never> { [weak self] in

@@ -3,7 +3,7 @@ import XCTest
 import Combine
 @testable import NewsListenApp
 
-/// `AppState` の現行の query（`session`・`currentUser`・`subjectStamp`・`isCurrentSubject(_:)`・
+/// `AppState` の現行の query（`session`・`currentSubject`・`subjectStamp`・`isCurrentSubject(_:)`・
 /// `lastCleanupIncomplete`・`isConfigured`）が、書込み port に書かないことの契約テスト。
 /// 5 つの記録 double を既存の継ぎ目（`SessionStore`・`apiClientFactory`・`PreferenceRegistry`・
 /// `AudioCacheManager`・`clearOfflineLibrary`）に被せて `AppState` を組み、
@@ -34,7 +34,7 @@ final class AppStateQueryContractTests: XCTestCase {
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearOfflineLibrary: { try ports.clearOfflineLibrary.run() }
         )
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         ports.resetCounts()
     }
 
@@ -48,7 +48,7 @@ final class AppStateQueryContractTests: XCTestCase {
 
     private func readAllQueries() {
         _ = appState.session
-        _ = appState.currentUser
+        _ = appState.currentSubject
         let stamp = appState.subjectStamp
         _ = appState.isCurrentSubject(stamp)
         _ = appState.lastCleanupIncomplete
@@ -89,11 +89,24 @@ final class AppStateQueryContractTests: XCTestCase {
     }
 
     func testWritesThroughTheComposedAppStateAreCounted() async {
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         XCTAssertGreaterThanOrEqual(ports.sessionStore.writeCount, 1, "正の対照: Keychain 相当の保存が数えられる")
 
         ports.resetCounts()
         await appState.completeOnboarding()
         XCTAssertEqual(ports.urlSession.writeCount, 1, "正の対照: オンボーディング完了の POST が数えられる")
+    }
+
+    // verifies: ios-check-07
+    func testIosTest107_replacingACopyOfCurrentSubjectDoesNotChangeSession() {
+        let alice = Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)
+        var copy = appState.currentSubject
+
+        copy = Subject(username: "mallory", displayName: "M", role: .admin, key: SubjectKey("k1"))
+
+        XCTAssertEqual(copy?.username, "mallory", "刺激: 写しは差し替わっている")
+        XCTAssertEqual(appState.currentSubject, alice)
+        XCTAssertEqual(appState.session, .authenticated(alice))
+        assertNoWrites()
     }
 }

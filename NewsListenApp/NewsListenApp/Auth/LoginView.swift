@@ -21,7 +21,7 @@ struct LoginView: View {
     /// - Parameters:
     ///   - apiClient: ログイン通信に使うクライアント。
     ///   - onSuccess: ログイン成功時のコールバック（通常 `AppState.completeLogin`）。
-    init(apiClient: APIClient, onSuccess: @escaping (LoginResponse) -> Void) {
+    init(apiClient: APIClient, onSuccess: @escaping (LoginReceipt) -> Void) {
         _viewModel = StateObject(wrappedValue: LoginViewModel(apiClient: apiClient, onSuccess: onSuccess))
         _passkeyViewModel = StateObject(wrappedValue: PasskeyLoginViewModel(
             apiClient: apiClient,

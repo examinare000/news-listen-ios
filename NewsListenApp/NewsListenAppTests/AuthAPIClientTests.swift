@@ -42,7 +42,7 @@ final class AuthAPIClientTests: XCTestCase {
 
         XCTAssertEqual(session.lastRequest?.url?.path, "/auth/me")
         XCTAssertEqual(session.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer tok-xyz")
-        XCTAssertTrue(me.isAdmin)
+        XCTAssertTrue(me.toSubject().role.isAdmin)
     }
 
     func testNoBearerHeaderWhenTokenAbsent() async throws {
@@ -113,5 +113,19 @@ final class AuthAPIClientTests: XCTestCase {
 
         XCTAssertEqual(session.lastRequest?.url?.path, "/admin/users/bob")
         XCTAssertEqual(session.lastRequest?.httpMethod, "DELETE")
+    }
+
+    // verifies: ios-rule-account-05
+    func testAuthUserToSubjectCopiesFieldsAndLeavesKeyNil() throws {
+        let json = #"{"username":"alice","role":"owner","display_name":"Alice"}"#.data(using: .utf8)!
+        let user = try JSONDecoder().decode(AuthUser.self, from: json)
+
+        let subject = user.toSubject()
+
+        XCTAssertEqual(subject.username, "alice")
+        XCTAssertEqual(subject.displayName, "Alice")
+        XCTAssertEqual(subject.role.rawValue, "owner")
+        XCTAssertFalse(subject.role.isAdmin)
+        XCTAssertNil(subject.key)
     }
 }

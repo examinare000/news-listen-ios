@@ -24,12 +24,12 @@ final class LoginViewModel: ObservableObject {
     /// 認証通信に使うクライアント（未ログインのためトークンは未設定）。
     private let apiClient: APIClient
     /// ログイン成功時に呼ぶコールバック（トークン保存・状態更新は呼び出し側が担う）。
-    private let onSuccess: (LoginResponse) -> Void
+    private let onSuccess: (LoginReceipt) -> Void
 
     /// - Parameters:
     ///   - apiClient: ログイン通信に使うクライアント。
     ///   - onSuccess: 成功時に結果を渡すコールバック。
-    init(apiClient: APIClient, onSuccess: @escaping (LoginResponse) -> Void) {
+    init(apiClient: APIClient, onSuccess: @escaping (LoginReceipt) -> Void) {
         self.apiClient = apiClient
         self.onSuccess = onSuccess
     }
@@ -54,7 +54,7 @@ final class LoginViewModel: ObservableObject {
                 username: username.trimmingCharacters(in: .whitespacesAndNewlines),
                 password: password
             )
-            onSuccess(response)
+            onSuccess(LoginReceipt(token: response.token, subject: response.user.toSubject()))
             // 成功時は画面遷移するため isSubmitting は false に戻さない（遷移までボタン無効を維持）。
         } catch ApiFailure.unauthorized {
             errorMessage = "ユーザーIDまたはパスワードが正しくありません"
