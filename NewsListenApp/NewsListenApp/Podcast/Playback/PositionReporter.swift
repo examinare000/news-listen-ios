@@ -119,10 +119,12 @@ final class PositionReporter: ObservableObject {
             endedDuration = 0
             lastSentPosition = nil
             hasSentCompletion = false
-        case .playing:
+        case .playing(_, let position, _, _):
             if phase == .paused || phase == .loading { periodStart = now() }
+            currentPosition = position
             phase = .playing
-        case .buffering:
+        case .buffering(_, let position, _, _):
+            currentPosition = position
             phase = .buffering
         case .paused(_, let position, _, _):
             if phase == .playing || phase == .buffering, let id = currentId {

@@ -100,3 +100,5 @@ final class OfflineDownloads: ObservableObject {
         return .saved
     }
 }
+
+typealias DownloadState = OfflineDownloads.State

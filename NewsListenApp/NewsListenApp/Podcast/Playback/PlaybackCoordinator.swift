@@ -225,6 +225,13 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
         if nowPlaying() != nil { presentation = .expanded }
     }
 
+    /// キューと表示形態を残して止める。停止の前に位置を送る。
+    func stop() {
+        reporter.flush()
+        stopSession()
+        nowPlayingCenter.clear()
+    }
+
     func stopForLogout() {
         stopSession()
         nowPlayingCenter.clear()

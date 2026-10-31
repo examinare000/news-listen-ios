@@ -50,11 +50,13 @@ struct SettingsView: View {
     private let playbackSpeeds: [Double] = [0.75, 1.0, 1.25, 1.5, 2.0]
 
     /// ビューを生成する。
-    /// - Parameter apiClient: ViewModel に注入する API クライアント。未設定時は `nil`。
+    /// - Parameters:
+    ///   - appState: 共有の設定状態。
+    ///   - library: 合成 root が作った保存庫（キャッシュの容量表示・全削除に使う）。
     @MainActor
-    init(appState: AppState) {
+    init(appState: AppState, library: OfflineLibrary) {
         self.appState = appState
-        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState))
+        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState, library: library))
     }
 
     var body: some View {

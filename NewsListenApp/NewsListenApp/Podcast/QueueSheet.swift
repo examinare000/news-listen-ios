@@ -19,7 +19,7 @@ struct QueueSheet: View {
         NavigationStack {
             List {
                 // 再生中はミニプレイヤーが開いているときのみ表示する（終端後の残留表示を避ける）。
-                if viewModel.currentPodcast != nil, let current = viewModel.queue.current {
+                if viewModel.nowPlaying() != nil, let current = viewModel.queue.current {
                     Section("再生中") {
                         QueueRow(podcast: current)
                     }

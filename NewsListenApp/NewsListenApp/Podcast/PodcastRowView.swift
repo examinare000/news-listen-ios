@@ -15,6 +15,8 @@ struct PodcastRowView: View {
     let isPlaying: Bool
     /// ダウンロード状態（既定: notDownloaded）。
     let downloadState: DownloadState
+    /// 生成ステータスのバッジの種類（facade が種別から導く）。
+    let badge: PodcastViewModel.RowBadge
     /// 現在オフラインかどうか（既定: false）。オフライン時、再生不可な行を視覚的に区別する（issue #54）。
     let isOffline: Bool
     /// ダウンロードボタンタップハンドラ（オプション）。
@@ -26,12 +28,14 @@ struct PodcastRowView: View {
         podcast: Podcast,
         isPlaying: Bool,
         downloadState: DownloadState = .notDownloaded,
+        badge: PodcastViewModel.RowBadge,
         isOffline: Bool = false,
         onDownloadTap: (() -> Void)? = nil
     ) {
         self.podcast = podcast
         self.isPlaying = isPlaying
         self.downloadState = downloadState
+        self.badge = badge
         self.isOffline = isOffline
         self.onDownloadTap = onDownloadTap
     }
@@ -117,18 +121,15 @@ struct PodcastRowView: View {
     /// Podcast 生成ステータスを表示するバッジ。
     @ViewBuilder
     private var statusBadge: some View {
-        switch podcast.status {
-        case "processing":
+        switch badge {
+        case .generating:
             DSBadge("生成中", systemImage: "hourglass", tint: DSColor.accent)
                 .accessibilityLabel("生成中")
-        case "failed", "partial_failed":
+        case .failed:
             DSBadge("失敗", systemImage: "exclamationmark.triangle.fill", tint: DSColor.danger)
                 .accessibilityLabel("生成失敗")
                 .accessibilityValue(podcast.errorMessage ?? "")
-        case "completed":
-            // 完了状態はバッジを表示しない。
-            EmptyView()
-        default:
+        case .none:
             EmptyView()
         }
     }
@@ -144,9 +145,9 @@ struct PodcastRowView: View {
 private struct PodcastRowGallery: View {
     var body: some View {
         List {
-            PodcastRowView(podcast: PreviewSamples.podcasts[0], isPlaying: true, downloadState: .downloaded)
-            PodcastRowView(podcast: PreviewSamples.podcasts[1], isPlaying: false, downloadState: .downloading)
-            PodcastRowView(podcast: PreviewSamples.podcasts[2], isPlaying: false, downloadState: .notDownloaded, onDownloadTap: {})
+            PodcastRowView(podcast: PreviewSamples.podcasts[0], isPlaying: true, downloadState: .downloaded, badge: .none)
+            PodcastRowView(podcast: PreviewSamples.podcasts[1], isPlaying: false, downloadState: .downloading, badge: .generating)
+            PodcastRowView(podcast: PreviewSamples.podcasts[2], isPlaying: false, downloadState: .notDownloaded, badge: .failed, onDownloadTap: {})
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)

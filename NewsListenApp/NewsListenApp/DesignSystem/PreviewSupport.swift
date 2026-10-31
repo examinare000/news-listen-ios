@@ -149,22 +149,42 @@ enum PreviewSamples {
 
     /// 再生中状態を仕込んだ `PodcastViewModel`（プレイヤー UI 確認用）。
     @MainActor static func playerViewModel() -> PodcastViewModel {
-        let vm = PodcastViewModel(apiClient: apiClient())
-        vm.currentPodcast = podcasts[0]
-        vm.duration = 247
-        vm.currentTime = 72
-        vm.isPlaying = true
-        vm.playbackSpeed = 1.0
-        return vm
+        let episode = previewPlayable()
+        return previewFacade(
+            session: .playing(episode: episode, position: 72, duration: 247, speed: 1.0),
+            queue: PlaybackQueue<Episode>(items: [.playable(episode)], currentIndex: 0))
     }
 
     /// 聴き終わり後のコンパクト表示を仕込んだ `PodcastViewModel`（finishedContent プレビュー用）。
-    /// `didFinishCurrentEpisode` は `private(set)` のため、DEBUG シーム `previewMarkFinished()` 経由で立てる。
     @MainActor static func finishedPlayerViewModel() -> PodcastViewModel {
-        let vm = PodcastViewModel(apiClient: apiClient())
-        vm.currentPodcast = podcasts[0]
-        vm.previewMarkFinished()
-        return vm
+        let episode = previewPlayable()
+        return previewFacade(
+            session: .ended(episode: episode, duration: 247),
+            queue: PlaybackQueue<Episode>(items: [.playable(episode)], currentIndex: 0))
+    }
+
+    private static func previewPlayable() -> PlayableEpisode {
+        guard case .playable(let episode) = podcasts[0].toEpisode() else {
+            preconditionFailure("プレビューの標本 p1 は再生可能な種別であること")
+        }
+        return episode
+    }
+
+    /// Coordinator・Reporter・保存庫は `previewParts` の「何もしない」実装。ダウンロードとネットワークもここで作る。
+    @MainActor private static func previewFacade(session: PlaybackState, queue: PlaybackQueue<Episode>) -> PodcastViewModel {
+        let parts = PlaybackCoordinator.previewParts(session: session, queue: queue)
+        let downloads = OfflineDownloads(
+            library: parts.library,
+            fetchEpisode: { _ in throw CancellationError() },
+            downloadAudio: { _ in throw CancellationError() })
+        return PodcastViewModel(
+            apiClient: apiClient(),
+            coordinator: parts.coordinator,
+            reporter: parts.reporter,
+            library: parts.library,
+            downloads: downloads,
+            networkMonitor: StubNetworkMonitor(),
+            defaultSpeed: { 1.0 })
     }
 }
 
