@@ -65,23 +65,20 @@ final class SettingsViewModel: ObservableObject {
     /// ViewModel を生成する。
     /// - Parameters:
     ///   - apiClient: API 通信に使うクライアント。未設定時は `nil`。
-    ///   - library: 保存庫（既定: 新しく作る `OfflineLibrary`）。
-    ///
-    /// ios-temp-02（owner: user／導入: ios-slice-auth-01 2026-09-28／削除条件: ios-slice-playback-04 で既定引数を物理削除した時点）:
-    /// 本番は合成 root が作った 1 個を渡す。既定引数は Preview とテスト用に型を変えて残す。
+    ///   - library: 保存庫。合成 root が作った 1 個を渡す。
     init(
         apiClient: APIClient?,
-        library: OfflineLibrary = OfflineLibrary(store: .live(cacheManager: AudioCacheManager()))
+        library: OfflineLibrary
     ) {
         self.apiClientOverride = apiClient
         self.appState = nil
         self.library = library
     }
 
-    /// 共有 AppState を正本として使う本番用 initializer。ios-temp-02（上記 init のコメントを参照）。
+    /// 共有 AppState を正本として使う本番用 initializer。
     init(
         appState: AppState,
-        library: OfflineLibrary = OfflineLibrary(store: .live(cacheManager: AudioCacheManager()))
+        library: OfflineLibrary
     ) {
         self.apiClientOverride = nil
         self.appState = appState

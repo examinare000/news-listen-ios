@@ -199,7 +199,7 @@ final class ArchitectureOracleTests: XCTestCase {
                          controlPath: "Catalog/Domain/EpisodeContent.swift", controlFragment: #"sourceKind == "featured""#),
             LiteralGroup(key: "ios-rule-playback-05", pattern: #"max\(0,\s*(\w+\.)?currentTime\b|min\(\s*(\w+\.)?duration\s*,"#,
                          isCanonical: { path, _ in path.hasPrefix("Podcast/Playback/Domain/") }, excludesPath: never,
-                         controlPath: "Podcast/AudioPlayerView.swift", controlFragment: "max(0, vm.currentTime"),
+                         controlPath: "Podcast/Playback/Domain/PlaybackRules.swift", controlFragment: "min(duration, lowerBounded)"),
             LiteralGroup(key: "ios-rule-playback-04", pattern: #"\[\s*(0\.5\s*,\s*)?0\.75\s*,\s*1\.0\s*,\s*1\.25"#,
                          isCanonical: exact("Podcast/PlaybackConstants.swift", "Podcast/Playback/Domain/PlaybackConstants.swift"), excludesPath: never,
                          controlPath: "Settings/SettingsView.swift", controlFragment: "playbackSpeeds"),
@@ -454,8 +454,10 @@ final class ArchitectureOracleTests: XCTestCase {
         let isCodable = try matcher([#"\b(Codable|Decodable|Encodable|CodingKeys?|JSONDecoder|JSONEncoder)\b"#])
         let targets = nonAdapterFiles
         assertNonEmptyContents(targets, "adapter 以外")
+        // 正の対照: 判定の式は adapter 外に書かれた生成の行に当たる（許可リストが空でも、この式が検出力を持つことを示す）。
+        XCTAssertTrue(isCodable("let decoder = JSONDecoder()"), "Codable の判定の式が JSONDecoder の行に当たらない")
+        XCTAssertFalse(isCodable("let decoded = decodeSomething()"))
         let hits = collectHits(in: targets, where: isCodable)
-        XCTAssertTrue(hits.contains { $0.path == "DesignSystem/PreviewSupport.swift" }, "PreviewSupport の Codable の行が集合に無い")
         assertAllowlistMatches(rule: "ios-dep-08", measured: hits)
     }
 

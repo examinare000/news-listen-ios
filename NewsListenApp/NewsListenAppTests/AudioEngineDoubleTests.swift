@@ -115,7 +115,7 @@ final class AudioEngineDoubleTests: XCTestCase {
 
     // verifies: CI-D2（T-D05。SR-13 / X1 / SR-14）
     func testD05_deliverDistinguishesProcessedThenClosedFromClosedBeforeTakenRegardlessOfSchedulingOrder() async throws {
-        // (a) handler が起動した非構造化 Task が await を挟まずに stop する消費者への send（VM の ended → stopPlayback と同じ形）。
+        // (a) handler が起動した非構造化 Task が await を挟まずに stop する消費者への send（VM の ended → stop() と同じ形）。
         //     E が次の要求より先に走る順と後に走る順の両方を踏ませるため、load し直して 50 回繰り返す。
         let engine = AudioEngineDouble()
         for _ in 0..<50 {

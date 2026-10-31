@@ -4,9 +4,7 @@
 //
 //  主体離脱（logout・失効）時に再生を止めるための port（ios-slice-auth-01）。
 //
-//  ios-temp-04（owner: user／導入: ios-slice-auth-01 2026-09-28／削除条件: ios-slice-playback-03 で `PlaybackCoordinator` が
-//  この port の実装を引き継いだ時点。コードの物理削除は ios-slice-playback-04）: 本 slice では
-//  `PodcastViewModel` が暫定的にこの port を実装する（`PodcastViewModel.swift` を参照）。
+//  この port は `PlaybackCoordinator` が実装する。`PodcastViewModel` は `stopForLogout()` を中継するだけで、準拠しない。
 //
 
 import Foundation

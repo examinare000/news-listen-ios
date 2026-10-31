@@ -93,8 +93,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         }
         XCTAssertEqual(id, "b")
         XCTAssertEqual(reason, .engineFailed(description: "boom"))
-        XCTAssertEqual(rig.viewModel.queue.current?.id, "b")
-        XCTAssertEqual(rig.viewModel.queue.items.map(\.id), ["a", "b"])
+        XCTAssertEqual(rig.coordinator.queue.current?.id, "b")
+        XCTAssertEqual(rig.coordinator.queue.items.map(\.id), ["a", "b"])
         XCTAssertFalse(rig.engine.isLoaded, "失敗の後に自動で次へ進んではならない")
         XCTAssertEqual(rig.viewModel.errorMessage, "boom")
         // 刺激が届いた証拠: b の取り直しを試みていた。
@@ -133,7 +133,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         }
         XCTAssertEqual(id, "b")
         XCTAssertEqual(reason, .offlineUncached)
-        XCTAssertEqual(rig.viewModel.queue.current?.id, "b")
+        XCTAssertEqual(rig.coordinator.queue.current?.id, "b")
         XCTAssertEqual(rig.viewModel.errorMessage, uiOfflineUncached)
         XCTAssertEqual(rig.gateway.fetches, [], "オフラインで未キャッシュなら取得を試みない")
     }
@@ -147,10 +147,10 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         await rig.viewModel.loadPodcasts()
         rig.serve(EntryFixture.playable("x"))
 
-        await rig.viewModel.playById("x")
+        await rig.viewModel.startEpisode(id: "x")
 
-        XCTAssertEqual(rig.viewModel.queue.current?.id, "x")
-        XCTAssertEqual(rig.viewModel.queue.items.map(\.id), ["x"])
+        XCTAssertEqual(rig.coordinator.queue.current?.id, "x")
+        XCTAssertEqual(rig.coordinator.queue.items.map(\.id), ["x"])
         XCTAssertEqual(rig.viewModel.nowPlaying()?.episodeId, "x")
         XCTAssertEqual(rig.engine.loadedURL, url("x"), "開始は取得の応答の後")
         XCTAssertEqual(rig.gateway.fetches, ["x"])
@@ -163,7 +163,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         let rig = PlaybackEntryRig()
         // idle
         rig.viewModel.flushPosition()
-        rig.viewModel.stopPlayback()
+        rig.viewModel.stop()
         // errored。失敗の後の周期更新は届かない（channel が閉じる）。
         try await rig.play("a")
         let channelA = try XCTUnwrap(rig.engine.currentChannel)
@@ -171,7 +171,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         XCTAssertEqual(rig.viewModel.session.kind, "errored")
         rig.clock.advance(60)
         XCTAssertEqual(channelA.yield(.timeUpdate(seconds: 20, duration: 300)), .dropped)
-        rig.viewModel.stopPlayback()
+        rig.viewModel.stop()
         rig.viewModel.flushPosition()
         await settle()
         let before = rig.gateway.updates.count
@@ -232,7 +232,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         rig.viewModel.seek(to: 42)
         XCTAssertEqual(rig.engine.lastSeekSeconds, 42, "seek が engine まで届いた")
         rig.viewModel.flushPosition()
-        rig.viewModel.stopPlayback()
+        rig.viewModel.stop()
         await settle()
         let before = rig.gateway.updates.count
         XCTAssertEqual(before, 0)
@@ -255,7 +255,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         // 一時停止中に周期の 15 秒が過ぎても送らない。
         rig.clock.advance(20)
         await rig.engine.send(.timeUpdate(seconds: 20, duration: 300))
-        XCTAssertEqual(rig.viewModel.currentTime, 20, "周期更新が届いた")
+        XCTAssertEqual(rig.viewModel.session.position, 20, "周期更新が届いた")
         await settle()
         XCTAssertEqual(rig.gateway.updates.count, 1)
 
@@ -285,7 +285,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
 
         XCTAssertEqual(rig.gateway.events, [.markCompleted("a"), .updatePosition(id: "a", seconds: 300)])
         XCTAssertEqual(rig.completions.count, 1)
-        XCTAssertEqual(rig.viewModel.queue.current?.id, "b")
+        XCTAssertEqual(rig.coordinator.queue.current?.id, "b")
     }
 
     // MARK: - 再生できない行（shared-session-08・09）
@@ -300,18 +300,18 @@ final class PlaybackEntryConformanceTests: XCTestCase {
     ) async {
         let vm = rig.viewModel
         let sessionBefore = vm.session
-        let queueBefore = vm.queue.items.map(\.id)
-        let indexBefore = vm.queue.currentIndex
+        let queueBefore = rig.coordinator.queue.items.map(\.id)
+        let indexBefore = rig.coordinator.queue.currentIndex
         let loadedBefore = rig.engine.loadedURL
         vm.dismissError()
         XCTAssertNil(vm.errorMessage, file: file, line: line)
 
-        await vm.playNow(podcast)
+        await vm.startEpisode(podcast)
 
         XCTAssertEqual(vm.errorMessage, uiInvalidAudio, file: file, line: line)
         XCTAssertEqual(vm.session, sessionBefore, file: file, line: line)
-        XCTAssertEqual(vm.queue.items.map(\.id), queueBefore, file: file, line: line)
-        XCTAssertEqual(vm.queue.currentIndex, indexBefore, file: file, line: line)
+        XCTAssertEqual(rig.coordinator.queue.items.map(\.id), queueBefore, file: file, line: line)
+        XCTAssertEqual(rig.coordinator.queue.currentIndex, indexBefore, file: file, line: line)
         XCTAssertEqual(rig.engine.loadedURL, loadedBefore, file: file, line: line)
         XCTAssertEqual(vm.rowBadge(for: podcast), badge, file: file, line: line)
     }
@@ -329,8 +329,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         let playable = EntryFixture.podcast("ok")
         try rig.cached("ok")
         XCTAssertEqual(rig.viewModel.rowBadge(for: playable), PodcastViewModel.RowBadge.none)
-        await rig.viewModel.playNow(playable)
-        XCTAssertEqual(rig.viewModel.queue.current?.id, "ok")
+        await rig.viewModel.startEpisode(playable)
+        XCTAssertEqual(rig.coordinator.queue.current?.id, "ok")
         XCTAssertNil(rig.viewModel.errorMessage)
     }
 
@@ -439,19 +439,19 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         // verifies: ios-dec-53
         let rig = PlaybackEntryRig()
         try await startCachedWithoutReady(rig, "a", duration: 200)
-        XCTAssertEqual(rig.viewModel.currentTime, 0)
-        XCTAssertEqual(rig.viewModel.duration, 200)
+        XCTAssertEqual(rig.viewModel.session.position, 0)
+        XCTAssertEqual(rig.viewModel.session.duration, 200)
 
         await rig.engine.send(.timeUpdate(seconds: 10, duration: 300))
-        XCTAssertEqual(rig.viewModel.currentTime, 0)
-        XCTAssertEqual(rig.viewModel.duration, 200)
+        XCTAssertEqual(rig.viewModel.session.position, 0)
+        XCTAssertEqual(rig.viewModel.session.duration, 200)
         XCTAssertEqual(rig.viewModel.session.kind, "loading")
 
         // 正方向対照: ready の後は反映する。
         await rig.engine.send(.ready)
         await rig.engine.send(.timeUpdate(seconds: 10, duration: 300))
-        XCTAssertEqual(rig.viewModel.currentTime, 10)
-        XCTAssertEqual(rig.viewModel.duration, 300)
+        XCTAssertEqual(rig.viewModel.session.position, 10)
+        XCTAssertEqual(rig.viewModel.session.duration, 300)
     }
 
     func testFailureWhilePausedSurfacesOnNextPlay() async throws {
@@ -480,14 +480,14 @@ final class PlaybackEntryConformanceTests: XCTestCase {
 
         await rig.engine.send(.ended)
         await settle()
-        XCTAssertFalse(rig.viewModel.didFinishCurrentEpisode)
+        XCTAssertFalse(rig.viewModel.isFinished)
         XCTAssertEqual(rig.completions.count, 0)
         XCTAssertEqual(rig.gateway.marks, [])
 
         rig.viewModel.togglePlayPause()
         await waitUntil("完聴の記録") { rig.completions.count == 1 }
         XCTAssertEqual(rig.gateway.marks, ["a"])
-        XCTAssertTrue(rig.viewModel.didFinishCurrentEpisode)
+        XCTAssertTrue(rig.viewModel.isFinished)
     }
 
     func testEventsAfterFailureAreDropped() async throws {
@@ -500,7 +500,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         XCTAssertEqual(channelA.yield(.ended), .dropped)
 
         await settle()
-        XCTAssertEqual(rig.viewModel.currentPodcast?.id, "a")
+        XCTAssertEqual(rig.viewModel.nowPlaying()?.episodeId, "a")
         XCTAssertEqual(rig.viewModel.session.kind, "errored")
         XCTAssertEqual(rig.completions.count, 0)
         XCTAssertEqual(rig.gateway.marks, [])
@@ -529,8 +529,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         await rig.engine.send(.ended)
         await waitUntil("ended") { rig.viewModel.session.kind == "ended" }
 
-        XCTAssertEqual(rig.viewModel.currentTime, 300)
-        XCTAssertEqual(rig.viewModel.duration, 300)
+        XCTAssertEqual(rig.viewModel.session.position, 300)
+        XCTAssertEqual(rig.viewModel.session.duration, 300)
     }
 
     func testErroredDisplaysZeroDurationAndNoBuffering() async throws {
@@ -540,39 +540,39 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         await rig.engine.send(.timeUpdate(seconds: 40, duration: 300))
         await rig.engine.send(.buffering)
         XCTAssertTrue(rig.viewModel.isBuffering)
-        XCTAssertEqual(rig.viewModel.duration, 300)
+        XCTAssertEqual(rig.viewModel.session.duration, 300)
 
         await rig.engine.send(.failed(description: "boom"))
 
         XCTAssertEqual(rig.viewModel.session.kind, "errored")
-        XCTAssertEqual(rig.viewModel.duration, 0)
+        XCTAssertEqual(rig.viewModel.session.duration, 0)
         XCTAssertFalse(rig.viewModel.isBuffering)
-        XCTAssertEqual(rig.viewModel.currentTime, 40)
+        XCTAssertEqual(rig.viewModel.session.position, 40)
     }
 
     func testDurationIsKnownFromStartAndSeekIsClamped() async throws {
         // verifies: ios-contract-05
         let rig = PlaybackEntryRig()
         try await startCachedWithoutReady(rig, "a", duration: 200)
-        XCTAssertEqual(rig.viewModel.duration, 200, "開始直後から総時間が出る")
+        XCTAssertEqual(rig.viewModel.session.duration, 200, "開始直後から総時間が出る")
         rig.viewModel.seek(to: 500)
-        XCTAssertEqual(rig.viewModel.currentTime, 200)
+        XCTAssertEqual(rig.viewModel.session.position, 200)
         rig.viewModel.seek(to: -3)
-        XCTAssertEqual(rig.viewModel.currentTime, 0)
+        XCTAssertEqual(rig.viewModel.session.position, 0)
 
         await rig.engine.send(.ready)
         // engine が総時間を知らせない（0）間でも、総時間は 0 に戻らない。
         await rig.engine.send(.timeUpdate(seconds: 10, duration: 0))
-        XCTAssertEqual(rig.viewModel.currentTime, 10)
-        XCTAssertEqual(rig.viewModel.duration, 200)
+        XCTAssertEqual(rig.viewModel.session.position, 10)
+        XCTAssertEqual(rig.viewModel.session.duration, 200)
         rig.viewModel.seek(to: 40)
-        XCTAssertEqual(rig.viewModel.currentTime, 40)
-        XCTAssertEqual(rig.viewModel.duration, 200)
+        XCTAssertEqual(rig.viewModel.session.position, 40)
+        XCTAssertEqual(rig.viewModel.session.duration, 200)
         rig.viewModel.seek(to: 999)
-        XCTAssertEqual(rig.viewModel.currentTime, 200)
+        XCTAssertEqual(rig.viewModel.session.position, 200)
         rig.viewModel.seek(to: -5)
-        XCTAssertEqual(rig.viewModel.currentTime, 0)
-        XCTAssertEqual(rig.viewModel.duration, 200)
+        XCTAssertEqual(rig.viewModel.session.position, 0)
+        XCTAssertEqual(rig.viewModel.session.duration, 200)
     }
 
     // MARK: - 取り直し・位置の応答・キュー
@@ -584,7 +584,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         rig.serve(EntryFixture.playable("a", url: fresh, serverPosition: 77))
         rig.fetch.hold("a")
 
-        let started = Task { await rig.viewModel.playNow(EntryFixture.podcast("a")) }
+        let started = Task { await rig.viewModel.startEpisode(EntryFixture.podcast("a")) }
         await waitUntil("取り直しの待ち") { rig.fetch.parkedCount("a") == 1 }
         XCTAssertFalse(rig.engine.isLoaded, "応答の前に読み込みを始めてはならない")
 
@@ -633,8 +633,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         await settle()
 
         XCTAssertEqual(rig.viewModel.session.kind, "idle")
-        XCTAssertEqual(rig.viewModel.queue.current?.id, "b")
-        XCTAssertNil(rig.viewModel.currentPodcast)
+        XCTAssertEqual(rig.coordinator.queue.current?.id, "b")
+        XCTAssertNil(rig.viewModel.nowPlaying())
         XCTAssertNil(rig.viewModel.nowPlaying())
         XCTAssertFalse(rig.engine.isLoaded, "次の要素は現在になるが自動では始まらない")
     }
@@ -682,7 +682,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         await rig.viewModel.download(podcast: EntryFixture.podcast("pf", status: "partial_failed"))
 
         XCTAssertEqual(rig.gateway.fetches, ["pf"], "取り直しまでは届いた")
-        XCTAssertFalse(rig.viewModel.downloadedIds.contains("pf"))
+        XCTAssertFalse(rig.library.savedIds.contains("pf"))
         XCTAssertEqual(rig.viewModel.listErrorMessage, uiInvalidAudio)
         XCTAssertEqual(rig.gateway.downloads, [], "再生できない行の音声は取得しない")
 
@@ -690,7 +690,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         rig.serve(EntryFixture.playable("ok"))
         await rig.viewModel.download(podcast: EntryFixture.podcast("ok"))
         XCTAssertEqual(rig.gateway.downloads, [url("ok")])
-        XCTAssertTrue(rig.viewModel.downloadedIds.contains("ok"))
+        XCTAssertTrue(rig.library.savedIds.contains("ok"))
     }
 
     func testClearingLibraryEmptiesDownloadedIdsImmediately() throws {
@@ -699,12 +699,12 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         var changes = 0
         let subscription = rig.viewModel.objectWillChange.sink { changes += 1 }
         try rig.cached("a")
-        XCTAssertEqual(rig.viewModel.downloadedIds, ["a"])
+        XCTAssertEqual(rig.library.savedIds, ["a"])
         changes = 0
 
         try rig.library.clearAll()
 
-        XCTAssertEqual(rig.viewModel.downloadedIds, [])
+        XCTAssertEqual(rig.library.savedIds, [])
         XCTAssertGreaterThan(changes, 0, "保存庫の変化で画面の再描画が起きる")
         subscription.cancel()
     }
@@ -737,15 +737,15 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         rig.fetch.fail("y", with: URLError(.cancelled))
         rig.fetch.fail("z", with: SampleFailure())
 
-        await rig.viewModel.playById("x")
-        await rig.viewModel.playById("y")
+        await rig.viewModel.startEpisode(id: "x")
+        await rig.viewModel.startEpisode(id: "y")
 
         XCTAssertEqual(rig.gateway.fetches, ["x", "y"], "取得まで届いた")
         XCTAssertNil(rig.viewModel.listErrorMessage)
         XCTAssertNil(rig.viewModel.errorMessage)
 
         // 正方向対照: cancel 以外は文言になる。
-        await rig.viewModel.playById("z")
+        await rig.viewModel.startEpisode(id: "z")
         XCTAssertEqual(rig.viewModel.listErrorMessage, "sample failure")
     }
 
@@ -764,7 +764,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
 
         XCTAssertEqual(rig.viewModel.session.kind, "ended", "取り直しの待ちの間 a は終了のまま")
         XCTAssertFalse(rig.viewModel.isFinished)
-        XCTAssertFalse(rig.viewModel.didFinishCurrentEpisode)
+        XCTAssertFalse(rig.viewModel.isFinished)
 
         rig.fetch.release("b")
         await waitUntil("b の開始") { rig.viewModel.session.episodeId == "b" }
@@ -774,7 +774,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         await rig.engine.send(.ended)
         await waitUntil("ended") { rig.viewModel.session.kind == "ended" }
         XCTAssertTrue(rig.viewModel.isFinished)
-        XCTAssertTrue(rig.viewModel.didFinishCurrentEpisode)
+        XCTAssertTrue(rig.viewModel.isFinished)
     }
 
     func testFlushPositionDelegatesToReporter() async throws {
