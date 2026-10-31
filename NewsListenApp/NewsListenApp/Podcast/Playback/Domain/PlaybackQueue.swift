@@ -19,12 +19,9 @@ struct PlaybackQueue<Item: Identifiable> where Item.ID == String {
     private(set) var currentIndex: Int?
 
     init(items: [Item] = [], currentIndex: Int? = nil) {
-        self.items = items
-        if let i = currentIndex, items.indices.contains(i) {
-            self.currentIndex = i
-        } else {
-            self.currentIndex = items.isEmpty ? nil : currentIndex.map { max(0, min($0, items.count - 1)) }
-        }
+        let (unique, index) = Self.deduplicated(items, currentIndex: Self.clamped(currentIndex, count: items.count))
+        self.items = unique
+        self.currentIndex = index
     }
 
     /// 現在再生中の要素（なければ nil）。
@@ -51,8 +48,21 @@ struct PlaybackQueue<Item: Identifiable> where Item.ID == String {
 
     /// 一覧を指定位置から再生する（「ここから連続再生」）。
     mutating func setQueue(_ newItems: [Item], startAt index: Int) {
-        items = newItems
-        currentIndex = newItems.isEmpty ? nil : max(0, min(index, newItems.count - 1))
+        (items, currentIndex) = Self.deduplicated(newItems, currentIndex: Self.clamped(index, count: newItems.count))
+    }
+
+    /// 範囲外は端へ丸める。空なら nil。
+    private static func clamped(_ index: Int?, count: Int) -> Int? {
+        guard count > 0, let index else { return nil }
+        return max(0, min(index, count - 1))
+    }
+
+    /// 同じ id は先勝ちで 1 つにする。`currentIndex` は元の入力で指していた要素の id を追う。
+    private static func deduplicated(_ items: [Item], currentIndex: Int?) -> (items: [Item], currentIndex: Int?) {
+        let currentId = currentIndex.map { items[$0].id }
+        var seen = Set<String>()
+        let unique = items.filter { seen.insert($0.id).inserted }
+        return (unique, currentId.flatMap { id in unique.firstIndex { $0.id == id } })
     }
 
     /// 末尾に追加する（既に含まれていれば無視＝重複防止）。
