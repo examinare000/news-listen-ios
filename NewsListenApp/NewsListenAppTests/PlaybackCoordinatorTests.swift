@@ -1501,6 +1501,47 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertFalse(rig.coordinator.isAdvancing)
         XCTAssertEqual(rig.fetch.calls, [])
     }
+
+    // MARK: - stop
+
+    // verifies: ios-dec-40
+    // kills: session.stop() の後に flush して位置が送られない／キューや表示形態を巻き込んで消す／flush を 2 回送る
+    func testStopFlushesPositionThenStopsSessionKeepingQueueAndPresentation() async throws {
+        let rig = Rig()
+        let a = Self.playable("a")
+        let b = Self.playable("b")
+        try await rig.play(a, expandsPlayer: true)
+        try rig.cached(b)
+        await rig.coordinator.addToQueue(b)
+        await rig.engine.timeUpdate(40)
+        let queueBefore = rig.coordinator.queue
+        let presentationBefore = rig.coordinator.presentation
+        let noticeBefore = rig.coordinator.notice
+        let registrationsBefore = rig.spy.activeRegistrationCount
+        let clearsBefore = rig.spy.clearCallCount
+        XCTAssertEqual(presentationBefore, .expanded, "Given: 展開表示")
+        XCTAssertEqual(rig.gateway.updates, [], "Given: まだ送っていない")
+        XCTAssertGreaterThan(registrationsBefore, 0, "Given: リモートコマンドが登録済み")
+
+        rig.coordinator.stop()
+        await eventually("位置を 1 回送る") { rig.gateway.updates == [Update(id: "a", seconds: 40)] }
+        await settle()
+
+        XCTAssertEqual(rig.gateway.updates, [Update(id: "a", seconds: 40)], "session.stop() より前に flush されたので、停止後でも 40 を 1 回だけ送る")
+        XCTAssertEqual(rig.coordinator.session, .idle)
+        XCTAssertFalse(rig.engine.isLoaded)
+        XCTAssertEqual(rig.coordinator.queue, queueBefore)
+        XCTAssertEqual(rig.coordinator.presentation, presentationBefore)
+        XCTAssertEqual(rig.coordinator.notice, noticeBefore)
+        XCTAssertEqual(rig.spy.activeRegistrationCount, registrationsBefore)
+        XCTAssertGreaterThan(rig.spy.clearCallCount, clearsBefore, "ロック画面を clear する")
+        XCTAssertNil(rig.spy.currentInfo)
+        XCTAssertEqual(rig.gateway.marks, [])
+
+        rig.coordinator.stop()
+        await settle()
+        XCTAssertEqual(rig.gateway.updates, [Update(id: "a", seconds: 40)], "2 回目の stop は送らない")
+    }
 }
 
 private extension AudioEngineDouble {
