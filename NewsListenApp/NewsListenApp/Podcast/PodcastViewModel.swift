@@ -11,20 +11,13 @@ import Combine
 
 /// Podcast タブの状態とロジックを担う ViewModel（facade）。
 ///
-/// 責務は、Coordinator の中継、一覧の状態、学習の中継、alert の文言の合成、行のバッジの種類の 5 つ。
+/// 責務は、Coordinator の中継、一覧の状態、学習の中継、alert の文言の合成の 4 つ。
 ///
 /// - Note: 既存の構成を保つため `NSObject` を継承する。
 @MainActor
 final class PodcastViewModel: NSObject, ObservableObject {
-    /// 行のバッジの種類。ios-temp-06 の間だけ（ios-slice-catalog-01 で `EpisodeBadge` に替わる）。
-    enum RowBadge: Equatable {
-        case none
-        case generating
-        case failed
-    }
-
-    /// 表示中の Podcast 一覧。
-    @Published private(set) var podcasts: [Podcast] = []
+    /// 表示中の一覧の行（`EpisodeCatalog.rows` の写し）。
+    @Published private(set) var rows: [EpisodeRow] = []
     /// 読み込み中かどうか。
     @Published private(set) var isLoading = false
     /// 一覧側の操作（一覧読込・保存・削除・通知からの再生）の失敗。再生由来の失敗は `notice` が持つ。
@@ -41,6 +34,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     let playbackLifecycle: any PlaybackLifecycle
 
     private let apiClient: APIClient
+    private let catalog: EpisodeCatalog
     private let coordinator: PlaybackCoordinator
     private let positionReporter: PositionReporter
     private let library: OfflineLibrary
@@ -49,7 +43,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     /// - Parameters:
-    ///   - apiClient: 一覧と学習の通信に使うクライアント。
+    ///   - apiClient: 学習の通信に使うクライアント。
+    ///   - catalog: 一覧の保持と引き当て。
     ///   - coordinator: 再生の入口。
     ///   - reporter: `flushPosition()` のためだけに持つ。外へ出さない。
     ///   - library: 保存済み音声の集合。
@@ -58,6 +53,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     ///   - defaultSpeed: 再生していないときの速度の表示（`playbackSpeed` の fallback）。
     init(
         apiClient: APIClient,
+        catalog: EpisodeCatalog,
         coordinator: PlaybackCoordinator,
         reporter: PositionReporter,
         library: OfflineLibrary,
@@ -66,6 +62,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
         defaultSpeed: @escaping () -> Float
     ) {
         self.apiClient = apiClient
+        self.catalog = catalog
         self.coordinator = coordinator
         self.positionReporter = reporter
         self.library = library
@@ -79,6 +76,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
         networkMonitor.isOnlinePublisher
             .receive(on: DispatchQueue.main)
             .assign(to: &$isOnline)
+        // `receive(on:)` を挟まない: `reload()` の直後の行で新しい `rows` を読めるようにする。
+        catalog.$rows.assign(to: &$rows)
         coordinator.$session.assign(to: &$session)
         coordinator.$presentation.assign(to: &$presentation)
         coordinator.$notice.assign(to: &$notice)
@@ -111,7 +110,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     /// 一覧画面の表示状態（ロード中/エラー/空/一覧）。
     /// ロード失敗と「本当に空」を同一の空状態に畳んで表示しないよう、View はこの値のみで分岐する（issue #53）。
     var displayState: ListDisplayState {
-        ListDisplayState.resolve(isLoading: isLoading, isEmpty: podcasts.isEmpty, errorMessage: errorMessage)
+        ListDisplayState.resolve(isLoading: isLoading, isEmpty: rows.isEmpty, errorMessage: errorMessage)
     }
 
     /// エラーアラート（`.alert`）を表示すべきかどうか。
@@ -163,15 +162,14 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
     // MARK: - Data
 
-    /// Podcast 一覧を取得して `podcasts` を更新する。失敗時は `listErrorMessage` に反映する。
+    /// Podcast 一覧を取得して `rows` を更新する。失敗時は `listErrorMessage` に反映する。
     /// 始めに一覧側と再生由来のエラーの両方を消し、終わりに保存済みの集合を一覧に合わせて更新する。
     func loadPodcasts() async {
         isLoading = true
         dismissError()
         do {
-            let response = try await apiClient.fetchPodcasts()
-            podcasts = response.podcasts
-            library.refresh(candidateIds: podcasts.map(\.id))
+            try await catalog.reload()
+            library.refresh(candidateIds: rows.map(\.episodeId))
         } catch let f as ApiFailure {
             listErrorMessage = FailureMessages.message(for: f, context: .podcast)
         } catch {
@@ -180,23 +178,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
         isLoading = false
     }
 
-    /// 位置の保存の応答で、一覧の同じ id の要素を置き換える（無ければ何もしない）。
-    func replacePodcast(_ podcast: Podcast) {
-        guard let index = podcasts.firstIndex(where: { $0.id == podcast.id }) else { return }
-        podcasts[index] = podcast
-    }
-
     func dismissError() {
         listErrorMessage = nil
         coordinator.dismissError()
-    }
-
-    func rowBadge(for podcast: Podcast) -> RowBadge {
-        switch podcast.toEpisode() {
-        case .playable: return .none
-        case .generating: return .generating
-        case .failed: return .failed
-        }
     }
 
     // MARK: - ダウンロード
@@ -212,17 +196,20 @@ final class PodcastViewModel: NSObject, ObservableObject {
         downloadState == .downloaded
     }
 
-    func download(podcast: Podcast) async {
+    /// 一覧に無い id は何もしない（再読込で消えた行の操作）。
+    func download(episodeId: String) async {
+        guard let episode = catalog.episode(id: episodeId) else { return }
         do {
-            try await downloads.download(episodeId: podcast.id)
+            try await downloads.download(episodeId: episode.id)
         } catch {
             recordListFailure(error)
         }
     }
 
-    func removeDownload(podcast: Podcast) async {
+    func removeDownload(episodeId: String) async {
+        guard let episode = catalog.episode(id: episodeId) else { return }
         do {
-            try downloads.remove(episodeId: podcast.id)
+            try downloads.remove(episodeId: episode.id)
         } catch {
             recordListFailure(error)
         }
@@ -230,8 +217,10 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
     // MARK: - 再生の中継
 
-    func startEpisode(_ podcast: Podcast, expandsPlayer: Bool = true) async {
-        await coordinator.startEpisode(podcast.toEpisode(), expandsPlayer: expandsPlayer)
+    /// 一覧に無い id は何もしない（再読込で消えた行の操作）。
+    func startEpisode(episodeId: String, expandsPlayer: Bool = true) async {
+        guard let episode = catalog.episode(id: episodeId) else { return }
+        await coordinator.startEpisode(episode, expandsPlayer: expandsPlayer)
     }
 
     func startEpisode(id: String) async {
@@ -252,9 +241,15 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
     func setSpeed(_ speed: Float) { coordinator.setSpeed(speed) }
 
-    func addToQueue(_ podcast: Podcast) async { await coordinator.addToQueue(podcast.toEpisode()) }
+    func addToQueue(episodeId: String) async {
+        guard let episode = catalog.episode(id: episodeId) else { return }
+        await coordinator.addToQueue(episode)
+    }
 
-    func playNext(_ podcast: Podcast) async { await coordinator.playNext(podcast.toEpisode()) }
+    func playNext(episodeId: String) async {
+        guard let episode = catalog.episode(id: episodeId) else { return }
+        await coordinator.playNext(episode)
+    }
 
     func removeFromQueue(id: String) { coordinator.removeFromQueue(id: id) }
 

@@ -84,35 +84,34 @@ struct PodcastView: View {
 
     /// Podcast 一覧の `List`。行タップでその Podcast を再生する。
     private var podcastList: some View {
-        List(viewModel.podcasts) { podcast in
+        List(viewModel.rows) { row in
             PodcastRowView(
-                podcast: podcast,
-                isPlaying: viewModel.nowPlaying()?.episodeId == podcast.id && viewModel.isPlaying,
-                downloadState: viewModel.downloadState(for: podcast.id),
-                badge: viewModel.rowBadge(for: podcast),
+                row: row,
+                isPlaying: viewModel.nowPlaying()?.episodeId == row.episodeId && viewModel.isPlaying,
+                downloadState: viewModel.downloadState(for: row.episodeId),
                 isOffline: !viewModel.isOnline,
                 onDownloadTap: {
                     Task {
-                        await viewModel.download(podcast: podcast)
+                        await viewModel.download(episodeId: row.episodeId)
                     }
                 }
             )
             .contentShape(Rectangle())
             .onTapGesture {
                 Task {
-                    await viewModel.startEpisode(podcast)
+                    await viewModel.startEpisode(episodeId: row.episodeId)
                 }
             }
             .accessibilityHint("タップで再生を開始します")
             // 連続再生の導線（issue #81）: 次に再生 / キューに追加。
             .contextMenu {
                 Button {
-                    Task { await viewModel.playNext(podcast) }
+                    Task { await viewModel.playNext(episodeId: row.episodeId) }
                 } label: {
                     Label("次に再生", systemImage: "text.insert")
                 }
                 Button {
-                    Task { await viewModel.addToQueue(podcast) }
+                    Task { await viewModel.addToQueue(episodeId: row.episodeId) }
                 } label: {
                     Label("キューに追加", systemImage: "text.append")
                 }

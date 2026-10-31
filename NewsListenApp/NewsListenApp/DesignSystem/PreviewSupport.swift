@@ -49,23 +49,17 @@ enum PreviewSamples {
         ),
     ]
 
-    /// Podcast プレビュー用のサンプル。完了/生成中/失敗の3状態を含める。
+    /// Podcast プレビュー用のサンプル。再生可能/生成中/失敗の3状態を含める。
     /// p1 はトランスクリプト・語彙・クイズを含む完全版（AudioPlayerView プレビュー用）。
-    static let podcasts: [Podcast] = {
+    static let episodes: [Episode] = {
         // p1: vocabulary と quiz を含む完全なエピソード
-        let p1 = Podcast(
+        let p1Content = EpisodeContent(
             id: "p1",
-            type: "daily",
-            articleIds: ["a1", "a2"],
-            difficulty: "toeic_900",
-            audioUrl: "https://example.com/p1.mp3",
             title: "米連邦準備制度が利上げを見送り、英国経済が予想外の回復を見せた。",
             japaneseIntroText: "今日は米連邦準備制度の利上げ見送りと、英国経済の予想外の回復について取り上げます。",
-            durationSeconds: 247,
+            difficulty: "toeic_900",
             createdAt: "2026-06-29T07:00:00Z",
-            status: "completed",
-            errorMessage: nil,
-            playbackPositionSeconds: 72,
+            durationSeconds: 247,
             segments: [
                 TranscriptSegment(speaker: "A", text: "米連邦準備制度が今回の会合で利上げを見送りました。"),
                 TranscriptSegment(speaker: "B", text: "一方、英国経済は予想外の回復を見せています。"),
@@ -92,39 +86,41 @@ enum PreviewSamples {
             ],
             sourceKind: "featured"
         )
+        guard let p1 = PlayableEpisode(content: p1Content, audioUrl: "https://example.com/p1.mp3", serverPosition: 72) else {
+            preconditionFailure("プレビューの標本 p1 は再生可能な種別であること")
+        }
 
         return [
-            p1,
-        Podcast(
-            id: "p2",
-            type: "daily",
-            articleIds: ["a3"],
-            difficulty: "toeic_600",
-            audioUrl: "https://example.com/p2.mp3",
-            title: "",
-            japaneseIntroText: "AI半導体の需要が供給を上回り、関連銘柄が上昇しています。",
-            durationSeconds: 188,
-            createdAt: "2026-06-28T22:30:00Z",
-            status: "processing",
-            errorMessage: nil,
-            playbackPositionSeconds: 0,
-            segments: nil
-        ),
-            Podcast(
-                id: "p3",
-                type: "daily",
-                articleIds: ["a4"],
-                difficulty: "eiken_2",
-                audioUrl: "https://example.com/p3.mp3",
+            .playable(p1),
+            .generating(GeneratingEpisode(content: EpisodeContent(
+                id: "p2",
                 title: "",
-                japaneseIntroText: "気候サミットがメタン削減の新たな誓約とともに閉幕しました。",
-                durationSeconds: 0,
-                createdAt: "2026-06-28T19:00:00Z",
-                status: "failed",
-                errorMessage: "音声生成に失敗しました",
-                playbackPositionSeconds: 0,
-                segments: nil
-            ),
+                japaneseIntroText: "AI半導体の需要が供給を上回り、関連銘柄が上昇しています。",
+                difficulty: "toeic_600",
+                createdAt: "2026-06-28T22:30:00Z",
+                durationSeconds: 188,
+                segments: nil,
+                vocabulary: nil,
+                quiz: nil,
+                sourceArticles: nil,
+                sourceKind: nil
+            ))),
+            .failed(FailedEpisode(
+                content: EpisodeContent(
+                    id: "p3",
+                    title: "",
+                    japaneseIntroText: "気候サミットがメタン削減の新たな誓約とともに閉幕しました。",
+                    difficulty: "eiken_2",
+                    createdAt: "2026-06-28T19:00:00Z",
+                    durationSeconds: 0,
+                    segments: nil,
+                    vocabulary: nil,
+                    quiz: nil,
+                    sourceArticles: nil,
+                    sourceKind: nil
+                ),
+                reportedMessage: "音声生成に失敗しました"
+            )),
         ]
     }()
 
@@ -158,7 +154,7 @@ enum PreviewSamples {
     }
 
     private static func previewPlayable() -> PlayableEpisode {
-        guard case .playable(let episode) = podcasts[0].toEpisode() else {
+        guard case .playable(let episode) = episodes[0] else {
             preconditionFailure("プレビューの標本 p1 は再生可能な種別であること")
         }
         return episode
@@ -171,8 +167,10 @@ enum PreviewSamples {
             library: parts.library,
             fetchEpisode: { _ in throw CancellationError() },
             downloadAudio: { _ in throw CancellationError() })
+        let catalog = EpisodeCatalog(gateway: CatalogGateway(fetchEpisodes: { episodes }))
         return PodcastViewModel(
             apiClient: apiClient(),
+            catalog: catalog,
             coordinator: parts.coordinator,
             reporter: parts.reporter,
             library: parts.library,
@@ -214,7 +212,7 @@ private let previewArticlesJSON = #"""
 ]
 """#
 
-/// `PreviewSamples.podcasts` と同じ値の API 応答（snake_case）。
+/// `PreviewSamples.episodes` と同じ値の API 応答（snake_case）。
 private let previewPodcastsJSON = #"""
 [
     {

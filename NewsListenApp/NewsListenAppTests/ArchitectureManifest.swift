@@ -64,6 +64,7 @@ enum ArchitectureManifest {
     /// リードモデルのファイル（ios-dep-09 の対象）。
     static let readModelFiles: Set<String> = [
         "Podcast/Playback/NowPlaying.swift",
+        "Catalog/Application/EpisodeRow.swift",
     ]
 
     /// port を定義するファイル（ios-dep-11 の対象）。
@@ -73,6 +74,7 @@ enum ArchitectureManifest {
         "Podcast/Playback/PlaybackLifecycle.swift",
         "Podcast/Playback/OfflineLibrary.swift",
         "Passkey/PasskeyAuthorizationProviding.swift",
+        "Catalog/Application/EpisodeCatalog.swift",
     ]
 
     /// domain の型だけを対象にするテストファイル（ios-check-08 の対象。`NewsListenAppTests/` からの相対）。
@@ -244,6 +246,19 @@ enum ArchitectureManifest {
         (file: "Podcast/Playback/OfflineDownloads.swift", type: "OfflineDownloads", name: "removeAll()", kind: .command("ios-cmd-playback-19")),
         (file: "Podcast/Playback/OfflineDownloads.swift", type: "OfflineDownloads", name: "cancelAll()", kind: .command("ios-cmd-playback-20")),
         (file: "Podcast/Playback/OfflineDownloads.swift", type: "OfflineDownloads", name: "state(for:)", kind: .query("ios-query-playback-04")),
+        (file: "Catalog/Application/EpisodeRow.swift", type: "EpisodeRow", name: "episodeId", kind: .readModel),
+        (file: "Catalog/Application/EpisodeRow.swift", type: "EpisodeRow", name: "id", kind: .readModel),
+        (file: "Catalog/Application/EpisodeRow.swift", type: "EpisodeRow", name: "title", kind: .readModel),
+        (file: "Catalog/Application/EpisodeRow.swift", type: "EpisodeRow", name: "difficulty", kind: .readModel),
+        (file: "Catalog/Application/EpisodeRow.swift", type: "EpisodeRow", name: "durationSeconds", kind: .readModel),
+        (file: "Catalog/Application/EpisodeRow.swift", type: "EpisodeRow", name: "createdAt", kind: .readModel),
+        (file: "Catalog/Application/EpisodeRow.swift", type: "EpisodeRow", name: "badge", kind: .readModel),
+        (file: "Catalog/Application/EpisodeCatalog.swift", type: "CatalogGateway", name: "fetchEpisodes", kind: .port),
+        (file: "Catalog/Application/EpisodeCatalog.swift", type: "EpisodeCatalog", name: "rows", kind: .query("ios-query-catalog-01")),
+        (file: "Catalog/Application/EpisodeCatalog.swift", type: "EpisodeCatalog", name: "reload()", kind: .query("ios-query-catalog-01")),
+        (file: "Catalog/Application/EpisodeCatalog.swift", type: "EpisodeCatalog", name: "episode(id:)", kind: .query("ios-query-catalog-02")),
+        (file: "Catalog/Application/EpisodeCatalog.swift", type: "EpisodeCatalog", name: "init(gateway:)", kind: .factory),
+        (file: "Catalog/Application/EpisodeCatalog.swift", type: "EpisodeCatalog", name: "applyPositionSaved(_:)", kind: .command("ios-cmd-catalog-01")),
     ]
 
     /// TA Spec §5 の `ios-cmd-*`・`ios-query-*` の ID の全集合。
@@ -369,14 +384,14 @@ enum ArchitectureManifest {
         ("ios-dep-02", "Models/FeaturedCategory.swift", 2),
         ("ios-dep-04/DTO", "Auth/LoginView.swift", 1),
         ("ios-dep-04/DTO", "DesignSystem/Components/DSStreakToolbar.swift", 1),
-        ("ios-dep-04/DTO", "DesignSystem/PreviewSupport.swift", 9),
+        ("ios-dep-04/DTO", "DesignSystem/PreviewSupport.swift", 5),
         ("ios-dep-04/DTO", "Feed/ArticleRowView.swift", 1),
         ("ios-dep-04/DTO", "Feed/FeedView.swift", 2),
         ("ios-dep-04/DTO", "Feed/SwipeableArticleCard.swift", 1),
         ("ios-dep-04/DTO", "Learning/LearningView.swift", 5),
         ("ios-dep-04/DTO", "Onboarding/OnboardingSourcesView.swift", 1),
         ("ios-dep-04/DTO", "Podcast/AudioPlayerView.swift", 1),
-        ("ios-dep-04/DTO", "Podcast/PodcastRowView.swift", 4),
+        ("ios-dep-04/DTO", "Podcast/PodcastRowView.swift", 2),
         ("ios-dep-04/DTO", "Podcast/PodcastView.swift", 4),
         ("ios-dep-04/DTO", "Podcast/QuizSheetView.swift", 7),
         ("ios-dep-04/DTO", "Settings/AccountSettingsView.swift", 1),
@@ -389,7 +404,7 @@ enum ArchitectureManifest {
         ("ios-dep-06/DTO", "Onboarding/OnboardingSourcesViewModel.swift", 3),
         ("ios-dep-06/DTO", "Passkey/PasskeyCredentialsViewModel.swift", 1),
         ("ios-dep-06/DTO", "Passkey/PasskeyLoginViewModel.swift", 2),
-        ("ios-dep-06/DTO", "Podcast/PodcastViewModel.swift", 11),
+        ("ios-dep-06/DTO", "Podcast/PodcastViewModel.swift", 3),
         ("ios-dep-06/DTO", "Sessions/SessionsViewModel.swift", 1),
         ("ios-dep-06/DTO", "Settings/SettingsViewModel.swift", 4),
         ("ios-dep-06/DTO", "Starred/StarredViewModel.swift", 2),

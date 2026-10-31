@@ -106,13 +106,15 @@ final class PodcastViewModelTests: XCTestCase {
     /// 保存済みにして開始する（取得を挟まず、再生の流れだけを観測する）。
     private func start(_ rig: PlaybackEntryRig, _ podcast: Podcast) async throws {
         try rig.cached(podcast.id)
-        await rig.viewModel.startEpisode(podcast)
+        try await rig.seed([podcast])
+        await rig.viewModel.startEpisode(episodeId: podcast.id)
     }
 
     /// 保存済みにしてキューへ載せる（再生中でなければそのまま開始される）。
     private func enqueue(_ rig: PlaybackEntryRig, _ podcast: Podcast) async throws {
         try rig.cached(podcast.id)
-        await rig.viewModel.addToQueue(podcast)
+        try await rig.seed([podcast])
+        await rig.viewModel.addToQueue(episodeId: podcast.id)
     }
 
     /// 現在のエピソードの終端を engine から届け、終端の処理（完聴の記録・次への遷移の開始）に主 actor を譲る。
@@ -268,7 +270,8 @@ final class PodcastViewModelTests: XCTestCase {
         let vm = rig.viewModel
         try await enqueue(rig, queuePodcast("a"))   // a を再生
         try await enqueue(rig, queuePodcast("b"))   // [a, b]
-        await vm.playNext(queuePodcast("c"))        // a の次に c
+        try await rig.seed([queuePodcast("c")])
+        await vm.playNext(episodeId: "c")           // a の次に c
 
         XCTAssertEqual(rig.coordinator.queue.upNext.map { $0.id }, ["c", "b"])
     }
@@ -295,8 +298,8 @@ final class PodcastViewModelTests: XCTestCase {
 
         await vm.loadPodcasts()
 
-        XCTAssertEqual(vm.podcasts.count, 1)
-        XCTAssertEqual(vm.podcasts[0].id, "p1")
+        XCTAssertEqual(vm.rows.count, 1)
+        XCTAssertEqual(vm.rows[0].episodeId, "p1")
         XCTAssertFalse(vm.isLoading)
     }
 
@@ -306,7 +309,7 @@ final class PodcastViewModelTests: XCTestCase {
 
         await vm.loadPodcasts()
 
-        XCTAssertTrue(vm.podcasts.isEmpty)
+        XCTAssertTrue(vm.rows.isEmpty)
         XCTAssertNotNil(vm.errorMessage)
         XCTAssertFalse(vm.isLoading)
     }
@@ -338,7 +341,8 @@ final class PodcastViewModelTests: XCTestCase {
         let vm = rig.viewModel
         rig.fetch.fail("p1", with: URLError(.cancelled))
 
-        await vm.download(podcast: queuePodcast("p1"))
+        try await rig.seed([queuePodcast("p1")])
+        await vm.download(episodeId: "p1")
 
         // 中断は利用者に見せる失敗ではないので、何も書かない。
         XCTAssertNil(vm.errorMessage)
@@ -368,7 +372,8 @@ final class PodcastViewModelTests: XCTestCase {
         let vm = rig.viewModel
         rig.fetch.fail("p1", with: ApiFailure.server(status: 500))
 
-        await vm.download(podcast: queuePodcast("p1"))
+        try await rig.seed([queuePodcast("p1")])
+        await vm.download(episodeId: "p1")
 
         XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
     }
@@ -410,7 +415,7 @@ final class PodcastViewModelTests: XCTestCase {
         let rig = PlaybackEntryRig(session: session)
         let vm = rig.viewModel
         await vm.loadPodcasts()
-        XCTAssertEqual(vm.podcasts.map(\.id), ["p1"])
+        XCTAssertEqual(vm.rows.map(\.episodeId), ["p1"])
         session.respond(Data(), statusCode: 500)
 
         await vm.loadPodcasts()
@@ -450,6 +455,67 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(vm.playbackSpeed, 1.25)
     }
 
+    // MARK: - 再読込で消えた id への操作（一覧に無い id は何もしない）
+
+    // verifies: ios-dec-66
+    // kills: 無い id で remote 取得・通知・保存状態の更新をする／View が持つスナップショットで動く
+    func testOperationsOnIdRemovedByReloadDoNothing() async throws {
+        let session = SwitchableListSession()
+        session.respond(try EntryFixture.podcastListJSON([queuePodcast("a"), queuePodcast("b")]), statusCode: 200)
+        let rig = PlaybackEntryRig(session: session)
+        let vm = rig.viewModel
+        await vm.loadPodcasts()
+        try rig.cached("a")
+        try rig.cached("b")
+        session.respond(try EntryFixture.podcastListJSON([queuePodcast("b")]), statusCode: 200)
+        await vm.loadPodcasts()
+        XCTAssertEqual(vm.rows.map(\.episodeId), ["b"], "Given: 2 回目の読込で a が一覧から消えている")
+        let queueBefore = rig.coordinator.queue.upNext.map(\.id)
+        let sessionBefore = vm.session
+        let loadedBefore = rig.engine.loadedURL
+        let eventsBefore = rig.gateway.events
+        let savedBefore = rig.library.savedIds
+        let errorBefore = vm.errorMessage
+
+        await vm.startEpisode(episodeId: "a")
+        await vm.playNext(episodeId: "a")
+        await vm.addToQueue(episodeId: "a")
+        await vm.download(episodeId: "a")
+        await vm.removeDownload(episodeId: "a")
+
+        XCTAssertEqual(rig.coordinator.queue.upNext.map(\.id), queueBefore)
+        XCTAssertEqual(vm.session, sessionBefore)
+        XCTAssertEqual(rig.engine.loadedURL, loadedBefore)
+        XCTAssertEqual(rig.gateway.events, eventsBefore)
+        XCTAssertEqual(rig.library.savedIds, savedBefore)
+        XCTAssertEqual(vm.errorMessage, errorBefore)
+        XCTAssertNil(vm.nowPlaying())
+        XCTAssertTrue(rig.library.has("a"), "removeDownload は一覧に無い id の音声を消さない")
+
+        // 正方向の対照: 一覧に有る id は同じ入口から開始できる。
+        await vm.startEpisode(episodeId: "b")
+        XCTAssertEqual(vm.nowPlaying()?.episodeId, "b")
+    }
+
+    // MARK: - 一覧の読込と保存済みの集合
+
+    // verifies: ios-dec-66
+    // kills: 一覧の更新より前の id を渡す／refresh を呼ばない／isLoading を戻さない
+    func testLoadPodcastsRefreshesLibraryWithNewRowIds() async throws {
+        let session = SwitchableListSession()
+        session.respond(try EntryFixture.podcastListJSON([queuePodcast("p0")]), statusCode: 200)
+        let rig = PlaybackEntryRig(session: session)
+        try rig.cached("p1")
+        await rig.viewModel.loadPodcasts()
+        XCTAssertTrue(rig.library.savedIds.isEmpty, "Given: p1 は保存庫にあるが、この一覧の id に無いので保存済みの集合に入らない")
+        session.respond(try EntryFixture.podcastListJSON([queuePodcast("p1")]), statusCode: 200)
+
+        await rig.viewModel.loadPodcasts()
+
+        XCTAssertEqual(rig.library.savedIds, ["p1"], "refresh は更新後の一覧の id を受ける")
+        XCTAssertFalse(rig.viewModel.isLoading)
+    }
+
     // MARK: - 開始時の再生 URL の解決（保存済み／オンライン／オフライン）
 
     func testStartEpisodeLoadsSavedFileWhenCached() async throws {
@@ -457,7 +523,8 @@ final class PodcastViewModelTests: XCTestCase {
         let vm = rig.viewModel
         try rig.cached("p1")
 
-        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
+        try await rig.seed([queuePodcast("p1", durationSeconds: 300)])
+        await vm.startEpisode(episodeId: "p1")
 
         let loaded = try XCTUnwrap(rig.engine.loadedURL)
         XCTAssertEqual(loaded, rig.library.url("p1"))
@@ -470,7 +537,8 @@ final class PodcastViewModelTests: XCTestCase {
         let vm = rig.viewModel
         rig.serve(EntryFixture.playable("p1", url: "https://storage.example.com/p1.mp3"))
 
-        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
+        try await rig.seed([queuePodcast("p1", durationSeconds: 300)])
+        await vm.startEpisode(episodeId: "p1")
 
         XCTAssertEqual(rig.engine.loadedURL?.absoluteString, "https://storage.example.com/p1.mp3")
     }
@@ -479,7 +547,8 @@ final class PodcastViewModelTests: XCTestCase {
         let rig = PlaybackEntryRig(online: false)
         let vm = rig.viewModel
 
-        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
+        try await rig.seed([queuePodcast("p1", durationSeconds: 300)])
+        await vm.startEpisode(episodeId: "p1")
 
         XCTAssertNil(rig.engine.loadedURL)
         XCTAssertNotNil(vm.errorMessage)
@@ -494,7 +563,8 @@ final class PodcastViewModelTests: XCTestCase {
         // fetchPodcast のレスポンス（署名付き新鮮な audioUrl）
         rig.serve(EntryFixture.playable("p1", url: "https://storage.example.com/p1-signed.mp3?token=xxx"))
 
-        await vm.download(podcast: podcast)
+        try await rig.seed([podcast])
+        await vm.download(episodeId: podcast.id)
 
         XCTAssertTrue(rig.library.savedIds.contains("p1"))
         XCTAssertFalse(rig.downloads.downloadingIds.contains("p1"))
@@ -508,7 +578,8 @@ final class PodcastViewModelTests: XCTestCase {
 
         XCTAssertEqual(vm.downloadState(for: "p1"), .notDownloaded)
 
-        let running = Task { await vm.download(podcast: queuePodcast("p1")) }
+        try await rig.seed([queuePodcast("p1")])
+        let running = Task { await vm.download(episodeId: "p1") }
         await waitUntil { rig.download.parkedCount == 1 }
         XCTAssertEqual(vm.downloadState(for: "p1"), .downloading)
 
@@ -521,7 +592,8 @@ final class PodcastViewModelTests: XCTestCase {
         let otherVM = other.viewModel
         other.serve(EntryFixture.playable("p1"))
         other.download.hold()
-        let racing = Task { await otherVM.download(podcast: queuePodcast("p1")) }
+        try await other.seed([queuePodcast("p1")])
+        let racing = Task { await otherVM.download(episodeId: "p1") }
         await waitUntil { other.download.parkedCount == 1 }
         try other.cached("p1")
         XCTAssertEqual(otherVM.downloadState(for: "p1"), .downloading)
@@ -559,7 +631,8 @@ final class PodcastViewModelTests: XCTestCase {
         let rig = PlaybackEntryRig(online: false)
         let vm = rig.viewModel
 
-        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
+        try await rig.seed([queuePodcast("p1", durationSeconds: 300)])
+        await vm.startEpisode(episodeId: "p1")
 
         XCTAssertNotNil(vm.errorMessage)
         XCTAssertNil(vm.nowPlaying())
@@ -570,7 +643,8 @@ final class PodcastViewModelTests: XCTestCase {
         let vm = rig.viewModel
         rig.serve(EntryFixture.playable("p1"))
 
-        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
+        try await rig.seed([queuePodcast("p1", durationSeconds: 300)])
+        await vm.startEpisode(episodeId: "p1")
 
         // オンライン + キャッシュなし = 再生開始（nowPlaying() が podcast）
         XCTAssertEqual(vm.nowPlaying()?.episodeId, "p1")
@@ -582,12 +656,14 @@ final class PodcastViewModelTests: XCTestCase {
         let rig = PlaybackEntryRig(online: false)
         let vm = rig.viewModel
         // 前回の再生失敗が残っている状態を再現する（オフラインで未キャッシュの開始は通知を立てる）。
-        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
+        try await rig.seed([queuePodcast("p1", durationSeconds: 300)])
+        await vm.startEpisode(episodeId: "p1")
         XCTAssertNotNil(vm.errorMessage)
         rig.network.isOnline = true
         rig.serve(EntryFixture.playable("p1"))
 
-        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
+        try await rig.seed([queuePodcast("p1", durationSeconds: 300)])
+        await vm.startEpisode(episodeId: "p1")
 
         XCTAssertNil(vm.errorMessage)
     }
@@ -598,10 +674,12 @@ final class PodcastViewModelTests: XCTestCase {
         let rig = PlaybackEntryRig(online: false)
         let vm = rig.viewModel
         // 前回とは別の失敗（再生できない行の拒否）を残す。
-        await vm.startEpisode(EntryFixture.podcast("bad", status: "processing"))
+        try await rig.seed([EntryFixture.podcast("bad", status: "processing")])
+        await vm.startEpisode(episodeId: "bad")
         XCTAssertEqual(vm.errorMessage, "Invalid audio URL")
 
-        await vm.startEpisode(queuePodcast("p1", durationSeconds: 300))
+        try await rig.seed([queuePodcast("p1", durationSeconds: 300)])
+        await vm.startEpisode(episodeId: "p1")
 
         XCTAssertEqual(vm.errorMessage, "Offline and not cached")
     }
@@ -626,7 +704,7 @@ final class PodcastViewModelTests: XCTestCase {
             session: MockURLSession(data: try EntryFixture.podcastListJSON([queuePodcast("p1")]), statusCode: 200))
         let vm = rig.viewModel
         await vm.loadPodcasts()
-        await vm.startEpisode(queuePodcast("p1"))
+        await vm.startEpisode(episodeId: "p1")
 
         XCTAssertEqual(vm.displayState, .content)
         XCTAssertTrue(vm.shouldPresentErrorAlert)
@@ -649,7 +727,7 @@ final class PodcastViewModelTests: XCTestCase {
             session: MockURLSession(data: try EntryFixture.podcastListJSON([queuePodcast("p1")]), statusCode: 200))
         let vm = rig.viewModel
         await vm.loadPodcasts()
-        await vm.startEpisode(queuePodcast("p1"))
+        await vm.startEpisode(episodeId: "p1")
 
         XCTAssertEqual(vm.displayState, .content)
         XCTAssertEqual(vm.alertMessage, "Offline and not cached")
@@ -822,7 +900,8 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertEqual(vm.presentation, .hidden)
 
         try rig.cached("a")
-        await vm.startEpisode(queuePodcast("a"))
+        try await rig.seed([queuePodcast("a")])
+        await vm.startEpisode(episodeId: "a")
 
         XCTAssertEqual(vm.presentation, .expanded)
     }
@@ -980,7 +1059,8 @@ final class PodcastViewModelTests: XCTestCase {
         let rig = PlaybackEntryRig(online: true)
         let vm = rig.viewModel
         rig.serve(EntryFixture.playable("offline-episode"))
-        await vm.startEpisode(queuePodcast("offline-episode"))
+        try await rig.seed([queuePodcast("offline-episode")])
+        await vm.startEpisode(episodeId: "offline-episode")
         await rig.engine.send(.ready)
         await endCurrent(rig)                       // キュー空 → 収束
         XCTAssertTrue(vm.isFinished)
@@ -1023,7 +1103,8 @@ final class PodcastViewModelTests: XCTestCase {
         XCTAssertTrue(vm.isFinished)
 
         try rig.cached("b")
-        await vm.startEpisode(queuePodcast("b"))
+        try await rig.seed([queuePodcast("b")])
+        await vm.startEpisode(episodeId: "b")
 
         XCTAssertFalse(vm.isFinished)
         XCTAssertEqual(vm.nowPlaying()?.episodeId, "b")
@@ -1077,10 +1158,11 @@ final class PodcastViewModelTests: XCTestCase {
         try await rig.play("a")
         let channelA = try XCTUnwrap(rig.engine.currentChannel)
         try rig.cached("b")
+        try await rig.seed([queuePodcast("b")])
 
         // 手渡しが成立していること（Given）。間に await を挟まず b を開始し、a の channel を閉じる。
         XCTAssertEqual(channelA.yield(.ended), .handedOff)
-        await vm.startEpisode(queuePodcast("b"))
+        await vm.startEpisode(episodeId: "b")
         try await Task.sleep(nanoseconds: 300_000_000)
 
         // a の stale な終了通知が b に誤適用されていないこと。

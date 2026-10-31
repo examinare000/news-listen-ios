@@ -171,14 +171,13 @@ struct ContentView: View {
         nowPlayingCenter: NowPlayingCenter,
         library: OfflineLibrary
     ) -> PodcastViewModel {
-        // facade は gateway より後に作るので、位置の保存の応答は弱参照の箱を介して一覧へ届ける。
-        let box = PodcastViewModelBox()
-        let gateway = PlaybackGateway.live(apiClient: apiClient, onPodcastUpdated: { box.target?.replacePodcast($0) })
+        let gateway = PlaybackGateway.live(apiClient: apiClient)
+        let catalog = EpisodeCatalog(gateway: .live(apiClient: apiClient))
         let networkMonitor = NetworkMonitor()
         let reporter = PositionReporter(
             updatePosition: gateway.updatePosition,
             markCompleted: gateway.markCompleted,
-            onPositionSaved: { _ in },
+            onPositionSaved: { episode in catalog.applyPositionSaved(episode) },
             onCompletionRecorded: refreshListeningStreak,
             beginBackgroundTask: { beginBackgroundTask() }
         )
@@ -200,6 +199,7 @@ struct ContentView: View {
         )
         let playerViewModel = PodcastViewModel(
             apiClient: apiClient,
+            catalog: catalog,
             coordinator: coordinator,
             reporter: reporter,
             library: library,
@@ -207,7 +207,6 @@ struct ContentView: View {
             networkMonitor: networkMonitor,
             defaultSpeed: defaultSpeed
         )
-        box.target = playerViewModel
         return playerViewModel
     }
 
@@ -320,12 +319,6 @@ struct ContentView: View {
             set: { _ in }
         )
     }
-}
-
-/// facade の弱参照を持つ箱。位置の保存の応答を、後から作る facade へ届けるために使う。
-@MainActor
-private final class PodcastViewModelBox {
-    weak var target: PodcastViewModel?
 }
 
 /// 完聴の送信などを、アプリが一時的にバックグラウンドへ回っても走り切らせる保護。返す closure で終える。

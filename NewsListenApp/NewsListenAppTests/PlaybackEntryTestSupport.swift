@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import XCTest
 import os
 @testable import NewsListenApp
 
@@ -167,6 +168,59 @@ final class CompletionCounter: @unchecked Sendable {
     func increment() { lock.withLock { $0 += 1 } }
 }
 
+/// 一覧の通信を包み、`GET /podcasts` を 1 回だけ差し替えられる `URLSessionProtocol`。
+/// 差し替える一覧は「直前に受け取った一覧」へ、渡した `Podcast` を同じ id は置き換え、無い id は末尾に足した和にする。
+/// それ以外の要求は包んだ session へそのまま流す。
+///
+/// - Important: 一覧の取得が進行中のときに `queueSeed` を呼ばない（差し替えは 1 回だけなので、重なるとどちらの要求が差し替わるか決まらない）。
+final class SeedableListSession: URLSessionProtocol, @unchecked Sendable {
+    private struct State {
+        var list: [Podcast] = []
+        var pending: Data?
+    }
+
+    private let base: URLSessionProtocol
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    init(base: URLSessionProtocol) { self.base = base }
+
+    /// 次の `GET /podcasts` の応答を、直前の一覧に `podcasts` を上書き・追加した一覧にする。
+    func queueSeed(_ podcasts: [Podcast]) throws {
+        var merged = state.withLock { $0.list }
+        for podcast in podcasts {
+            if let index = merged.firstIndex(where: { $0.id == podcast.id }) {
+                merged[index] = podcast
+            } else {
+                merged.append(podcast)
+            }
+        }
+        let body = try EntryFixture.podcastListJSON(merged)
+        state.withLock {
+            $0.list = merged
+            $0.pending = body
+        }
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        guard (request.httpMethod ?? "GET") == "GET", request.url?.path == "/podcasts" else {
+            return try await base.data(for: request)
+        }
+        if let body = state.withLock({ state -> Data? in
+            defer { state.pending = nil }
+            return state.pending
+        }) {
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (body, response)
+        }
+        let (data, response) = try await base.data(for: request)
+        if (response as? HTTPURLResponse)?.statusCode == 200,
+           let decoded = try? JSONDecoder().decode(PodcastListResponse.self, from: data) {
+            state.withLock { $0.list = decoded.podcasts }
+        }
+        return (data, response)
+    }
+}
+
 // MARK: - fixture
 
 enum EntryFixture {
@@ -228,11 +282,16 @@ final class PlaybackEntryRig {
     let reporter: PositionReporter
     let coordinator: PlaybackCoordinator
     let downloads: OfflineDownloads
+    let catalog: EpisodeCatalog
     let viewModel: PodcastViewModel
+    private let listSession: SeedableListSession
+    private let ownsCatalog: Bool
 
     /// - Parameters:
     ///   - lockScreenSubtitle: ロック画面の副題の作り方（既定は難易度コードに接頭辞を付ける）。
     ///   - session: 一覧の取得に使う URLSession（既定は空 JSON を返す）。
+    ///   - catalog: 外から渡す一覧（渡した rig では `seed` を使わない）。既定は `session` の通信から組む。
+    ///   - onPositionSaved: 位置の保存の応答を受けたときの処理（既定は何もしない）。合成 root と同じ形の closure を渡せる。
     ///   - updatePosition: 位置の書込の応答を差し替える（既定は書込を記録して同じ位置の `Episode` を返す）。
     ///   - markCompleted: 完聴の記録を記録した後に追加で走らせる処理（実 `APIClient` へ流して要求を観測する用途）。
     ///   - onCompletion: 完聴の記録が済んだ後（`completions` を数える前）に走らせる処理。
@@ -241,6 +300,8 @@ final class PlaybackEntryRig {
         defaultSpeed: Float = 1.0,
         lockScreenSubtitle: @escaping (_ difficulty: String) -> String = { "sub:\($0)" },
         session: URLSessionProtocol? = nil,
+        catalog: EpisodeCatalog? = nil,
+        onPositionSaved: ((Episode) -> Void)? = nil,
         updatePosition: ((_ id: String, _ seconds: Double) async throws -> Episode)? = nil,
         markCompleted: ((_ id: String) async throws -> Void)? = nil,
         onCompletion: (@MainActor () async -> Void)? = nil
@@ -272,7 +333,7 @@ final class PlaybackEntryRig {
                 gateway.record(.markCompleted(id))
                 if let markCompleted { try await markCompleted(id) }
             },
-            onPositionSaved: { _ in },
+            onPositionSaved: { episode in onPositionSaved?(episode) },
             onCompletionRecorded: {
                 // 呼出回数を数える前に走らせる。回数を待ったテストは、この処理も済んだ後を観測できる。
                 await onCompletion?()
@@ -300,11 +361,16 @@ final class PlaybackEntryRig {
             downloadAudio: { url in try await download.download(url) })
         self.downloads = downloads
 
-        let client = APIClient(
-            baseURL: URL(string: "https://api.example.com")!, apiKey: "key",
-            session: session ?? MockURLSession(data: Data(#"{"podcasts":[]}"#.utf8), statusCode: 200))
+        let listSession = SeedableListSession(
+            base: session ?? MockURLSession(data: Data(#"{"podcasts":[]}"#.utf8), statusCode: 200))
+        self.listSession = listSession
+        let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: listSession)
+        ownsCatalog = catalog == nil
+        let resolvedCatalog = catalog ?? EpisodeCatalog(gateway: CatalogGateway.live(apiClient: client))
+        self.catalog = resolvedCatalog
         viewModel = PodcastViewModel(
             apiClient: client,
+            catalog: resolvedCatalog,
             coordinator: coordinator,
             reporter: reporter,
             library: library,
@@ -323,10 +389,24 @@ final class PlaybackEntryRig {
         if case .playable(let playable) = episode { fetch.respond(playable.content.id, with: episode) }
     }
 
-    /// キャッシュ済みとして開始し、`ready`（playing）まで進める。
+    /// 一覧（catalog）に `podcasts` を入れる。同じ id は置き換え、無い id は末尾に足す。
+    /// 一覧の取得が進行中のときに呼ばない。`catalog:` を渡した rig では使えない。
+    func seed(_ podcasts: [Podcast]) async throws {
+        guard ownsCatalog else {
+            XCTFail("catalog を外から渡した rig では seed を使わない")
+            return
+        }
+        try listSession.queueSeed(podcasts)
+        try await catalog.reload()
+    }
+
+    /// キャッシュ済みとして開始し、`ready`（playing）まで進める。一覧に無い id は先に入れる。
     func play(_ id: String, duration: Int = 300) async throws {
         try cached(id)
-        await viewModel.startEpisode(EntryFixture.podcast(id, durationSeconds: duration))
+        if catalog.episode(id: id) == nil {
+            try await seed([EntryFixture.podcast(id, durationSeconds: duration)])
+        }
+        await viewModel.startEpisode(episodeId: id)
         await engine.send(.ready)
     }
 }

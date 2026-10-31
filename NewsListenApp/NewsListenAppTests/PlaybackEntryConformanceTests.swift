@@ -43,7 +43,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
     /// 保存庫に置いて、`ready` を送らずに開始する（`loading` で止める）。
     private func startCachedWithoutReady(_ rig: PlaybackEntryRig, _ id: String, duration: Int = 300) async throws {
         try rig.cached(id)
-        await rig.viewModel.startEpisode(EntryFixture.podcast(id, durationSeconds: duration))
+        try await rig.seed([EntryFixture.podcast(id, durationSeconds: duration)])
+        await rig.viewModel.startEpisode(episodeId: id)
     }
 
     /// 否定形の確認の正方向対照: 同じ入口から、再生中なら位置が送られる。`before` 以降に送られたのが `id` の 1 件だけであること。
@@ -66,15 +67,12 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         var errorDescription: String? { "sample failure" }
     }
 
-    private final class ViewModelBox {
-        weak var target: PodcastViewModel?
-    }
-
     /// `[a, b]` で a を再生中にし、b は未キャッシュ・取り直しが失敗する状態から a を終えて、b の読み込みまで進める。
     private func makeAutoAdvanceIntoUnresolvedNext() async throws -> PlaybackEntryRig {
         let rig = PlaybackEntryRig()
         try await rig.play("a")
-        await rig.viewModel.addToQueue(EntryFixture.podcast("b"))
+        try await rig.seed([EntryFixture.podcast("b")])
+        await rig.viewModel.addToQueue(episodeId: "b")
         await rig.engine.send(.ended)
         await waitUntil("b の読み込み") { rig.engine.loadedURL == self.url("b") }
         return rig
@@ -122,7 +120,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         // verifies: ios-contract-11
         let rig = PlaybackEntryRig()
         try await rig.play("a")
-        await rig.viewModel.addToQueue(EntryFixture.podcast("b"))
+        try await rig.seed([EntryFixture.podcast("b")])
+        await rig.viewModel.addToQueue(episodeId: "b")
         rig.network.isOnline = false
 
         await rig.engine.send(.ended)
@@ -272,7 +271,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         let rig = PlaybackEntryRig()
         try await rig.play("a")
         try rig.cached("b")
-        await rig.viewModel.addToQueue(EntryFixture.podcast("b"))
+        try await rig.seed([EntryFixture.podcast("b")])
+        await rig.viewModel.addToQueue(episodeId: "b")
         let channelA = try XCTUnwrap(rig.engine.currentChannel)
 
         await rig.engine.send(.ended)
@@ -294,10 +294,11 @@ final class PlaybackEntryConformanceTests: XCTestCase {
     private func assertTapIsRejected(
         _ rig: PlaybackEntryRig,
         _ podcast: Podcast,
-        badge: PodcastViewModel.RowBadge,
+        badge: EpisodeBadge,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) async {
+    ) async throws {
+        try await rig.seed([podcast])
         let vm = rig.viewModel
         let sessionBefore = vm.session
         let queueBefore = rig.coordinator.queue.items.map(\.id)
@@ -306,30 +307,32 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         vm.dismissError()
         XCTAssertNil(vm.errorMessage, file: file, line: line)
 
-        await vm.startEpisode(podcast)
+        await vm.startEpisode(episodeId: podcast.id)
 
         XCTAssertEqual(vm.errorMessage, uiInvalidAudio, file: file, line: line)
         XCTAssertEqual(vm.session, sessionBefore, file: file, line: line)
         XCTAssertEqual(rig.coordinator.queue.items.map(\.id), queueBefore, file: file, line: line)
         XCTAssertEqual(rig.coordinator.queue.currentIndex, indexBefore, file: file, line: line)
         XCTAssertEqual(rig.engine.loadedURL, loadedBefore, file: file, line: line)
-        XCTAssertEqual(vm.rowBadge(for: podcast), badge, file: file, line: line)
+        XCTAssertEqual(vm.rows.first { $0.episodeId == podcast.id }?.badge, badge, file: file, line: line)
     }
 
     func testSharedSession08_unplayableRowTapChangesNothing() async throws {
         // verifies: ios-contract-17
         let rig = PlaybackEntryRig()
         try await rig.play("base")
-        await assertTapIsRejected(rig, EntryFixture.podcast("e1", errorMessage: "generation failed"), badge: .failed)
-        await assertTapIsRejected(rig, EntryFixture.podcast("e2", audioUrl: ""), badge: .failed)
-        await assertTapIsRejected(rig, EntryFixture.podcast("e3", status: "unknown_status"), badge: .failed)
-        await assertTapIsRejected(rig, EntryFixture.podcast("e4", status: "processing"), badge: .generating)
+        try await assertTapIsRejected(
+            rig, EntryFixture.podcast("e1", errorMessage: "generation failed"), badge: .failed(detail: "generation failed"))
+        try await assertTapIsRejected(rig, EntryFixture.podcast("e2", audioUrl: ""), badge: .failed(detail: ""))
+        try await assertTapIsRejected(rig, EntryFixture.podcast("e3", status: "unknown_status"), badge: .failed(detail: ""))
+        try await assertTapIsRejected(rig, EntryFixture.podcast("e4", status: "processing"), badge: .generating)
 
         // 正方向対照: 再生できる行は同じ入口で開始され、バッジは付かない。
         let playable = EntryFixture.podcast("ok")
         try rig.cached("ok")
-        XCTAssertEqual(rig.viewModel.rowBadge(for: playable), PodcastViewModel.RowBadge.none)
-        await rig.viewModel.startEpisode(playable)
+        try await rig.seed([playable])
+        XCTAssertEqual(rig.viewModel.rows.first { $0.episodeId == "ok" }?.badge, EpisodeBadge.none)
+        await rig.viewModel.startEpisode(episodeId: "ok")
         XCTAssertEqual(rig.coordinator.queue.current?.id, "ok")
         XCTAssertNil(rig.viewModel.errorMessage)
     }
@@ -338,7 +341,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         // verifies: ios-contract-17
         let rig = PlaybackEntryRig()
         try await rig.play("base")
-        await assertTapIsRejected(rig, EntryFixture.podcast("pf", status: "partial_failed"), badge: .failed)
+        try await assertTapIsRejected(rig, EntryFixture.podcast("pf", status: "partial_failed"), badge: .failed(detail: ""))
     }
 
     // MARK: - 速度（shared-session-10）
@@ -352,7 +355,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         XCTAssertEqual(rig.engine.rate, 2.0)
 
         try rig.cached("b")
-        await rig.viewModel.startEpisode(EntryFixture.podcast("b"))
+        try await rig.seed([EntryFixture.podcast("b")])
+        await rig.viewModel.startEpisode(episodeId: "b")
         await rig.engine.send(.ready)
 
         XCTAssertEqual(rig.viewModel.session.episodeId, "b")
@@ -584,7 +588,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         rig.serve(EntryFixture.playable("a", url: fresh, serverPosition: 77))
         rig.fetch.hold("a")
 
-        let started = Task { await rig.viewModel.startEpisode(EntryFixture.podcast("a")) }
+        try await rig.seed([EntryFixture.podcast("a")])
+        let started = Task { await rig.viewModel.startEpisode(episodeId: "a") }
         await waitUntil("取り直しの待ち") { rig.fetch.parkedCount("a") == 1 }
         XCTAssertFalse(rig.engine.isLoaded, "応答の前に読み込みを始めてはならない")
 
@@ -596,29 +601,61 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         XCTAssertEqual(rig.engine.lastSeekSeconds, 77, "再開位置も取り直した値")
     }
 
+    /// 一覧 [a, other] を `CatalogGateway.live` で読み込んだ catalog。
+    private func makeCatalogWithAAndOther() async throws -> EpisodeCatalog {
+        let list = [EntryFixture.podcast("a"), EntryFixture.podcast("other")]
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key",
+            session: MockURLSession(data: try EntryFixture.podcastListJSON(list), statusCode: 200))
+        let catalog = EpisodeCatalog(gateway: CatalogGateway.live(apiClient: client))
+        try await catalog.reload()
+        return catalog
+    }
+
+    private func serverPosition(_ episode: Episode?) -> Double? {
+        if case .playable(let playable)? = episode { return playable.serverPosition }
+        return nil
+    }
+
     func testPositionResponseReplacesPodcastInList() async throws {
-        // verifies: ios-contract-13
-        let box = ViewModelBox()
+        // verifies: ios-contract-13, ios-dec-65
+        let catalog = try await makeCatalogWithAAndOther()
         let liveClient = APIClient(
             baseURL: URL(string: "https://api.example.com")!, apiKey: "key",
             session: MockURLSession(
                 data: try JSONEncoder().encode(EntryFixture.podcast("a", playbackPositionSeconds: 42)), statusCode: 200))
-        let live = PlaybackGateway.live(apiClient: liveClient, onPodcastUpdated: { box.target?.replacePodcast($0) })
-        let list = [EntryFixture.podcast("a"), EntryFixture.podcast("other")]
+        let live = PlaybackGateway.live(apiClient: liveClient)
         let rig = PlaybackEntryRig(
-            session: MockURLSession(data: try EntryFixture.podcastListJSON(list), statusCode: 200),
+            catalog: catalog,
+            onPositionSaved: { episode in catalog.applyPositionSaved(episode) },
             updatePosition: live.updatePosition)
-        box.target = rig.viewModel
-        await rig.viewModel.loadPodcasts()
-        XCTAssertEqual(rig.viewModel.podcasts.map(\.playbackPositionSeconds), [0, 0])
+        XCTAssertEqual([catalog.episode(id: "a"), catalog.episode(id: "other")].map(serverPosition), [0, 0])
 
         try await rig.play("a")
         await rig.engine.send(.timeUpdate(seconds: 42, duration: 300))
         rig.viewModel.flushPosition()
 
-        await waitUntil("一覧の位置の置き換え") { rig.viewModel.podcasts.first?.playbackPositionSeconds == 42 }
-        XCTAssertEqual(rig.viewModel.podcasts.map(\.id), ["a", "other"])
-        XCTAssertEqual(rig.viewModel.podcasts.last?.playbackPositionSeconds, 0, "同じ id の要素だけを置き換える")
+        await waitUntil("一覧の位置の置き換え") { self.serverPosition(catalog.episode(id: "a")) == 42 }
+        XCTAssertEqual(catalog.rows.map(\.episodeId), ["a", "other"])
+        XCTAssertEqual(serverPosition(catalog.episode(id: "other")), 0, "同じ id の要素だけを置き換える")
+        XCTAssertEqual(rig.viewModel.rows.map(\.episodeId), ["a", "other"])
+    }
+
+    func testPositionSaveFailureDoesNotReplaceEpisodeInList() async throws {
+        // verifies: ios-dec-65
+        let catalog = try await makeCatalogWithAAndOther()
+        let rig = PlaybackEntryRig(
+            catalog: catalog,
+            onPositionSaved: { episode in catalog.applyPositionSaved(episode) },
+            updatePosition: { _, _ in throw ApiFailure.server(status: 500) })
+
+        try await rig.play("a")
+        await rig.engine.send(.timeUpdate(seconds: 42, duration: 300))
+        rig.viewModel.flushPosition()
+        await waitUntil("失敗した位置の送信") { rig.reporter.lastSyncFailure != nil }
+
+        XCTAssertEqual(rig.gateway.updates.last?.seconds, 42, "正方向の対照: 位置の送信は実際に試みられた")
+        XCTAssertEqual(serverPosition(catalog.episode(id: "a")), 0, "失敗した送信では一覧を更新しない")
     }
 
     func testRemovingCurrentEpisodeStopsWithoutAutoStart() async throws {
@@ -626,7 +663,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         let rig = PlaybackEntryRig()
         try await rig.play("a")
         try rig.cached("b")
-        await rig.viewModel.addToQueue(EntryFixture.podcast("b"))
+        try await rig.seed([EntryFixture.podcast("b")])
+        await rig.viewModel.addToQueue(episodeId: "b")
         XCTAssertNotNil(rig.viewModel.nowPlaying())
 
         rig.viewModel.removeFromQueue(id: "a")
@@ -645,12 +683,13 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         _ cancel: Error,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) async {
+    ) async throws {
         let rig = PlaybackEntryRig()
         rig.serve(EntryFixture.playable("a"))
         rig.download.fail(with: cancel)
 
-        await rig.viewModel.download(podcast: EntryFixture.podcast("a"))
+        try await rig.seed([EntryFixture.podcast("a")])
+        await rig.viewModel.download(episodeId: "a")
 
         XCTAssertEqual(rig.gateway.downloads.count, 1, "音声の取得まで届いた", file: file, line: line)
         XCTAssertNil(rig.viewModel.listErrorMessage, file: file, line: line)
@@ -659,27 +698,29 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         // 正方向対照: cancel 以外の失敗は文言になる。
         rig.serve(EntryFixture.playable("b"))
         rig.download.fail(with: SampleFailure())
-        await rig.viewModel.download(podcast: EntryFixture.podcast("b"))
+        try await rig.seed([EntryFixture.podcast("b")])
+        await rig.viewModel.download(episodeId: "b")
         XCTAssertEqual(rig.viewModel.listErrorMessage, "sample failure", file: file, line: line)
     }
 
-    func testDownloadCancelledURLErrorWritesNothing() async {
+    func testDownloadCancelledURLErrorWritesNothing() async throws {
         // verifies: ios-dec-36
-        await assertDownloadCancelWritesNothing(URLError(.cancelled))
+        try await assertDownloadCancelWritesNothing(URLError(.cancelled))
     }
 
-    func testDownloadCancellationErrorWritesNothing() async {
+    func testDownloadCancellationErrorWritesNothing() async throws {
         // verifies: ios-dec-36
-        await assertDownloadCancelWritesNothing(CancellationError())
+        try await assertDownloadCancelWritesNothing(CancellationError())
     }
 
-    func testDownloadOfUnplayableRowIsRejectedWithoutFetchingAudio() async {
+    func testDownloadOfUnplayableRowIsRejectedWithoutFetchingAudio() async throws {
         // verifies: ios-dec-51
         let rig = PlaybackEntryRig()
         let content = EntryFixture.content("pf")
         rig.fetch.respond("pf", with: .failed(FailedEpisode(content: content, reportedMessage: nil)))
 
-        await rig.viewModel.download(podcast: EntryFixture.podcast("pf", status: "partial_failed"))
+        try await rig.seed([EntryFixture.podcast("pf", status: "partial_failed")])
+        await rig.viewModel.download(episodeId: "pf")
 
         XCTAssertEqual(rig.gateway.fetches, ["pf"], "取り直しまでは届いた")
         XCTAssertFalse(rig.library.savedIds.contains("pf"))
@@ -688,7 +729,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
 
         // 正方向対照: 再生できる行は同じ入口で保存される。
         rig.serve(EntryFixture.playable("ok"))
-        await rig.viewModel.download(podcast: EntryFixture.podcast("ok"))
+        try await rig.seed([EntryFixture.podcast("ok")])
+        await rig.viewModel.download(episodeId: "ok")
         XCTAssertEqual(rig.gateway.downloads, [url("ok")])
         XCTAssertTrue(rig.library.savedIds.contains("ok"))
     }
@@ -712,13 +754,15 @@ final class PlaybackEntryConformanceTests: XCTestCase {
     func testNoticeTakesPrecedenceOverListError() async throws {
         // verifies: ios-dec-55
         let rig = PlaybackEntryRig(online: false)
-        await rig.viewModel.startEpisode(EntryFixture.podcast("a"))
+        try await rig.seed([EntryFixture.podcast("a")])
+        await rig.viewModel.startEpisode(episodeId: "a")
         XCTAssertEqual(rig.viewModel.errorMessage, uiOfflineUncached)
 
         rig.serve(EntryFixture.playable("b"))
         let failure = SampleFailure()
         rig.download.fail(with: failure)
-        await rig.viewModel.download(podcast: EntryFixture.podcast("b"))
+        try await rig.seed([EntryFixture.podcast("b")])
+        await rig.viewModel.download(episodeId: "b")
 
         XCTAssertEqual(rig.gateway.downloads.count, 1, "保存の失敗まで届いた")
         XCTAssertEqual(rig.viewModel.listErrorMessage, failure.localizedDescription)
@@ -757,7 +801,8 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         try await rig.play("a")
         rig.serve(EntryFixture.playable("b"))
         rig.fetch.hold("b")
-        await rig.viewModel.addToQueue(EntryFixture.podcast("b"))
+        try await rig.seed([EntryFixture.podcast("b")])
+        await rig.viewModel.addToQueue(episodeId: "b")
 
         await rig.engine.send(.ended)
         await waitUntil("次の取り直しの待ち") { rig.fetch.parkedCount("b") == 1 }
