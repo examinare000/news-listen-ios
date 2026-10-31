@@ -58,7 +58,7 @@ final class ModelTests: XCTestCase {
             playbackPositionSeconds: 0.0,
             segments: nil
         )
-        XCTAssertEqual(podcast.formattedDuration, "5:05")
+        XCTAssertEqual(PodcastRowView.durationText(seconds: podcast.durationSeconds), "5:05")
     }
 
     func testPodcastDecodesStatusAndErrorMessage() throws {
@@ -372,7 +372,7 @@ final class ModelTests: XCTestCase {
             durationSeconds: 0, createdAt: "", status: "completed",
             errorMessage: nil, playbackPositionSeconds: 0, segments: nil
         )
-        XCTAssertEqual(podcast.displayTitle, "速報タイトル")
+        XCTAssertEqual(podcast.toEpisode().content.displayTitle, "速報タイトル")
     }
 
     /// title が空文字のときは displayTitle は japaneseIntroText にフォールバックする。
@@ -385,7 +385,7 @@ final class ModelTests: XCTestCase {
             durationSeconds: 0, createdAt: "", status: "completed",
             errorMessage: nil, playbackPositionSeconds: 0, segments: nil
         )
-        XCTAssertEqual(podcast.displayTitle, "イントロテキスト")
+        XCTAssertEqual(podcast.toEpisode().content.displayTitle, "イントロテキスト")
     }
 
     /// title が空白のみのときも japaneseIntroText にフォールバックする。
@@ -398,7 +398,7 @@ final class ModelTests: XCTestCase {
             durationSeconds: 0, createdAt: "", status: "completed",
             errorMessage: nil, playbackPositionSeconds: 0, segments: nil
         )
-        XCTAssertEqual(podcast.displayTitle, "イントロテキスト")
+        XCTAssertEqual(podcast.toEpisode().content.displayTitle, "イントロテキスト")
     }
 
     /// title と japaneseIntroText の両方が空のとき、デフォルト文字列を返す（空欄にならない）。
@@ -411,7 +411,7 @@ final class ModelTests: XCTestCase {
             durationSeconds: 0, createdAt: "", status: "completed",
             errorMessage: nil, playbackPositionSeconds: 0, segments: nil
         )
-        XCTAssertEqual(podcast.displayTitle, "ニュースポッドキャスト")
+        XCTAssertEqual(podcast.toEpisode().content.displayTitle, "ニュースポッドキャスト")
     }
 
     // MARK: - Podcast.segments（トランスクリプト表示・issue #162）
@@ -537,7 +537,7 @@ final class ModelTests: XCTestCase {
             errorMessage: nil, playbackPositionSeconds: 0,
             segments: [TranscriptSegment(speaker: "A", text: "こんにちは")]
         )
-        XCTAssertTrue(podcast.hasTranscript)
+        XCTAssertTrue(podcast.toEpisode().content.hasTranscript)
     }
 
     /// segments が nil の場合、hasTranscript は false を返す（旧エピソード・グレースフルデグレード）。
@@ -550,7 +550,7 @@ final class ModelTests: XCTestCase {
             errorMessage: nil, playbackPositionSeconds: 0,
             segments: nil
         )
-        XCTAssertFalse(podcast.hasTranscript)
+        XCTAssertFalse(podcast.toEpisode().content.hasTranscript)
     }
 
     /// segments が空配列の場合も、表示すべき内容が無いため hasTranscript は false を返す。
@@ -563,7 +563,7 @@ final class ModelTests: XCTestCase {
             errorMessage: nil, playbackPositionSeconds: 0,
             segments: []
         )
-        XCTAssertFalse(podcast.hasTranscript)
+        XCTAssertFalse(podcast.toEpisode().content.hasTranscript)
     }
 
     // MARK: - Podcast vocabulary / quiz（ADR-069 / ADR-070）
@@ -613,8 +613,8 @@ final class ModelTests: XCTestCase {
                 options: ["Containerization", "Paper", "Ink", "Audio"]
             )]
         )
-        XCTAssertTrue(podcast.hasVocabulary)
-        XCTAssertTrue(podcast.hasQuiz)
+        XCTAssertTrue(podcast.toEpisode().content.hasVocabulary)
+        XCTAssertTrue(podcast.toEpisode().content.hasQuiz)
     }
 
     func testPodcastDecodesNullVocabularyAndQuizAsNil() throws {
@@ -638,8 +638,8 @@ final class ModelTests: XCTestCase {
 
         XCTAssertNil(podcast.vocabulary)
         XCTAssertNil(podcast.quiz)
-        XCTAssertFalse(podcast.hasVocabulary)
-        XCTAssertFalse(podcast.hasQuiz)
+        XCTAssertFalse(podcast.toEpisode().content.hasVocabulary)
+        XCTAssertFalse(podcast.toEpisode().content.hasQuiz)
     }
 
     func testPodcastMissingVocabularyAndQuizKeysDegradesGracefully() throws {
@@ -783,7 +783,7 @@ final class ModelTests: XCTestCase {
             segments: nil,
             sourceArticles: [PodcastSourceArticle(articleId: "a1", title: "t", url: "https://example.com", source: "s")]
         )
-        XCTAssertTrue(podcast.hasSourceArticles)
+        XCTAssertTrue(podcast.toEpisode().content.hasSourceArticles)
     }
 
     /// sourceArticles が nil（省略）の場合、hasSourceArticles は false を返す。
@@ -796,7 +796,7 @@ final class ModelTests: XCTestCase {
             errorMessage: nil, playbackPositionSeconds: 0,
             segments: nil
         )
-        XCTAssertFalse(podcast.hasSourceArticles)
+        XCTAssertFalse(podcast.toEpisode().content.hasSourceArticles)
     }
 
     /// sourceArticles が空配列の場合も、表示すべき内容が無いため hasSourceArticles は false を返す。
@@ -810,7 +810,7 @@ final class ModelTests: XCTestCase {
             segments: nil,
             sourceArticles: []
         )
-        XCTAssertFalse(podcast.hasSourceArticles)
+        XCTAssertFalse(podcast.toEpisode().content.hasSourceArticles)
     }
 
     /// 再生中の値を、`Podcast` を変換した `Episode` の content から組む（`PlaybackCoordinator.nowPlaying()` と同じ写し方）。
@@ -937,12 +937,12 @@ final class ModelTests: XCTestCase {
             sourceKind: ""
         )
 
-        XCTAssertTrue(featuredPodcast.showsCcBySaLicense)
-        XCTAssertFalse(userPodcast.showsCcBySaLicense)
-        XCTAssertFalse(unknownPodcast.showsCcBySaLicense)
-        XCTAssertFalse(nilKindPodcast.showsCcBySaLicense)
-        XCTAssertFalse(capitalizedPodcast.showsCcBySaLicense)
-        XCTAssertFalse(emptyKindPodcast.showsCcBySaLicense)
+        XCTAssertTrue(featuredPodcast.toEpisode().content.showsCcBySaLicense)
+        XCTAssertFalse(userPodcast.toEpisode().content.showsCcBySaLicense)
+        XCTAssertFalse(unknownPodcast.toEpisode().content.showsCcBySaLicense)
+        XCTAssertFalse(nilKindPodcast.toEpisode().content.showsCcBySaLicense)
+        XCTAssertFalse(capitalizedPodcast.toEpisode().content.showsCcBySaLicense)
+        XCTAssertFalse(emptyKindPodcast.toEpisode().content.showsCcBySaLicense)
     }
 
     // MARK: - PodcastSourceArticle.linkURL（スキーム検証・issue #240）

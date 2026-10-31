@@ -64,13 +64,6 @@ struct Podcast: Codable, Identifiable {
         case sourceArticles = "source_articles"
         case sourceKind = "source_kind"
     }
-
-    /// `durationSeconds` を `分:秒`（例: `3:05`）の表示用文字列に整形する。
-    var formattedDuration: String {
-        let minutes = durationSeconds / 60
-        let seconds = durationSeconds % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
 }
 
 // MARK: - Decodable
@@ -101,33 +94,6 @@ extension Podcast {
         self.sourceArticles = try container.decodeIfPresent([PodcastSourceArticle].self, forKey: .sourceArticles)
         self.sourceKind = try container.decodeIfPresent(String.self, forKey: .sourceKind)
     }
-}
-
-// MARK: - Display
-
-extension Podcast {
-    /// 表示用タイトル文字列。3段フォールバック（title → japaneseIntroText → デフォルト文字列）。
-    /// - `title`（trim後）が非空ならそれを返す。
-    /// - `japaneseIntroText`（trim後）が非空ならそれを返す。
-    /// - 両方空の場合は `"ニュースポッドキャスト"` を返す（空欄は決して表示しない）。
-    /// - Note: ロック画面 (`NowPlayingInfo`) とリスト行 (`PodcastRowView`) の両方がこのプロパティを経由することで
-    ///         最終デフォルトを含むフォールバック階層を一か所に集約する。
-    var displayTitle: String { toEpisode().content.displayTitle }
-
-    /// トランスクリプト折りたたみ UI（`AudioPlayerView`）を表示すべきかどうか。
-    var hasTranscript: Bool { toEpisode().content.hasTranscript }
-
-    /// 語彙グロッサリを表示できる内容があるか。
-    var hasVocabulary: Bool { toEpisode().content.hasVocabulary }
-
-    /// 理解度クイズを提示できる設問があるか。
-    var hasQuiz: Bool { toEpisode().content.hasQuiz }
-
-    /// 出典セクションを表示すべきか（`sourceArticles` が非nil非空、issue #240）。
-    var hasSourceArticles: Bool { toEpisode().content.hasSourceArticles }
-
-    /// CC BY-SA 4.0 表示を出すべきか（規則は `EpisodeContent.showsCcBySaLicense`）。
-    var showsCcBySaLicense: Bool { toEpisode().content.showsCcBySaLicense }
 }
 
 extension Podcast {

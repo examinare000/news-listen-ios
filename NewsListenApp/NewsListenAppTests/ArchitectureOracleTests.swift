@@ -613,8 +613,10 @@ final class ArchitectureOracleTests: XCTestCase {
     }
 
     // verifies: ios-check-06（ios-dep-09）
-    func testIosTest066_readModelFilesMatchNowPlaying() {
-        XCTAssertEqual(ArchitectureManifest.readModelFiles, ["Podcast/Playback/NowPlaying.swift"])
+    func testIosTest066_readModelFilesMatchNowPlayingAndEpisodeRow() {
+        XCTAssertEqual(
+            ArchitectureManifest.readModelFiles,
+            ["Podcast/Playback/NowPlaying.swift", "Catalog/Application/EpisodeRow.swift"])
     }
 
     // MARK: - ios-check-08
@@ -674,6 +676,8 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Podcast/Playback/PositionReporter.swift", 5),
         ("Podcast/Playback/OfflineLibrary.swift", 15),
         ("Podcast/Playback/OfflineDownloads.swift", 7),
+        ("Catalog/Application/EpisodeCatalog.swift", 6),
+        ("Catalog/Application/EpisodeRow.swift", 7),
     ]
 
     private func kindCounts(_ ledger: [OperationRow]) -> [String: Int] {
@@ -743,7 +747,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 156)
+        XCTAssertEqual(result.declared.count, 169)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -754,12 +758,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 156)
-        XCTAssertEqual(ledger.count, 156)
+        XCTAssertEqual(declared.count, 169)
+        XCTAssertEqual(ledger.count, 169)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 38, "query": 33, "port": 23, "internal": 24, "readModel": 30, "factory": 8]
+            ["command": 39, "query": 36, "port": 24, "internal": 24, "readModel": 37, "factory": 9]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -786,7 +790,7 @@ final class ArchitectureOracleTests: XCTestCase {
             if case .query(let id) = row.kind { return id }
             return nil
         })
-        XCTAssertEqual(queryIDs.count, 11, "台帳の query ID は 11 個")
+        XCTAssertEqual(queryIDs.count, 13, "台帳の query ID は 13 個")
 
         let uncovered = ArchitectureScan.uncoveredQueryRows(
             ledger: ledger,

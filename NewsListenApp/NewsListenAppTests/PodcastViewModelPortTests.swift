@@ -103,7 +103,8 @@ final class PodcastViewModelPortTests: XCTestCase {
         rig.engine.nextLoadWarning = "session failed"
         try rig.cached("a")
 
-        await rig.viewModel.startEpisode(podcast("a"))
+        try await rig.seed([podcast("a")])
+        await rig.viewModel.startEpisode(episodeId: "a")
 
         XCTAssertEqual(rig.viewModel.errorMessage, "session failed")
         XCTAssertTrue(rig.viewModel.isPlaying)
@@ -119,13 +120,14 @@ final class PodcastViewModelPortTests: XCTestCase {
         let rig = PlaybackEntryRig()
         try await rig.play("a")  // a の消費者を unfolding の待機状態にする
         try rig.cached("b")
+        try await rig.seed([podcast("b")])
         let oldChannel = try XCTUnwrap(rig.engine.currentChannel)
 
         let handedOff = oldChannel.yield(.failed(description: "stale"))
         XCTAssertEqual(handedOff, .handedOff, "Given の成立: 待機中の消費者へ直接手渡した")
         // await を挟まずに stop → 次の再生（手渡された事象を処理する Task A はまだ走っていない）
         rig.viewModel.stop()
-        await rig.viewModel.startEpisode(podcast("b"))
+        await rig.viewModel.startEpisode(episodeId: "b")
         await rig.engine.send(.ready)  // b の channel で処理を待つ
 
         XCTAssertNil(rig.viewModel.errorMessage, "stale な failed が新しい再生に適用されない")
@@ -205,7 +207,8 @@ final class PodcastViewModelPortTests: XCTestCase {
         try rig.cached("a")
         XCTAssertNil(rig.spy.currentInfo)
 
-        await rig.viewModel.startEpisode(podcast("a"))
+        try await rig.seed([podcast("a")])
+        await rig.viewModel.startEpisode(episodeId: "a")
         XCTAssertNotNil(rig.spy.currentInfo)
 
         rig.viewModel.stop()
@@ -220,8 +223,9 @@ final class PodcastViewModelPortTests: XCTestCase {
         try rig.cached("b")
         XCTAssertEqual(rig.spy.activeRegistrationCount, 0, "init 直後は登録しない")
 
-        await rig.viewModel.startEpisode(podcast("a"))
-        await rig.viewModel.startEpisode(podcast("b"))
+        try await rig.seed([podcast("a"), podcast("b")])
+        await rig.viewModel.startEpisode(episodeId: "a")
+        await rig.viewModel.startEpisode(episodeId: "b")
 
         XCTAssertEqual(rig.spy.activeRegistrationCount, 1, "2 回開始しても有効な登録は 1 つ")
     }
@@ -234,8 +238,9 @@ final class PodcastViewModelPortTests: XCTestCase {
         let rig = PlaybackEntryRig()
         try rig.cached("a")
         try rig.cached("b")
-        await rig.viewModel.startEpisode(podcast("a"))
-        await rig.viewModel.startEpisode(podcast("b"))  // 間に中断を挟まない
+        try await rig.seed([podcast("a"), podcast("b")])
+        await rig.viewModel.startEpisode(episodeId: "a")
+        await rig.viewModel.startEpisode(episodeId: "b")  // 間に中断を挟まない
         await rig.engine.send(.ready)  // b の channel（buffering は ready の後でだけ表示される）
 
         await rig.engine.send(.buffering)  // b の channel
@@ -249,7 +254,8 @@ final class PodcastViewModelPortTests: XCTestCase {
         let rig = PlaybackEntryRig()
         // オンラインの未キャッシュで開始 → 完聴（キュー末尾）→ 接続が切れる。
         rig.serve(EntryFixture.playable("offline-episode"))
-        await rig.viewModel.startEpisode(podcast("offline-episode"))
+        try await rig.seed([podcast("offline-episode")])
+        await rig.viewModel.startEpisode(episodeId: "offline-episode")
         await rig.engine.send(.ready)
         await rig.engine.send(.ended)
         rig.network.isOnline = false
@@ -287,29 +293,30 @@ final class PodcastViewModelPortTests: XCTestCase {
     // kills: subtitle に難易度の生コードを渡す／title に表示名ではなく紹介文（intro）を渡す／
     // elapsed と duration の取り違え／rate に固定値を渡す／isPlaying を反映しない
     func testN14_nowPlayingSnapshotMapsTheViewModelState() async throws {
-        let rig = PlaybackEntryRig(lockScreenSubtitle: { DifficultyLabel.text(for: $0) })
-        let episode = Podcast(
-            id: "a", type: "single", articleIds: [], difficulty: "toeic_900",
-            audioUrl: "https://storage.example.com/a.mp3", title: "速報タイトル",
-            japaneseIntroText: "i",
-            durationSeconds: 300, createdAt: "2026-05-31T06:00:00Z", status: "completed",
-            errorMessage: nil, playbackPositionSeconds: 0, segments: nil
-        )
+        let episode = Episode.playable(try XCTUnwrap(PlayableEpisode(
+            content: EpisodeContent(
+                id: "a", title: "速報タイトル", japaneseIntroText: "i", difficulty: "toeic_900",
+                createdAt: "2026-05-31T06:00:00Z", durationSeconds: 300,
+                segments: nil, vocabulary: nil, quiz: nil, sourceArticles: nil, sourceKind: nil),
+            audioUrl: "https://storage.example.com/a.mp3", serverPosition: 0)))
+        let catalog = EpisodeCatalog(gateway: CatalogGateway(fetchEpisodes: { [episode] }))
+        try await catalog.reload()
+        let rig = PlaybackEntryRig(lockScreenSubtitle: { DifficultyLabel.text(for: $0) }, catalog: catalog)
         try rig.cached("a")
-        await rig.viewModel.startEpisode(episode)
+        await rig.viewModel.startEpisode(episodeId: "a")
         await rig.engine.send(.ready)
         // timeUpdate は経過時間だけを更新するので、全体更新は setSpeed で起こす。
         await rig.engine.send(.timeUpdate(seconds: 12, duration: 300))
 
         rig.viewModel.setSpeed(1.5)
 
-        XCTAssertEqual(episode.displayTitle, "速報タイトル", "title が intro より優先される前提")
-        XCTAssertNotEqual(DifficultyLabel.text(for: episode.difficulty), episode.difficulty, "表示ラベルは生コードと違う")
+        XCTAssertEqual(episode.content.displayTitle, "速報タイトル", "title が intro より優先される前提")
+        XCTAssertNotEqual(DifficultyLabel.text(for: episode.content.difficulty), episode.content.difficulty, "表示ラベルは生コードと違う")
         XCTAssertEqual(
             rig.spy.currentInfo,
             NowPlayingSnapshot(
-                title: episode.displayTitle,
-                subtitle: DifficultyLabel.text(for: episode.difficulty),
+                title: episode.content.displayTitle,
+                subtitle: DifficultyLabel.text(for: episode.content.difficulty),
                 elapsed: 12, duration: 300, rate: 1.5, isPlaying: true
             )
         )
