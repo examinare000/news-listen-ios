@@ -72,7 +72,7 @@ final class SubjectCleanupTests: XCTestCase {
             clearOfflineLibrary: { try AudioCacheManager(fileManager: fileManager).clearCache() }
         )
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         var observedTokenAtStop: String?
         var observedAnonymousAtStop = false
@@ -122,7 +122,7 @@ final class SubjectCleanupTests: XCTestCase {
             clearOfflineLibrary: { try AudioCacheManager(fileManager: fileManager).clearCache() }
         )
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         await appState.refreshListeningStreak() // 保存トークン付きの任意 API が 401（shared-leave-02 の契機）
 
@@ -163,7 +163,7 @@ final class SubjectCleanupTests: XCTestCase {
             clearOfflineLibrary: { try AudioCacheManager(fileManager: failingFileManager).clearCache() }
         )
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         await appState.logout()
 
@@ -229,7 +229,7 @@ final class SubjectCleanupTests: XCTestCase {
             clearOfflineLibrary: {}
         )
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         await appState.logout()
 
@@ -340,7 +340,7 @@ final class SubjectCleanupTests: XCTestCase {
             clearOfflineLibrary: {}
         )
         // registerPlaybackLifecycle を呼ばない（未登録）。
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         await appState.logout()
 
@@ -366,7 +366,7 @@ final class SubjectCleanupTests: XCTestCase {
             appState.registerPlaybackLifecycle(playback)
             // playback はここでスコープを抜けて解放される（weak 保持のため参照が消える）。
         }
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         await appState.logout()
 
@@ -417,7 +417,7 @@ final class SubjectCleanupTests: XCTestCase {
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearOfflineLibrary: {}
         )
-        appState.completeLogin(LoginResponse(token: "t0", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "t0", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         let failedBefore = appState.preferencesSyncFailed
 
         let task = Task { await appState.refreshPreferences() }
@@ -450,13 +450,13 @@ final class SubjectCleanupTests: XCTestCase {
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearOfflineLibrary: {}
         )
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         let failedBefore = appState.preferencesSyncFailed
 
         let task = Task { await appState.refreshPreferences() }
         await scripted.waitUntilRequested(method: "GET", path: "/settings/preferences")
         await appState.logout()
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         let prefsJSON = #"{"default_difficulty":"toeic_900","default_playback_speed":1.25,"weekly_goal_episodes":5}"#
         scripted.release(method: "GET", path: "/settings/preferences", status: 200, body: Data(prefsJSON.utf8))
         await task.value
@@ -511,11 +511,11 @@ final class SubjectCleanupTests: XCTestCase {
             clearOfflineLibrary: {}
         )
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         let staleClient = appState.apiClient! // A の client（トークンは生成時点で固定）
 
         await appState.logout()
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
 
         session.statusCode = 401
         do {
@@ -552,7 +552,7 @@ final class SubjectCleanupTests: XCTestCase {
             clearOfflineLibrary: {}
         )
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         appState.didRegisterDeviceToken("apns-1")
 
         let logoutTask = Task { await appState.logout() }
@@ -561,7 +561,7 @@ final class SubjectCleanupTests: XCTestCase {
         guard case .anonymous = appState.session else { return XCTFail("observer 経由の離脱が先に済んでいるべき") }
         XCTAssertEqual(nowPlaying.clearCallCount, 1)
 
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         scripted.release(method: "POST", path: "/auth/logout", status: 401)
         await logoutTask.value
 
@@ -588,7 +588,7 @@ final class SubjectCleanupTests: XCTestCase {
                 nowPlayingCenter: NowPlayingCenterSpy(),
                 clearOfflineLibrary: {}
             )
-            appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+            appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
             appState.defaultDifficulty = "ielts_7"
             XCTAssertFalse(appState.preferencesSyncFailed)
 

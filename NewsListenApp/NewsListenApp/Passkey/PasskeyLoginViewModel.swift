@@ -22,16 +22,16 @@ final class PasskeyLoginViewModel: ObservableObject {
     private let apiClient: APIClient
     private let provider: PasskeyAuthorizationProviding
     /// ログイン成功時に呼ぶコールバック（トークン保存・認証状態更新は呼び出し側が担う）。
-    private let onSuccess: (LoginResponse) -> Void
+    private let onSuccess: (LoginReceipt) -> Void
 
     /// - Parameters:
     ///   - apiClient: API 通信クライアント（未認証でも可: login/options は認証不要）。
     ///   - provider: Passkey 操作プロバイダ（テスト時はモックを注入）。
-    ///   - onSuccess: ログイン成功時に `LoginResponse` を渡すコールバック。
+    ///   - onSuccess: ログイン成功時に `LoginReceipt` を渡すコールバック。
     init(
         apiClient: APIClient,
         provider: PasskeyAuthorizationProviding,
-        onSuccess: @escaping (LoginResponse) -> Void
+        onSuccess: @escaping (LoginReceipt) -> Void
     ) {
         self.apiClient = apiClient
         self.provider = provider
@@ -64,7 +64,7 @@ final class PasskeyLoginViewModel: ObservableObject {
                 credential: credentialDict
             )
             // 成功時は画面遷移するため isRunning は false に戻さない（遷移までボタン無効を維持）。
-            onSuccess(loginResponse)
+            onSuccess(LoginReceipt(token: loginResponse.token, subject: loginResponse.user.toSubject()))
         } catch PasskeyError.canceled {
             // キャンセルは失敗扱いしない（errorMessage を設定しない）。
             isRunning = false

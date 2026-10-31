@@ -34,7 +34,7 @@ final class AppStateAuthTests: XCTestCase {
         }
 
         XCTAssertEqual(described, "resolving")
-        XCTAssertNil(appState.currentUser)
+        XCTAssertNil(appState.currentSubject)
     }
 
     // MARK: - T-T14-02（ios-contract-20.2）
@@ -54,7 +54,7 @@ final class AppStateAuthTests: XCTestCase {
     func testTT14_12_refreshAuthWhenAlreadyAuthenticatedIsNoOp() async {
         let session = MockURLSession(data: Data(), statusCode: 200)
         let appState = makeSubjectAwareAppState(session: session, sessionStore: InMemorySessionStore(token: "tA"))
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         await appState.refreshAuth()
 
@@ -76,7 +76,7 @@ final class AppStateAuthTests: XCTestCase {
 
         guard case .authenticated(let user) = appState.session else { return XCTFail("authenticated になるべき") }
         XCTAssertEqual(user.username, "alice")
-        XCTAssertEqual(appState.currentUser?.username, "alice")
+        XCTAssertEqual(appState.currentSubject?.username, "alice")
     }
 
     // MARK: - T-T14-04（ios-contract-20.4, ios-contract-21.4）
@@ -215,7 +215,7 @@ final class AppStateAuthTests: XCTestCase {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
         let appState = makeSubjectAwareAppState(sessionStore: store, nowPlayingCenter: nowPlaying)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         let nonUnauthorized: [ApiFailure] = [.network(URLError(.notConnectedToInternet)), .server(status: 500), .forbidden, .decoding]
         for failure in nonUnauthorized {
@@ -345,15 +345,15 @@ final class AppStateAuthTests: XCTestCase {
     func testTT14_11_completeLoginStoresTokenAndSession() {
         let store = InMemorySessionStore()
         let appState = makeSubjectAwareAppState(sessionStore: store)
-        let response = LoginResponse(
+        let receipt = LoginReceipt(
             token: "tok-1",
-            user: AuthUser(username: "alice", role: "admin", displayName: "Alice")
+            subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "admin"), key: nil)
         )
 
-        appState.completeLogin(response)
+        appState.completeLogin(receipt)
 
         XCTAssertEqual(store.token, "tok-1")
-        XCTAssertEqual(appState.currentUser?.username, "alice")
+        XCTAssertEqual(appState.currentSubject?.username, "alice")
         guard case .authenticated(let user) = appState.session, user.username == "alice" else {
             return XCTFail("session は authenticated になるべき")
         }
@@ -364,13 +364,13 @@ final class AppStateAuthTests: XCTestCase {
     // verifies: ios-contract-20.11
     func testTT14_13a_updateCurrentUserAppliesWithOwnStamp() {
         let appState = makeSubjectAwareAppState(sessionStore: InMemorySessionStore(token: "tA"))
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         let stamp = appState.subjectStamp
-        let updated = AuthUser(username: "alice", role: "user", displayName: "Alice2")
+        let updated = Subject(username: "alice", displayName: "Alice2", role: Role(rawValue: "user"), key: nil)
 
-        appState.updateCurrentUser(updated, capturedAt: stamp)
+        appState.updateCurrentSubject(updated, capturedAt: stamp)
 
-        XCTAssertEqual(appState.currentUser?.displayName, "Alice2")
+        XCTAssertEqual(appState.currentSubject?.displayName, "Alice2")
     }
 
     // verifies: ios-contract-20.11
@@ -381,7 +381,7 @@ final class AppStateAuthTests: XCTestCase {
         let stamp = appState.subjectStamp
         guard case .anonymous = appState.session else { return XCTFail("前提: 新規は resolving。まず anonymous にする") }
 
-        appState.updateCurrentUser(AuthUser(username: "alice", role: "user", displayName: "Alice"), capturedAt: stamp)
+        appState.updateCurrentSubject(Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil), capturedAt: stamp)
 
         guard case .anonymous = appState.session else { return XCTFail("anonymous のまま変わらないべき") }
     }
@@ -390,13 +390,13 @@ final class AppStateAuthTests: XCTestCase {
     func testTT14_13c_updateCurrentUserIgnoredWhenSubjectChanged() async {
         let store = InMemorySessionStore(token: "tA")
         let appState = makeSubjectAwareAppState(sessionStore: store)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         let stampA = appState.subjectStamp
 
         await appState.logout()
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
 
-        appState.updateCurrentUser(AuthUser(username: "alice", role: "user", displayName: "Alice-updated"), capturedAt: stampA)
+        appState.updateCurrentSubject(Subject(username: "alice", displayName: "Alice-updated", role: Role(rawValue: "user"), key: nil), capturedAt: stampA)
 
         guard case .authenticated(let user) = appState.session, user.username == "bob" else {
             return XCTFail("bob の session が A の stamp で書き換わってはならない（F6 の再現手順）")
@@ -410,12 +410,12 @@ final class AppStateAuthTests: XCTestCase {
     func testTT14_14_logoutClearsTokenAndSession() async {
         let store = InMemorySessionStore(token: "tok-1")
         let appState = makeSubjectAwareAppState(sessionStore: store)
-        appState.completeLogin(LoginResponse(token: "tok-1", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tok-1", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         await appState.logout()
 
         XCTAssertNil(store.token)
-        XCTAssertNil(appState.currentUser)
+        XCTAssertNil(appState.currentSubject)
         guard case .anonymous = appState.session else { return XCTFail("session は anonymous になるべき") }
     }
 
@@ -428,10 +428,10 @@ final class AppStateAuthTests: XCTestCase {
         let playback = PlaybackLifecycleSpy()
         let appState = makeSubjectAwareAppState(sessionStore: store, nowPlayingCenter: nowPlaying)
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         // B が確立済み（前主体 A の失効トークンで送ったリクエストが後から届く想定）。
         store.token = "tB"
-        appState.updateCurrentUser(AuthUser(username: "bob", role: "user", displayName: "Bob"), capturedAt: appState.subjectStamp)
+        appState.updateCurrentSubject(Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil), capturedAt: appState.subjectStamp)
 
         appState.handle(failure: .unauthorized, sentToken: "tA")
         appState.handle(failure: .unauthorized, sentToken: nil)
@@ -458,7 +458,7 @@ final class AppStateAuthTests: XCTestCase {
 
         let task = Task { await appState.refreshAuth() }
         await scripted.waitUntilRequested(method: "GET", path: "/auth/me")
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         let aliceJSON = #"{"username":"alice","role":"user","display_name":"Alice"}"#
         scripted.release(method: "GET", path: "/auth/me", status: 200, body: Data(aliceJSON.utf8))
         await task.value
@@ -485,7 +485,7 @@ final class AppStateAuthTests: XCTestCase {
 
         let task = Task { await appState.refreshAuth() }
         await scripted.waitUntilRequested(method: "GET", path: "/auth/me")
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         scripted.release(method: "GET", path: "/auth/me", status: 401)
         await task.value
 
@@ -534,14 +534,14 @@ final class AppStateAuthTests: XCTestCase {
         scripted.configurePending(method: "GET", path: "/users/me/listening-streak")
         scripted.configure(method: "POST", path: "/auth/logout", status: 200)
         let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         XCTAssertNil(appState.listeningStreak)
         XCTAssertFalse(appState.listeningStreakLoadFailed)
 
         let task = Task { await appState.refreshListeningStreak() }
         await scripted.waitUntilRequested(method: "GET", path: "/users/me/listening-streak")
         await appState.logout()
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         scripted.release(
             method: "GET", path: "/users/me/listening-streak", status: 200,
             body: Data(#"{"current_streak_days":5,"today_listened":true,"last_listened_day":"2026-07-29"}"#.utf8)
@@ -561,13 +561,13 @@ final class AppStateAuthTests: XCTestCase {
         scripted.configurePending(method: "GET", path: "/settings/onboarding")
         scripted.configure(method: "POST", path: "/auth/logout", status: 200)
         let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         XCTAssertNil(appState.onboardingCompleted)
 
         let task = Task { await appState.refreshOnboardingStatus() }
         await scripted.waitUntilRequested(method: "GET", path: "/settings/onboarding")
         await appState.logout()
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         scripted.release(method: "GET", path: "/settings/onboarding", status: 200, body: Data(#"{"onboarding_completed":false}"#.utf8))
         await task.value
 
@@ -583,13 +583,13 @@ final class AppStateAuthTests: XCTestCase {
         scripted.configurePending(method: "POST", path: "/settings/onboarding/complete")
         scripted.configure(method: "POST", path: "/auth/logout", status: 200)
         let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         XCTAssertNil(appState.onboardingCompleted)
 
         let task = Task { await appState.completeOnboarding() }
         await scripted.waitUntilRequested(method: "POST", path: "/settings/onboarding/complete")
         await appState.logout()
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         scripted.release(method: "POST", path: "/settings/onboarding/complete", status: 200, body: Data(#"{"onboarding_completed":true}"#.utf8))
         await task.value
 
@@ -634,7 +634,7 @@ final class AppStateAuthTests: XCTestCase {
         let t = Task { await appState.refreshAuth() }
         await scripted.waitUntilRequested(method: "GET", path: "/settings/preferences")
         await appState.logout()
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         appState.didRegisterDeviceToken("apns-bob")
         await scripted.waitUntilRequested(method: "POST", path: "/notifications/device-tokens")
         scripted.release(method: "GET", path: "/settings/preferences", status: 200, body: Data("{}".utf8))
@@ -660,7 +660,7 @@ final class AppStateAuthTests: XCTestCase {
         guard case .anonymous = appState.session else { return XCTFail("前提: anonymous") }
         let s0 = appState.subjectStamp
 
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         let sA = appState.subjectStamp
         XCTAssertTrue(appState.isCurrentSubject(sA))
         XCTAssertFalse(appState.isCurrentSubject(s0))
@@ -668,7 +668,7 @@ final class AppStateAuthTests: XCTestCase {
         await appState.logout()
         XCTAssertFalse(appState.isCurrentSubject(sA))
 
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         XCTAssertFalse(appState.isCurrentSubject(sA))
         XCTAssertFalse(appState.isCurrentSubject(s0))
 
@@ -684,14 +684,14 @@ final class AppStateAuthTests: XCTestCase {
     func testTT14_23_confirmWeeklyGoalSyncGuardedBySubject() async {
         let store = InMemorySessionStore(token: "tA")
         let appState = makeSubjectAwareAppState(sessionStore: store)
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         let sA = appState.subjectStamp
 
         appState.confirmWeeklyGoalSync(5, capturedAt: sA)
         XCTAssertEqual(appState.lastConfirmedWeeklyGoalEpisodes, 5)
 
         await appState.logout()
-        appState.completeLogin(LoginResponse(token: "tB", user: AuthUser(username: "bob", role: "user", displayName: "Bob")))
+        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         let before = appState.lastConfirmedWeeklyGoalEpisodes
 
         appState.confirmWeeklyGoalSync(7, capturedAt: sA)
@@ -728,7 +728,7 @@ final class AppStateAuthTests: XCTestCase {
         // 直接 await しても、HTTP リクエストが発生しないことを検証する（issue #80 レビュー指摘）。
         let session = MockURLSession(data: Data(), statusCode: 200)
         let appState = makeAppState(session: session)
-        appState.completeLogin(LoginResponse(token: "tok-1", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tok-1", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         appState.didRegisterDeviceToken("devicetokenhex")
         await appState.logout()
 
@@ -747,9 +747,9 @@ final class AppStateAuthTests: XCTestCase {
         let session = MockURLSession(data: Data(), statusCode: 200)
         let appState = makeAppState(session: session)
         appState.completeLogin(
-            LoginResponse(
+            LoginReceipt(
                 token: "tok-1",
-                user: AuthUser(username: "alice", role: "user", displayName: "Alice")
+                subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)
             )
         )
 

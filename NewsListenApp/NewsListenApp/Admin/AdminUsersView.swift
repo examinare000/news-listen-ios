@@ -49,8 +49,8 @@ struct AdminUsersView: View {
                         Spacer()
                         // 自分自身のロール変更・削除はさせない（自己ロックアウト防止。
                         // サーバー側でも最後の admin は 409 で保護される）。
-                        if user.username != appState.currentUser?.username {
-                            Button(user.isAdmin ? "user へ" : "admin へ") {
+                        if user.username != appState.currentSubject?.username {
+                            Button(user.toSubject().role.isAdmin ? "user へ" : "admin へ") {
                                 Task { await viewModel.toggleRole(user) }
                             }
                             .buttonStyle(.borderless)

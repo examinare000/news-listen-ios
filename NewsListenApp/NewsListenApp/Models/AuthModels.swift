@@ -20,9 +20,6 @@ struct AuthUser: Codable, Identifiable, Equatable {
     /// `Identifiable` 準拠。username を一意キーに使う。
     var id: String { username }
 
-    /// admin ロールかどうか。ユーザー管理 UI の出し分けに使う。
-    var isAdmin: Bool { role == "admin" }
-
     /// snake_case な API レスポンスとのマッピング。
     enum CodingKeys: String, CodingKey {
         case username

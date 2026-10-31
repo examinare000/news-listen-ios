@@ -81,7 +81,7 @@ final class AdminUsersViewModel: ObservableObject {
     /// - Parameter user: 対象ユーザー。
     func toggleRole(_ user: AuthUser) async {
         guard let apiClient else { return }
-        let nextRole = user.isAdmin ? "user" : "admin"
+        let nextRole = user.toSubject().role.isAdmin ? "user" : "admin"
         do {
             _ = try await apiClient.updateUser(username: user.username, role: nextRole)
             await load()

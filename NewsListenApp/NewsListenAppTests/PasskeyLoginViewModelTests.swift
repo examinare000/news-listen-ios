@@ -47,7 +47,7 @@ final class PasskeyLoginViewModelTests: XCTestCase {
         // Arrange
         let provider = MockPasskeyProvider()
         provider.assertResult = .success(MockPasskeyProvider.makeAssertionCredential())
-        var captured: LoginResponse?
+        var captured: LoginReceipt?
 
         let vm = PasskeyLoginViewModel(
             apiClient: makeClient(session: happyPathSession),
@@ -60,7 +60,7 @@ final class PasskeyLoginViewModelTests: XCTestCase {
 
         // Assert
         XCTAssertEqual(captured?.token, "tok-passkey")
-        XCTAssertEqual(captured?.user.username, "alice")
+        XCTAssertEqual(captured?.subject.username, "alice")
         XCTAssertNil(vm.errorMessage, "正常系でエラーメッセージが表示されないこと")
     }
 

@@ -177,7 +177,7 @@ final class PreferenceRegistryTests: XCTestCase {
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearOfflineLibrary: {}
         )
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         appState.defaultDifficulty = "toeic_900"
         appState.defaultPlaybackSpeed = 1.25
@@ -206,7 +206,7 @@ final class PreferenceRegistryTests: XCTestCase {
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearOfflineLibrary: {}
         )
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         await appState.refreshPreferences()
 
@@ -228,7 +228,7 @@ final class PreferenceRegistryTests: XCTestCase {
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearOfflineLibrary: {}
         )
-        appState.completeLogin(LoginResponse(token: "tA", user: AuthUser(username: "alice", role: "user", displayName: "Alice")))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         await appState.refreshPreferences()
 
