@@ -46,7 +46,50 @@ extension Podcast {
             return .failed(FailedEpisode(content: content, reportedMessage: errorMessage))
         }
     }
+}
 
+// MARK: - Episode → Podcast（表示用）
+
+extension Episode {
+    /// View が `Podcast` を読む間だけ使う、表示用の組み立て（ios-temp-03: owner user／導入 ios-slice-playback-03／
+    /// 削除 ios-slice-playback-04 で View が `NowPlaying` を直接読むようになった時）。
+    /// 種別は `status` に写し、`toEpisode()` で同じ種別に戻る。
+    func toDisplayPodcast() -> Podcast {
+        let status: String
+        let errorMessage: String?
+        let audioUrl: String
+        let position: Double
+        switch self {
+        case .playable(let playable):
+            (status, errorMessage, audioUrl, position) = ("completed", nil, playable.audioUrl, playable.serverPosition)
+        case .generating:
+            (status, errorMessage, audioUrl, position) = ("processing", nil, "", 0)
+        case .failed(let failed):
+            (status, errorMessage, audioUrl, position) = ("failed", failed.reportedMessage, "", 0)
+        }
+        return Podcast(
+            id: content.id,
+            type: "",
+            articleIds: [],
+            difficulty: content.difficulty,
+            audioUrl: audioUrl,
+            title: content.title,
+            japaneseIntroText: content.japaneseIntroText,
+            durationSeconds: content.durationSeconds,
+            createdAt: content.createdAt,
+            status: status,
+            errorMessage: errorMessage,
+            playbackPositionSeconds: position,
+            segments: content.segments,
+            vocabulary: content.vocabulary,
+            quiz: content.quiz,
+            sourceArticles: content.sourceArticles,
+            sourceKind: content.sourceKind
+        )
+    }
+}
+
+extension Podcast {
     /// 推定タイミングの入力。`AudioPlayerView` が `NowPlaying` から組むようになるまでの移行用。
     var transcriptSource: TranscriptSource {
         TranscriptSource(
