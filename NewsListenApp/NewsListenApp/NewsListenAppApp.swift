@@ -16,7 +16,10 @@ import SwiftUI
 @main
 struct NewsListenAppApp: App {
     /// アプリ全体で共有する設定状態。ロック画面 port は再生 ViewModel と同じ 1 個を共有する。
-    @StateObject private var appState = AppState(nowPlayingCenter: NewsListenAppApp.nowPlayingCenter)
+    @StateObject private var appState = AppState(
+        nowPlayingCenter: NewsListenAppApp.nowPlayingCenter,
+        clearOfflineLibrary: { @MainActor in try NewsListenAppApp.offlineLibrary.clearAll() }
+    )
 
     /// MetricKit クラッシュ診断の購読者（issue #83）。購読を維持するため保持する。
     private static let crashReporter = CrashReporter()
@@ -24,6 +27,8 @@ struct NewsListenAppApp: App {
     /// 再生エンジンとロック画面 port。プロセスで 1 個ずつ作る（App の init が何回呼ばれても同じインスタンス）。
     private static let audioEngine = AVPlayerEngine()
     private static let nowPlayingCenter = MediaPlayerNowPlaying()
+    /// 保存済み音声の保存庫。プロセスで 1 個作り、再生・ダウンロード・設定の全員が同じ集合を見る。
+    private static let offlineLibrary = OfflineLibrary(store: .live(cacheManager: AudioCacheManager()))
 
     /// APNs プッシュ通知（issue #80）の AppDelegate。純 SwiftUI ライフサイクルに接続する。
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -71,8 +76,10 @@ struct NewsListenAppApp: App {
                             ContentView(
                                 apiClient: client,
                                 refreshListeningStreak: { await appState.refreshListeningStreak() },
+                                defaultSpeed: { Float(appState.defaultPlaybackSpeed) },
                                 audioEngine: Self.audioEngine,
-                                nowPlayingCenter: Self.nowPlayingCenter
+                                nowPlayingCenter: Self.nowPlayingCenter,
+                                library: Self.offlineLibrary
                             )
                         } else {
                             ContentUnavailableView(
@@ -118,29 +125,90 @@ struct ContentView: View {
     /// でもバックグラウンド再生・ロック画面操作が生きる）。
     @StateObject private var playerViewModel: PodcastViewModel
 
+    /// 設定画面に渡す保存庫（App が作った 1 個）。
+    private let library: OfflineLibrary
+
     /// ビューを生成する。
     /// - Parameters:
     ///   - apiClient: 再生 ViewModel に注入する API クライアント。
     ///   - refreshListeningStreak: 完聴時に共有ストリークを更新するクロージャ。
+    ///   - defaultSpeed: 既定の再生速度（`appState` に依るので呼ぶ側が closure にして渡す）。
     ///   - audioEngine: 再生エンジン（App がプロセスで 1 個作ったもの）。
     ///   - nowPlayingCenter: ロック画面 port（同上）。
-    /// - Note: `@MainActor` 化した `NetworkMonitor` の既定値生成を分離文脈で行うため、
+    ///   - library: 保存庫（同上）。
+    /// - Note: `@MainActor` 化した `NetworkMonitor` の生成を分離文脈で行うため、
     ///   ビューの init も `@MainActor` にする（旧 PodcastView.init と同じ理由）。
     @MainActor
     init(
         apiClient: APIClient,
         refreshListeningStreak: @escaping @MainActor () async -> Void,
+        defaultSpeed: @escaping () -> Float,
         audioEngine: any AudioEngine,
-        nowPlayingCenter: NowPlayingCenter
+        nowPlayingCenter: NowPlayingCenter,
+        library: OfflineLibrary
     ) {
+        self.library = library
+        // `init` は再描画のたびに走るので、組み立ては `StateObject` の autoclosure の中（1 回だけ評価される）で行う。
         _playerViewModel = StateObject(
-            wrappedValue: PodcastViewModel(
+            wrappedValue: Self.makePlayerViewModel(
                 apiClient: apiClient,
                 refreshListeningStreak: refreshListeningStreak,
+                defaultSpeed: defaultSpeed,
                 engine: audioEngine,
-                nowPlaying: nowPlayingCenter
+                nowPlayingCenter: nowPlayingCenter,
+                library: library
             )
         )
+    }
+
+    /// 再生の入口（gateway・Reporter・Coordinator・ダウンロード・facade）を 1 組作る。
+    @MainActor
+    private static func makePlayerViewModel(
+        apiClient: APIClient,
+        refreshListeningStreak: @escaping @MainActor () async -> Void,
+        defaultSpeed: @escaping () -> Float,
+        engine: any AudioEngine,
+        nowPlayingCenter: NowPlayingCenter,
+        library: OfflineLibrary
+    ) -> PodcastViewModel {
+        // facade は gateway より後に作るので、位置の保存の応答は弱参照の箱を介して一覧へ届ける。
+        let box = PodcastViewModelBox()
+        let gateway = PlaybackGateway.live(apiClient: apiClient, onPodcastUpdated: { box.target?.replacePodcast($0) })
+        let networkMonitor = NetworkMonitor()
+        let reporter = PositionReporter(
+            updatePosition: gateway.updatePosition,
+            markCompleted: gateway.markCompleted,
+            onPositionSaved: { _ in },
+            onCompletionRecorded: refreshListeningStreak,
+            beginBackgroundTask: { beginBackgroundTask() }
+        )
+        let coordinator = PlaybackCoordinator(
+            engine: engine,
+            nowPlayingCenter: nowPlayingCenter,
+            library: library,
+            reporter: reporter,
+            fetchEpisode: gateway.fetchEpisode,
+            isOnline: { networkMonitor.isOnline },
+            defaultSpeed: defaultSpeed,
+            lockScreenSubtitle: { DifficultyLabel.text(for: $0) },
+            beginBackgroundTask: { beginBackgroundTask() }
+        )
+        let downloads = OfflineDownloads(
+            library: library,
+            fetchEpisode: gateway.fetchEpisode,
+            downloadAudio: gateway.downloadAudio
+        )
+        let playerViewModel = PodcastViewModel(
+            apiClient: apiClient,
+            coordinator: coordinator,
+            reporter: reporter,
+            library: library,
+            downloads: downloads,
+            networkMonitor: networkMonitor,
+            defaultSpeed: defaultSpeed
+        )
+        box.target = playerViewModel
+        return playerViewModel
     }
 
     var body: some View {
@@ -160,7 +228,7 @@ struct ContentView: View {
             }
             // Settings は API 未設定の修正導線として常に表示する（第 4 タブ末尾）。
             // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
-            SettingsView(appState: appState)
+            SettingsView(appState: appState, library: library)
                 .withMiniPlayer(playerViewModel)
                 .tabItem { Label("設定", systemImage: "gearshape") }
                 .tag(4)
@@ -182,7 +250,7 @@ struct ContentView: View {
             await appState.refreshListeningStreak()
         }
         // 主体離脱時の再生停止 port を登録する（ios-slice-auth-01 / ios-contract-21.9・ios-temp-04）。
-        .onAppear { appState.registerPlaybackLifecycle(playerViewModel) }
+        .onAppear { appState.registerPlaybackLifecycle(playerViewModel.playbackLifecycle) }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
@@ -190,7 +258,7 @@ struct ContentView: View {
             case .background, .inactive:
                 // タブ離脱で stopPlayback() を呼ばなくなったため、アプリ離脱直前の
                 // 再生位置をここで同期する（15秒毎の定期同期の取りこぼし補完）。
-                playerViewModel.flushPlaybackPosition()
+                playerViewModel.flushPosition()
             @unknown default:
                 break
             }
@@ -251,5 +319,21 @@ struct ContentView: View {
             get: { appState.onboardingCompleted == false },
             set: { _ in }
         )
+    }
+}
+
+/// facade の弱参照を持つ箱。位置の保存の応答を、後から作る facade へ届けるために使う。
+@MainActor
+private final class PodcastViewModelBox {
+    weak var target: PodcastViewModel?
+}
+
+/// 完聴の送信などを、アプリが一時的にバックグラウンドへ回っても走り切らせる保護。返す closure で終える。
+/// `UIBackgroundModes` は audio のみのため、期限切れの処理は持たないベストエフォート。
+@MainActor
+private func beginBackgroundTask() -> () -> Void {
+    let task = UIApplication.shared.beginBackgroundTask()
+    return {
+        if task != .invalid { UIApplication.shared.endBackgroundTask(task) }
     }
 }

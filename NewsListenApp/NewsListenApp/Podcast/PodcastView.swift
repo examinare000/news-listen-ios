@@ -42,7 +42,7 @@ struct PodcastView: View {
                 }
             }
             .alert("エラー", isPresented: errorBinding) {
-                Button("OK") { viewModel.errorMessage = nil }
+                Button("OK") { viewModel.dismissError() }
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
@@ -87,8 +87,9 @@ struct PodcastView: View {
         List(viewModel.podcasts) { podcast in
             PodcastRowView(
                 podcast: podcast,
-                isPlaying: viewModel.currentPodcast?.id == podcast.id && viewModel.isPlaying,
+                isPlaying: viewModel.nowPlaying()?.episodeId == podcast.id && viewModel.isPlaying,
                 downloadState: viewModel.downloadState(for: podcast.id),
+                badge: viewModel.rowBadge(for: podcast),
                 isOffline: !viewModel.isOnline,
                 onDownloadTap: {
                     Task {
@@ -132,7 +133,7 @@ struct PodcastView: View {
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { viewModel.shouldPresentErrorAlert },
-            set: { if !$0 { viewModel.errorMessage = nil } }
+            set: { if !$0 { viewModel.dismissError() } }
         )
     }
 }

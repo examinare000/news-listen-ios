@@ -252,11 +252,10 @@ final class GrepOracleTests: XCTestCase {
         var counts: [String: Int] = [:]
         for hit in hits { counts[hit.path, default: 0] += 1 }
 
-        // App の 1 個（合成 root）と、AppState / PodcastViewModel の既定引数（Preview とテスト用）だけ。
+        // App の 1 個（合成 root）と、AppState の既定引数（Preview とテスト用）だけ。facade は既定引数で作らない。
         XCTAssertEqual(counts, [
             "NewsListenAppApp.swift": 1,
             "AppState.swift": 1,
-            "Podcast/PodcastViewModel.swift": 1,
         ], "MediaPlayerNowPlaying( の生成箇所が想定と違う: \(hits)")
     }
 }

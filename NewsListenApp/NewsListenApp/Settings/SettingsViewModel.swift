@@ -40,8 +40,8 @@ final class SettingsViewModel: ObservableObject {
     /// 本番では共有状態を正本として API クライアントも AppState から取得する。
     private let appState: AppState?
     private var apiClient: APIClient? { appState?.apiClient ?? apiClientOverride }
-    /// ダウンロード音声キャッシュの容量取得・全削除に使うマネージャ（issue #52）。
-    private let cacheManager: AudioCacheManager
+    /// ダウンロード音声の保存庫。容量取得・全削除に使う（issue #52）。
+    private let library: OfflineLibrary
 
     /// おすすめサイトをカテゴリでグループ化したもの（表示順で並ぶ）。0件のカテゴリは除外。
     var categorizedFeaturedSites: [(category: FeaturedCategory, sites: [FeaturedSite])] {
@@ -65,22 +65,27 @@ final class SettingsViewModel: ObservableObject {
     /// ViewModel を生成する。
     /// - Parameters:
     ///   - apiClient: API 通信に使うクライアント。未設定時は `nil`。
-    ///   - cacheManager: 音声キャッシュの容量取得・全削除に使うマネージャ（既定: `AudioCacheManager()`）。
+    ///   - library: 保存庫（既定: 新しく作る `OfflineLibrary`）。
     ///
-    /// ios-temp-02（owner: user／導入: ios-slice-auth-01 2026-09-28／削除条件: ios-slice-playback-03 で `OfflineLibrary` の注入が
-    /// 完了した時点。物理削除は ios-slice-playback-04）: `OfflineLibrary` の合成 root 単一インスタンス化は
-    /// ios-slice-playback-02・ios-slice-playback-03 の対象のため、本 slice では `AudioCacheManager()` の既定引数生成をそのまま残す。
-    init(apiClient: APIClient?, cacheManager: AudioCacheManager = AudioCacheManager()) {
+    /// ios-temp-02（owner: user／導入: ios-slice-auth-01 2026-09-28／削除条件: ios-slice-playback-04 で既定引数を物理削除した時点）:
+    /// 本番は合成 root が作った 1 個を渡す。既定引数は Preview とテスト用に型を変えて残す。
+    init(
+        apiClient: APIClient?,
+        library: OfflineLibrary = OfflineLibrary(store: .live(cacheManager: AudioCacheManager()))
+    ) {
         self.apiClientOverride = apiClient
         self.appState = nil
-        self.cacheManager = cacheManager
+        self.library = library
     }
 
     /// 共有 AppState を正本として使う本番用 initializer。ios-temp-02（上記 init のコメントを参照）。
-    init(appState: AppState, cacheManager: AudioCacheManager = AudioCacheManager()) {
+    init(
+        appState: AppState,
+        library: OfflineLibrary = OfflineLibrary(store: .live(cacheManager: AudioCacheManager()))
+    ) {
         self.apiClientOverride = nil
         self.appState = appState
-        self.cacheManager = cacheManager
+        self.library = library
     }
 
     /// RSS ソース一覧を取得して `sources` を更新する。失敗時は `errorMessage` に反映する。
@@ -188,19 +193,19 @@ final class SettingsViewModel: ObservableObject {
 
     /// ダウンロード音声キャッシュの合計サイズを取得して `cacheSizeBytes` を更新する。
     func loadCacheSize() async {
-        cacheSizeBytes = cacheManager.cacheSize()
+        cacheSizeBytes = library.usage()
     }
 
     /// ダウンロード音声キャッシュを全削除する。失敗時は `errorMessage` に反映し、`cacheSizeBytes` は
     /// 実際の残容量を再取得して反映する（削除が一部失敗した場合の不整合表示を避ける）。
     func clearCache() async {
         do {
-            try cacheManager.clearCache()
+            try library.clearAll()
             errorMessage = nil
         } catch {
             errorMessage = "キャッシュの削除に失敗しました"
         }
-        cacheSizeBytes = cacheManager.cacheSize()
+        cacheSizeBytes = library.usage()
     }
 
     // MARK: - デフォルト難易度・再生速度のサーバー同期 (issue #164)

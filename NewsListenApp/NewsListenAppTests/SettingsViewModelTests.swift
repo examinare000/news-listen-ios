@@ -440,7 +440,7 @@ final class SettingsViewModelTests: XCTestCase {
         let cacheManager = makeCacheManager()
         try cacheManager.cache("audio1".data(using: .utf8)!, for: "podcast-1")
         try cacheManager.cache("audio2".data(using: .utf8)!, for: "podcast-2")
-        let vm = SettingsViewModel(apiClient: nil, cacheManager: cacheManager)
+        let vm = SettingsViewModel(apiClient: nil, library: OfflineLibrary(store: .live(cacheManager: cacheManager)))
 
         await vm.loadCacheSize()
 
@@ -450,7 +450,7 @@ final class SettingsViewModelTests: XCTestCase {
     func testClearCacheResetsCacheSizeToZeroAndRemovesFiles() async throws {
         let cacheManager = makeCacheManager()
         try cacheManager.cache("audio1".data(using: .utf8)!, for: "podcast-1")
-        let vm = SettingsViewModel(apiClient: nil, cacheManager: cacheManager)
+        let vm = SettingsViewModel(apiClient: nil, library: OfflineLibrary(store: .live(cacheManager: cacheManager)))
         await vm.loadCacheSize()
         XCTAssertEqual(vm.cacheSizeBytes, 6)
 

@@ -193,7 +193,7 @@ final class ArchitectureOracleTests: XCTestCase {
         return [
             LiteralGroup(key: "ios-rule-catalog-01・ios-rule-catalog-02", pattern: #""(completed|processing|failed|partial_failed)""#,
                          isCanonical: exact("Models/Podcast+Episode.swift"), excludesPath: never,
-                         controlPath: "Podcast/PodcastRowView.swift", controlFragment: #"case "processing":"#),
+                         controlPath: "Models/Podcast+Episode.swift", controlFragment: #"case "processing":"#),
             LiteralGroup(key: "ios-rule-catalog-03", pattern: #"==\s*"featured""#,
                          isCanonical: exact("Catalog/Domain/EpisodeContent.swift"), excludesPath: never,
                          controlPath: "Catalog/Domain/EpisodeContent.swift", controlFragment: #"sourceKind == "featured""#),
@@ -405,11 +405,11 @@ final class ArchitectureOracleTests: XCTestCase {
         // 負の対照: コメント除外の前の集合に `///` で始まり生成の形を含む行があり、除外の後には同じファイルの `///` の行が無い。
         let withComments = collectHits(in: targets, excludeComments: false, where: isConstruction)
         XCTAssertTrue(
-            withComments.contains { $0.path == "Podcast/PodcastViewModel.swift" && $0.text.trimmingCharacters(in: .whitespaces).hasPrefix("///") && $0.text.contains("AudioCacheManager()") },
+            withComments.contains { $0.path == "AppState.swift" && $0.text.trimmingCharacters(in: .whitespaces).hasPrefix("///") && $0.text.contains("AudioCacheManager()") },
             "doc コメントの対照が除外の前の集合に無い"
         )
         XCTAssertFalse(
-            hits.contains { $0.path == "Podcast/PodcastViewModel.swift" && $0.text.trimmingCharacters(in: .whitespaces).hasPrefix("///") },
+            hits.contains { $0.path == "AppState.swift" && $0.text.trimmingCharacters(in: .whitespaces).hasPrefix("///") },
             "doc コメントが数えられている"
         )
         assertAllowlistMatches(rule: "ios-dep-13", measured: hits)
@@ -666,7 +666,7 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Podcast/Playback/PlayerPresentation.swift", 0),
         ("Passkey/PasskeyAuthorizationProviding.swift", 2),
         ("Podcast/Playback/PlaybackSession.swift", 11),
-        ("Podcast/Playback/PlaybackCoordinator.swift", 26),
+        ("Podcast/Playback/PlaybackCoordinator.swift", 27),
         ("Podcast/Playback/PlaybackCoordinator+Preview.swift", 1),
         ("Podcast/Playback/NowPlaying.swift", 21),
         ("Podcast/Playback/PositionReporter.swift", 5),
@@ -741,7 +741,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 155)
+        XCTAssertEqual(result.declared.count, 156)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -752,12 +752,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 155)
-        XCTAssertEqual(ledger.count, 155)
+        XCTAssertEqual(declared.count, 156)
+        XCTAssertEqual(ledger.count, 156)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 37, "query": 33, "port": 23, "internal": 24, "readModel": 30, "factory": 8]
+            ["command": 38, "query": 33, "port": 23, "internal": 24, "readModel": 30, "factory": 8]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -771,8 +771,8 @@ final class ArchitectureOracleTests: XCTestCase {
     // verifies: ios-check-15 (a)
     func testIosCheck15_specOperationIDsMatchTargetArchitectureSection5() {
         let ids = ArchitectureManifest.specOperationIDs
-        XCTAssertEqual(ids.count, 74)
-        XCTAssertEqual(ids.filter { $0.hasPrefix("ios-cmd-") }.count, 52)
+        XCTAssertEqual(ids.count, 75)
+        XCTAssertEqual(ids.filter { $0.hasPrefix("ios-cmd-") }.count, 53)
         XCTAssertEqual(ids.filter { $0.hasPrefix("ios-query-") }.count, 22)
         XCTAssertTrue(ids.isSuperset(of: ["ios-query-account-03", "ios-cmd-account-10", "ios-cmd-account-11"]))
     }
