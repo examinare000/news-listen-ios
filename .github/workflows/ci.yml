@@ -59,25 +59,7 @@ jobs:
           fi
 
       - name: Run tests
-        run: |
-          set -o pipefail
-          # ランナーで利用可能な最初の iPhone シミュレータを動的に選択（イメージ更新で
-          # デバイス名が変わっても壊れないようにする）
-          DEVICE=$(xcrun simctl list devices available | grep -oE 'iPhone [0-9]+( Pro( Max)?)?' | head -1)
-          if [ -z "${DEVICE}" ]; then
-            echo "::error::No available iPhone simulator found on runner"
-            xcrun simctl list devices available
-            exit 1
-          fi
-          echo "Selected simulator: ${DEVICE}"
-          xcodebuild test \
-            -project NewsListenApp/NewsListenApp.xcodeproj \
-            -scheme NewsListenApp \
-            -destination "platform=iOS Simulator,name=${DEVICE}" \
-            -only-testing:NewsListenAppTests \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+        run: make test
 
   secret-scan:
     runs-on: ubuntu-latest

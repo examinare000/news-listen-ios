@@ -61,5 +61,6 @@ bash scripts/test-ci-post-clone.sh
 ```
 
 `NewsListenAppTests`（ユニットテスト）をシミュレータでヘッドレス実行する。UI テストは対象外。
+GitHub Actions も同じ `make test`（`scripts/test.sh`）を実行する。コード署名は `scripts/test.sh` 側で無効にしている。
 
 ソースを読む検査は `GrepOracleTests`（個別の grep）と `ArchitectureOracleTests`（層の所属表と依存方向）。所属表と許可リストは `ArchitectureManifest.swift`、共通の走査ヘルパーは `SourceGrepSupport.swift` にある。`ArchitectureOracleTests` の走査は `ArchitectureScan.swift` / `ArchitectureScan+Checks.swift`、Swift の字句解析は `SwiftSourceParsing.swift`、検査自身の自己検証用フィクスチャは `ArchitectureFixtureTests.swift` / `ValidatedFixture.swift` に分かれる。テスト用の記録ポートは `RecordingPorts.swift`。再生の入口（facade・Coordinator・Reporter・ダウンロード）の適合テストは `PlaybackEntryConformanceTests`（共通の部品は `PlaybackEntryTestSupport.swift`）、キューの iOS 側契約は `PlaybackQueueIosContractTests`。違反を減らしたら、同じ変更で許可リストの行数も減らす（実測と一致しないと落ちる）。

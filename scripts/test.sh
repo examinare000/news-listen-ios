@@ -28,7 +28,10 @@ CMD=(xcodebuild test
   -scheme "$SCHEME"
   -destination "platform=iOS Simulator,name=$DEVICE"
   -only-testing:NewsListenAppTests
-  -resultBundlePath build/TestResults.xcresult)
+  -resultBundlePath build/TestResults.xcresult
+  CODE_SIGNING_ALLOWED=NO
+  CODE_SIGNING_REQUIRED=NO
+  CODE_SIGN_IDENTITY="")
 
 if command -v xcbeautify >/dev/null 2>&1; then
   "${CMD[@]}" | xcbeautify
