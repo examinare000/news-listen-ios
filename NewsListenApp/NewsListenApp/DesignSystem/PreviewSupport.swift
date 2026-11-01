@@ -127,6 +127,32 @@ enum PreviewSamples {
     /// プレビュー用の `AppState`（API 未注入のまま既定値で動く）。
     @MainActor static func appState() -> AppState { AppState() }
 
+    /// プレビュー用の `PreferencesStore`（通信なし・保存なし。値は既定のまま）。
+    @MainActor static func preferencesStore() -> PreferencesStore {
+        let state = AppState()
+        return PreferencesStore(
+            gateway: nil,
+            storage: PreferenceStorage(
+                read: {
+                    PreferenceSnapshot(
+                        difficulty: .default,
+                        playbackSpeed: PreferenceCatalog.defaultPlaybackSpeed,
+                        weeklyGoal: .default,
+                        articleOpenMode: PreferenceCatalog.defaultArticleOpenMode,
+                        timeFormat: .default,
+                        soundEnabled: PreferenceCatalog.defaultSoundEnabled,
+                        hapticsEnabled: PreferenceCatalog.defaultHapticsEnabled
+                    )
+                },
+                write: { _ in },
+                clearSubjectScoped: {}
+            ),
+            isCurrentSubject: { state.isCurrentSubject($0) },
+            subjectStamp: { state.subjectStamp },
+            isAuthenticated: { false }
+        )
+    }
+
     /// サンプル JSON を返すモックセッションを背負った `APIClient`。
     @MainActor static func apiClient() -> APIClient {
         APIClient(

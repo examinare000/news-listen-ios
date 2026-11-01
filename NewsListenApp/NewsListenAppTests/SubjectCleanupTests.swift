@@ -62,12 +62,10 @@ final class SubjectCleanupTests: XCTestCase {
         let suiteName = "SubjectCleanupTests.\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: suiteName)!
         seedAllKeys(suite)
-        let appState = AppState(
+        let (appState, prefs) = makeAppStateWithPreferences(
+            session: MockURLSession(data: Data("{}".utf8), statusCode: 200),
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: MockURLSession(data: Data("{}".utf8), statusCode: 200), onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: suite),
+            defaults: suite,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { key in if let key { try AudioCacheManager(fileManager: fileManager).removeSubject(key) } }
         )
@@ -94,9 +92,9 @@ final class SubjectCleanupTests: XCTestCase {
         for key in deviceLocalKeys {
             XCTAssertNotNil(suite.object(forKey: key), "端末設定 key '\(key)' は残るべき")
         }
-        XCTAssertEqual(appState.defaultDifficulty, "toeic_600")
-        XCTAssertEqual(appState.defaultPlaybackSpeed, 1.0)
-        XCTAssertEqual(appState.weeklyGoalEpisodes, 3)
+        XCTAssertEqual(prefs.defaultDifficulty, .toeic600)
+        XCTAssertEqual(prefs.defaultPlaybackSpeed, 1.0)
+        XCTAssertEqual(prefs.weeklyGoal, .default)
         XCTAssertNil(appState.lastCleanupIncomplete)
     }
 
@@ -112,12 +110,10 @@ final class SubjectCleanupTests: XCTestCase {
         let suite = UserDefaults(suiteName: suiteName)!
         seedAllKeys(suite)
         let session = MockURLSession(data: Data(), statusCode: 401)
-        let appState = AppState(
+        let (appState, _) = makeAppStateWithPreferences(
+            session: session,
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: session, onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: suite),
+            defaults: suite,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { key in if let key { try AudioCacheManager(fileManager: fileManager).removeSubject(key) } }
         )
@@ -152,12 +148,10 @@ final class SubjectCleanupTests: XCTestCase {
         failingFileManager.directories.insert("/mock-caches/NewsListenApp")
         failingFileManager.files["/mock-caches/NewsListenApp/audio/user-a/p1.mp3"] = Data("audio1".utf8)
         let suite = UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!
-        let appState = AppState(
+        let (appState, _) = makeAppStateWithPreferences(
+            session: MockURLSession(data: Data("{}".utf8), statusCode: 200),
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: MockURLSession(data: Data("{}".utf8), statusCode: 200), onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: suite),
+            defaults: suite,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { key in if let key { try AudioCacheManager(fileManager: failingFileManager).removeSubject(key) } }
         )
@@ -220,12 +214,10 @@ final class SubjectCleanupTests: XCTestCase {
         let nowPlaying = NowPlayingCenterSpy()
         let playback = PlaybackLifecycleSpy()
         let session = MockURLSession(data: Data(), statusCode: 401) // /auth/logout・device-token 解除の両方が 401
-        let appState = AppState(
+        let (appState, _) = makeAppStateWithPreferences(
+            session: session,
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: session, onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
+            defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { _ in }
         )
@@ -250,12 +242,10 @@ final class SubjectCleanupTests: XCTestCase {
             let playback = PlaybackLifecycleSpy()
             let suite = UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!
             seedAllKeys(suite)
-            let appState = AppState(
+            let (appState, _) = makeAppStateWithPreferences(
+                session: MockURLSession(mode: mode),
                 sessionStore: store,
-                apiClientFactory: { token, onUnauthorized in
-                    APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: MockURLSession(mode: mode), onUnauthorized: onUnauthorized)
-                },
-                preferences: PreferenceRegistry(defaults: suite),
+                defaults: suite,
                 nowPlayingCenter: nowPlaying,
                 clearOfflineLibrary: { _ in }
             )
@@ -277,12 +267,10 @@ final class SubjectCleanupTests: XCTestCase {
     func testTT15_06_SL03_decodingFailureDoesNotRunCleanup() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
-        let appState = AppState(
+        let (appState, _) = makeAppStateWithPreferences(
+            session: MockURLSession(data: Data("not json".utf8), statusCode: 200),
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: MockURLSession(data: Data("not json".utf8), statusCode: 200), onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
+            defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { _ in }
         )
@@ -301,12 +289,10 @@ final class SubjectCleanupTests: XCTestCase {
         let nowPlaying = NowPlayingCenterSpy()
         let playback = PlaybackLifecycleSpy()
         let session = MockURLSession(data: Data(), statusCode: 401)
-        let appState = AppState(
+        let (appState, _) = makeAppStateWithPreferences(
+            session: session,
             sessionStore: InMemorySessionStore(),
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: session, onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
+            defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { _ in }
         )
@@ -331,12 +317,10 @@ final class SubjectCleanupTests: XCTestCase {
     func testTT15_08_logoutWithoutRegisteredLifecycleStillClearsNowPlaying() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
-        let appState = AppState(
+        let (appState, _) = makeAppStateWithPreferences(
+            session: MockURLSession(data: Data("{}".utf8), statusCode: 200),
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: MockURLSession(data: Data("{}".utf8), statusCode: 200), onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
+            defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { _ in }
         )
@@ -353,12 +337,10 @@ final class SubjectCleanupTests: XCTestCase {
     func testTT15_08_logoutWithReleasedLifecycleStillClearsNowPlaying() async {
         let store = InMemorySessionStore(token: "tA")
         let nowPlaying = NowPlayingCenterSpy()
-        let appState = AppState(
+        let (appState, _) = makeAppStateWithPreferences(
+            session: MockURLSession(data: Data("{}".utf8), statusCode: 200),
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: MockURLSession(data: Data("{}".utf8), statusCode: 200), onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
+            defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { _ in }
         )
@@ -378,26 +360,26 @@ final class SubjectCleanupTests: XCTestCase {
     // MARK: - T-T15-11a（ios-contract-21.8）
 
     // verifies: ios-contract-21.8
-    func testTT15_11a_writesToSubjectScopedPropertiesWhileNotAuthenticatedDoNotPersist() {
+    func testTT15_11a_writesToSubjectScopedPropertiesWhileNotAuthenticatedDoNotPersist() async throws {
         let suite = UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!
-        let appState = AppState(
+        let (appState, prefs) = makeAppStateWithPreferences(
             sessionStore: InMemorySessionStore(),
-            preferences: PreferenceRegistry(defaults: suite),
+            defaults: suite,
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearOfflineLibrary: { _ in }
         )
         guard case .resolving = appState.session else { return XCTFail("前提: 非 authenticated（resolving）") }
 
-        appState.defaultDifficulty = "toeic_900"
-        appState.defaultPlaybackSpeed = 1.25
-        appState.weeklyGoalEpisodes = 5
+        try await prefs.setDefaultDifficulty(.toeic900)
+        try await prefs.setDefaultPlaybackSpeed(1.25)
+        try await prefs.setWeeklyGoal(WeeklyGoalTarget(episodes: 5)!)
 
         for key in subjectScopedKeys where key != "seen_achievement_ids" {
             XCTAssertNil(suite.object(forKey: key), "非 authenticated の代入は永続化されないべき")
         }
-        XCTAssertEqual(appState.defaultDifficulty, "toeic_600")
-        XCTAssertEqual(appState.defaultPlaybackSpeed, 1.0)
-        XCTAssertEqual(appState.weeklyGoalEpisodes, 3)
+        XCTAssertEqual(prefs.defaultDifficulty, .toeic600)
+        XCTAssertEqual(prefs.defaultPlaybackSpeed, 1.0)
+        XCTAssertEqual(prefs.weeklyGoal, .default)
     }
 
     // MARK: - T-T15-11b, T-T15-14（ios-contract-21.10, G3）
@@ -409,19 +391,17 @@ final class SubjectCleanupTests: XCTestCase {
         scripted.configurePending(method: "GET", path: "/settings/preferences")
         scripted.configure(method: "POST", path: "/auth/logout", status: 200)
         let suite = UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!
-        let appState = AppState(
+        let (appState, prefs) = makeAppStateWithPreferences(
+            session: scripted,
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: scripted, onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: suite),
+            defaults: suite,
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearOfflineLibrary: { _ in }
         )
         appState.completeLogin(LoginReceipt(token: "t0", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
-        let failedBefore = appState.preferencesSyncFailed
+        let failedBefore = prefs.syncFailed
 
-        let task = Task { await appState.refreshPreferences() }
+        let task = Task { await prefs.refreshFromServer() }
         await scripted.waitUntilRequested(method: "GET", path: "/settings/preferences")
         await appState.logout()
         let prefsJSON = #"{"default_difficulty":"toeic_900","default_playback_speed":1.25,"weekly_goal_episodes":5}"#
@@ -431,8 +411,8 @@ final class SubjectCleanupTests: XCTestCase {
         for key in subjectScopedKeys {
             XCTAssertNil(suite.object(forKey: key))
         }
-        XCTAssertEqual(appState.defaultDifficulty, "toeic_600")
-        XCTAssertEqual(appState.preferencesSyncFailed, failedBefore)
+        XCTAssertEqual(prefs.defaultDifficulty, .toeic600)
+        XCTAssertEqual(prefs.syncFailed, failedBefore)
     }
 
     // verifies: ios-contract-21.10
@@ -442,19 +422,17 @@ final class SubjectCleanupTests: XCTestCase {
         scripted.configurePending(method: "GET", path: "/settings/preferences")
         scripted.configure(method: "POST", path: "/auth/logout", status: 200)
         let suite = UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!
-        let appState = AppState(
+        let (appState, prefs) = makeAppStateWithPreferences(
+            session: scripted,
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: scripted, onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: suite),
+            defaults: suite,
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearOfflineLibrary: { _ in }
         )
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
-        let failedBefore = appState.preferencesSyncFailed
+        let failedBefore = prefs.syncFailed
 
-        let task = Task { await appState.refreshPreferences() }
+        let task = Task { await prefs.refreshFromServer() }
         await scripted.waitUntilRequested(method: "GET", path: "/settings/preferences")
         await appState.logout()
         appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
@@ -462,11 +440,11 @@ final class SubjectCleanupTests: XCTestCase {
         scripted.release(method: "GET", path: "/settings/preferences", status: 200, body: Data(prefsJSON.utf8))
         await task.value
 
-        XCTAssertEqual(appState.defaultDifficulty, "toeic_600", "bob の値が A の応答で書き換わってはならない")
+        XCTAssertEqual(prefs.defaultDifficulty, .toeic600, "bob の値が A の応答で書き換わってはならない")
         for key in subjectScopedKeys {
             XCTAssertNil(suite.object(forKey: key))
         }
-        XCTAssertEqual(appState.preferencesSyncFailed, failedBefore)
+        XCTAssertEqual(prefs.syncFailed, failedBefore)
     }
 
     // MARK: - T-T15-13（ios-contract-21.10）
@@ -475,22 +453,20 @@ final class SubjectCleanupTests: XCTestCase {
     func testTT15_13_refreshPreferencesNoOpWhenNotAuthenticated() async {
         let session = MockURLSession(data: Data(), statusCode: 500)
         for store in [InMemorySessionStore(), InMemorySessionStore(token: "tA")] {
-            let appState = AppState(
+            let (appState, prefs) = makeAppStateWithPreferences(
+                session: session,
                 sessionStore: store,
-                apiClientFactory: { token, onUnauthorized in
-                    APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: session, onUnauthorized: onUnauthorized)
-                },
-                preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
+                defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
                 nowPlayingCenter: NowPlayingCenterSpy(),
                 clearOfflineLibrary: { _ in }
             )
             guard case .resolving = appState.session else { return XCTFail("前提: 非 authenticated") }
 
-            await appState.refreshPreferences()
+            await prefs.refreshFromServer()
 
             XCTAssertNil(session.lastRequest)
-            XCTAssertFalse(appState.preferencesSyncFailed)
-            XCTAssertEqual(appState.defaultDifficulty, "toeic_600")
+            XCTAssertFalse(prefs.syncFailed)
+            XCTAssertEqual(prefs.defaultDifficulty, .toeic600)
         }
     }
 
@@ -502,12 +478,10 @@ final class SubjectCleanupTests: XCTestCase {
         let nowPlaying = NowPlayingCenterSpy()
         let playback = PlaybackLifecycleSpy()
         let session = MutableStatusSession(statusCode: 200) // logout 自体は成功させる
-        let appState = AppState(
+        let (appState, _) = makeAppStateWithPreferences(
+            session: session,
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: session, onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
+            defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { _ in }
         )
@@ -543,12 +517,10 @@ final class SubjectCleanupTests: XCTestCase {
         scripted.configure(method: "DELETE", path: "/notifications/device-tokens", status: 401)
         scripted.configurePending(method: "POST", path: "/auth/logout")
         scripted.configure(method: "POST", path: "/notifications/device-tokens", status: 200)
-        let appState = AppState(
+        let (appState, _) = makeAppStateWithPreferences(
+            session: scripted,
             sessionStore: store,
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: scripted, onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
+            defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { _ in }
         )
@@ -580,23 +552,22 @@ final class SubjectCleanupTests: XCTestCase {
         for mode: MockURLSession.Mode in [.transportError(CancellationError()), .transportError(URLError(.cancelled))] {
             let store = InMemorySessionStore(token: "tA")
             let suite = UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!
-            let appState = AppState(
+            // 同期を伴わない前提の値は、store を作る前に保存して init で読ませる
+            suite.set("ielts_7", forKey: "default_difficulty")
+            let (appState, prefs) = makeAppStateWithPreferences(
+                session: MockURLSession(mode: mode),
                 sessionStore: store,
-                apiClientFactory: { token, onUnauthorized in
-                    APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: MockURLSession(mode: mode), onUnauthorized: onUnauthorized)
-                },
-                preferences: PreferenceRegistry(defaults: suite),
+                defaults: suite,
                 nowPlayingCenter: NowPlayingCenterSpy(),
                 clearOfflineLibrary: { _ in }
             )
             appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
-            appState.defaultDifficulty = "ielts_7"
-            XCTAssertFalse(appState.preferencesSyncFailed)
+            XCTAssertFalse(prefs.syncFailed)
 
-            await appState.refreshPreferences()
+            await prefs.refreshFromServer()
 
-            XCTAssertFalse(appState.preferencesSyncFailed, "キャンセルは失敗として扱わないべき")
-            XCTAssertEqual(appState.defaultDifficulty, "ielts_7")
+            XCTAssertFalse(prefs.syncFailed, "キャンセルは失敗として扱わないべき")
+            XCTAssertEqual(prefs.defaultDifficulty, .ielts7)
         }
     }
 

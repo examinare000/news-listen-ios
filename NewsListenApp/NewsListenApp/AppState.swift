@@ -2,32 +2,13 @@
 //  AppState.swift
 //  NewsListenApp
 //
-//  アプリ全体で共有するユーザー設定（API URL・キー・難易度・再生速度）と認証状態を保持する。
-//  設定値は `PreferenceRegistry` 経由で永続化し、認証状態は `AuthSession`（ios-slice-auth-01）で表す。
+//  アプリ全体で共有する API URL・キーと認証状態を保持する。
+//  認証状態は `AuthSession`（ios-slice-auth-01）で表す。ユーザー設定の現在値は `PreferencesStore` が持つ。
 //  SwiftUI から @StateObject / @EnvironmentObject で参照する。
 //
 
 import Foundation
 import Combine
-
-/// 記事タップ時の遷移先。アプリ内 Safari（既定）か外部 Safari かを選べる（要件 §3.2/§3.6・AC-5）。
-enum ArticleOpenMode: String, CaseIterable, Identifiable {
-    /// アプリ内 Safari（`SFSafariViewController`）で開く。
-    case inApp = "in_app"
-    /// 外部 Safari アプリで開く。
-    case external = "external"
-
-    /// `ForEach` 等で利用する一意な識別子（rawValue を流用）。
-    var id: String { rawValue }
-
-    /// 設定画面の Picker に表示する日本語ラベル。
-    var label: String {
-        switch self {
-        case .inApp: return "アプリ内 Safari"
-        case .external: return "外部 Safari"
-        }
-    }
-}
 
 /// ログイン成功の結果（ios-cmd-account-01 の receipt）。ログイン VM が応答から作り、`completeLogin` へ渡す。
 struct LoginReceipt: Equatable {
@@ -44,7 +25,7 @@ struct SubjectStamp {
     fileprivate let token: String?
 }
 
-/// アプリ全体で共有するユーザー設定・認証状態を保持する状態オブジェクト。
+/// アプリ全体で共有する認証状態を保持する状態オブジェクト（ユーザー設定は `PreferencesStore` が持つ）。
 ///
 /// - Note: `apiClient` で `@MainActor` 分離の ``APIClient`` を生成するため、`AppState` 自体も
 ///   `@MainActor` にする。UI 状態であり常にメインスレッドで更新されるため分離方針とも整合する。
@@ -78,54 +59,12 @@ final class AppState: ObservableObject {
         return true
     }
 
-    /// Podcast 生成時の既定難易度。変更時に registry へ保存する（authenticated の間のみ永続化: ios-contract-21.8）。
-    @Published var defaultDifficulty: String {
-        didSet { persistSubjectScopedOrReset(\.defaultDifficulty, current: defaultDifficulty) { defaultDifficulty = $0 } }
-    }
-
-    /// 既定の再生速度。変更時に registry へ保存する（authenticated の間のみ永続化: ios-contract-21.8）。
-    @Published var defaultPlaybackSpeed: Double {
-        didSet { persistSubjectScopedOrReset(\.defaultPlaybackSpeed, current: defaultPlaybackSpeed) { defaultPlaybackSpeed = $0 } }
-    }
-
-    /// 1 週間に完聴する目標本数。設定可能値は 3 / 5 / 7 / 10。
-    @Published var weeklyGoalEpisodes: Int {
-        didSet { persistSubjectScopedOrReset(\.weeklyGoalEpisodes, current: weeklyGoalEpisodes) { weeklyGoalEpisodes = $0 } }
-    }
-
-    /// サーバーで最後に同期確認された週次目標。ローカルの新値とこれが異なる場合だけ同期を試みる。
-    /// レース対策: UI の revert 代入が onChange を再発火してループする問題を防ぐため、
-    /// 確認済み値と比較して不要な同期を省略する（issue #164）。主体には属すがメモリのみ（registry 外）。
-    @Published private(set) var lastConfirmedWeeklyGoalEpisodes: Int = 3
-
-    /// 記事タップ時の開き方。端末ローカル設定のため authenticated 状態に関わらず常に永続化する。
-    @Published var articleOpenMode: ArticleOpenMode {
-        didSet {
-            guard didFinishInit else { return }
-            preferences.set(preferences.articleOpenMode, articleOpenMode.rawValue)
-        }
-    }
-
-    /// 記事の日付表記方式（"absolute" | "relative"）。端末ローカル設定のため常に永続化する。
-    @Published var timeFormat: String {
-        didSet {
-            guard didFinishInit else { return }
-            preferences.set(preferences.timeFormat, timeFormat)
-        }
-    }
-
     /// 初回オンボーディング（おすすめ追加ステップ）の完了状態。
     ///
     /// サーバ側（`UserPrefs.onboarding_completed`）が正であり、起動ごとに取得する。
     /// `nil`=未取得（判定保留）。`false` のときのみ追加ステップを提示する。
     /// launch 時のブロッキングを避けるため、ルーティングは `ContentView` 上の fullScreenCover で行う。
     @Published var onboardingCompleted: Bool?
-
-    /// 直近の `refreshPreferences()` が失敗したか（issue #164・サイレント失敗解消）。
-    ///
-    /// 失敗してもローカルの `defaultDifficulty`/`defaultPlaybackSpeed` は保持する既存仕様は
-    /// 変えず、失敗の有無だけを可視化して設定画面のインライン警告・再試行導線に使う。
-    @Published var preferencesSyncFailed = false
 
     /// アプリ全体で共有する聴取ストリーク。未取得・未提供時は `nil`。
     @Published var listeningStreak: ListeningStreak?
@@ -147,8 +86,11 @@ final class AppState: ObservableObject {
     /// セッショントークンの保管先（既定は Keychain、テストはインメモリ）。
     private let sessionStore: SessionStore
 
-    /// 設定宣言の正本（ios-slice-auth-01）。
-    private let preferences: PreferenceRegistry
+    /// 起動時の設定の同期。本番は `PreferencesStore.refreshFromServer()`（合成 root が渡す）。
+    private let refreshPreferences: () async -> Void
+
+    /// 主体離脱時の設定の消去。本番は `PreferencesStore.clearSubjectScoped()`（合成 root が渡す）。
+    private let clearSubjectPreferences: () -> Void
 
     /// ロック画面/コントロールセンターの表示クリア port（主体離脱の後始末で使う）。
     private let nowPlayingCenter: NowPlayingCenter
@@ -185,11 +127,6 @@ final class AppState: ObservableObject {
     /// テスト seam（D-3）: 保存トークンと unauthorized observer から ``APIClient`` を作る factory。
     /// `apiClientOverride` の次に優先する。既定 `nil`（本番は下の computed 生成）。
     private let apiClientFactory: ((String?, @escaping @MainActor () -> Void) -> APIClient)?
-
-    /// init 完了後かどうか。init 内の初期代入では didSet の永続化処理を走らせない。
-    private var didFinishInit = false
-    /// 主体依存設定を既定値へ戻す代入の再帰防止フラグ（didSet からの自己代入用）。
-    private var isResettingSubjectScopedPreferences = false
 
     /// 現在の設定から生成した ``APIClient``。優先順位: override > factory > 本番生成（D-3）。
     ///
@@ -362,37 +299,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// サーバーから preferences を取得し、ローカルの主体依存設定を更新する（G3）。
-    /// 呼出時点で authenticated かつ保存トークンが無ければ no-op。取得失敗時は既存値を保持
-    /// しつつ `preferencesSyncFailed` を立てる（issue #164）。キャンセルは失敗として扱わない。
-    func refreshPreferences() async {
-        guard case .authenticated = session, let t0 = sessionStore.token, let apiClient else { return }
-        do {
-            let serverPreferences = try await apiClient.fetchPreferences()
-            guard case .authenticated = session, sessionStore.token == t0 else { return }
-            if let difficulty = serverPreferences.defaultDifficulty,
-               preferences.set(preferences.defaultDifficulty, difficulty) {
-                defaultDifficulty = difficulty
-            }
-            if let speed = serverPreferences.defaultPlaybackSpeed,
-               preferences.set(preferences.defaultPlaybackSpeed, speed) {
-                defaultPlaybackSpeed = speed
-            }
-            if let weeklyGoal = serverPreferences.weeklyGoalEpisodes,
-               preferences.set(preferences.weeklyGoalEpisodes, weeklyGoal) {
-                weeklyGoalEpisodes = weeklyGoal
-                // サーバーから正常に同期できたので、確認済み値を更新する
-                lastConfirmedWeeklyGoalEpisodes = weeklyGoal
-            }
-            preferencesSyncFailed = false
-        } catch is ApiFailure {
-            guard case .authenticated = session, sessionStore.token == t0 else { return }
-            preferencesSyncFailed = true
-        } catch {
-            // ApiFailure 以外（キャンセル）は失敗として扱わない（ios-contract-21.10・ios-slice-failure-01 D2）。
-        }
-    }
-
     /// サーバーから聴取ストリークを取得して共有状態を更新する（G5）。
     ///
     /// 404 は旧 backend または未提供機能として非表示へ graceful degradation する。
@@ -421,15 +327,6 @@ final class AppState: ObservableObject {
             listeningStreak = nil
             listeningStreakLoadFailed = true
         }
-    }
-
-    /// 週次目標の同期確認を記録する（G10）。`capturedAt` は await の前に捕捉した stamp。
-    /// - Parameters:
-    ///   - value: サーバーで確認された週次目標。
-    ///   - stamp: await の前に捕捉した `subjectStamp`。
-    func confirmWeeklyGoalSync(_ value: Int, capturedAt stamp: SubjectStamp) {
-        guard isCurrentSubject(stamp) else { return }
-        lastConfirmedWeeklyGoalEpisodes = value
     }
 
     /// ログアウトしてローカル状態を未認証にし、サーバ側セッションの破棄をベストエフォートで送る（G4）。
@@ -465,7 +362,7 @@ final class AppState: ObservableObject {
         let cleanup = SubjectCleanup(
             playbackLifecycle: playbackLifecycle,
             nowPlayingCenter: nowPlayingCenter,
-            clearSubjectPreferences: { [weak self] in self?.resetSubjectScopedPreferencesToDefaults() },
+            clearSubjectPreferences: clearSubjectPreferences,
             clearOfflineLibrary: clearOfflineLibrary,
             cancelDownloads: { [weak self] in self?.offlineDownloads?.cancelAll() }
         )
@@ -482,34 +379,6 @@ final class AppState: ObservableObject {
         } catch {
             lastCleanupIncomplete = CleanupIncomplete(failedParts: [.offlineLibrary])
         }
-    }
-
-    /// AppState が保持する主体依存値をメモリ上で registry 既定値へ戻し、registry の
-    /// subjectScoped key を UserDefaults から削除する（spec §3.2 手順 3）。
-    private func resetSubjectScopedPreferencesToDefaults() {
-        defaultDifficulty = preferences.defaultDifficulty.defaultValue
-        defaultPlaybackSpeed = preferences.defaultPlaybackSpeed.defaultValue
-        weeklyGoalEpisodes = preferences.weeklyGoalEpisodes.defaultValue
-        lastConfirmedWeeklyGoalEpisodes = preferences.weeklyGoalEpisodes.defaultValue
-        preferences.clearSubjectScoped()
-    }
-
-    /// 主体依存 3 プロパティ（`defaultDifficulty`・`defaultPlaybackSpeed`・`weeklyGoalEpisodes`）の
-    /// 共通 didSet ロジック（ios-contract-21.8）。authenticated の間だけ registry へ永続化し、それ以外は
-    /// 代入を registry 既定値へ戻す（再帰は `isResettingSubjectScopedPreferences` で 1 段だけ抑止）。
-    private func persistSubjectScopedOrReset<Value>(
-        _ setting: KeyPath<PreferenceRegistry, PreferenceSetting<Value>>,
-        current: Value,
-        reset: (Value) -> Void
-    ) {
-        guard didFinishInit, !isResettingSubjectScopedPreferences else { return }
-        guard case .authenticated = session else {
-            isResettingSubjectScopedPreferences = true
-            reset(preferences[keyPath: setting].defaultValue)
-            isResettingSubjectScopedPreferences = false
-            return
-        }
-        preferences.set(preferences[keyPath: setting], current)
     }
 
     /// 登録済みの `PlaybackLifecycle` を差し替える（weak）。`ContentView` が表示時に呼ぶ（ios-contract-21.9）。
@@ -566,15 +435,13 @@ final class AppState: ObservableObject {
         return value
     }
 
-    /// 永続化済みの設定を読み込んで状態を初期化する。
-    ///
     /// API URL・キーはビルド注入値(Info.plist←Secrets.xcconfig)のみを読む（ADR-037、#25）。
-    /// その他の値は `PreferenceRegistry` 経由で読む（「ユーザーが保存した値 > 既定値」の優先順位）。
     /// - Parameters:
     ///   - sessionStore: セッショントークンの保管先。既定は Keychain。テストで差し替える。
     ///   - apiClientOverride: テスト時に注入する ``APIClient``（既定 `nil`、最優先）。
     ///   - apiClientFactory: テスト seam（D-3）。保存トークンと observer から client を作る factory。
-    ///   - preferences: 設定宣言の正本。既定は `.standard` を使う `PreferenceRegistry()`。
+    ///   - refreshPreferences: 起動時の設定の同期。既定は何もしない。
+    ///   - clearSubjectPreferences: 主体離脱時の設定の消去。既定は何もしない。
     ///   - nowPlayingCenter: ロック画面表示クリア port。既定は本番実装。
     ///   - clearOfflineLibrary: 離脱主体の音声キャッシュ削除。既定は `AudioCacheManager()` で主体のディレクトリだけを消す。
     ///   - bindOfflineSubject: 音声ライブラリの束縛。既定は何もしない。
@@ -583,7 +450,8 @@ final class AppState: ObservableObject {
         sessionStore: SessionStore = KeychainSessionStore(),
         apiClientOverride: APIClient? = nil,
         apiClientFactory: ((String?, @escaping @MainActor () -> Void) -> APIClient)? = nil,
-        preferences: PreferenceRegistry = PreferenceRegistry(),
+        refreshPreferences: @escaping () async -> Void = {},
+        clearSubjectPreferences: @escaping () -> Void = {},
         nowPlayingCenter: NowPlayingCenter = MediaPlayerNowPlaying(),
         clearOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { key in
             if let key { try AudioCacheManager().removeSubject(key) }
@@ -594,7 +462,8 @@ final class AppState: ObservableObject {
         self.sessionStore = sessionStore
         self.apiClientOverride = apiClientOverride
         self.apiClientFactory = apiClientFactory
-        self.preferences = preferences
+        self.refreshPreferences = refreshPreferences
+        self.clearSubjectPreferences = clearSubjectPreferences
         self.nowPlayingCenter = nowPlayingCenter
         self.clearOfflineLibrary = clearOfflineLibrary
         self.bindOfflineSubject = bindOfflineSubject
@@ -602,13 +471,5 @@ final class AppState: ObservableObject {
         // API URL・キーはビルド時注入のみ（ユーザー入力・UserDefaults フォールバックは廃止）。
         self.apiBaseURL = Self.injectedValue("APIBaseURL") ?? ""
         self.apiKey = Self.injectedValue("APIKey") ?? ""
-        self.defaultDifficulty = preferences.get(preferences.defaultDifficulty)
-        self.defaultPlaybackSpeed = preferences.get(preferences.defaultPlaybackSpeed)
-        let resolvedWeeklyGoal = preferences.get(preferences.weeklyGoalEpisodes)
-        self.weeklyGoalEpisodes = resolvedWeeklyGoal
-        self.lastConfirmedWeeklyGoalEpisodes = resolvedWeeklyGoal
-        self.articleOpenMode = ArticleOpenMode(rawValue: preferences.get(preferences.articleOpenMode)) ?? .inApp
-        self.timeFormat = preferences.get(preferences.timeFormat)
-        didFinishInit = true
     }
 }

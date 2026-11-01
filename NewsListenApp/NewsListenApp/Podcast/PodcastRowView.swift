@@ -20,7 +20,7 @@ struct PodcastRowView: View {
     /// ダウンロードボタンタップハンドラ（オプション）。
     let onDownloadTap: (() -> Void)?
     /// アプリ全体で共有する設定状態。
-    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var preferencesStore: PreferencesStore
 
     init(
         row: EpisodeRow,
@@ -83,7 +83,7 @@ struct PodcastRowView: View {
 
     /// timeFormat 設定に応じた日付表記を返す。
     private var formattedDate: String {
-        if appState.timeFormat == "relative" {
+        if preferencesStore.timeFormat == .relative {
             return RelativeTimeFormatter.format(row.createdAt)
         } else {
             return String(row.createdAt.prefix(10))
@@ -176,6 +176,7 @@ private struct PodcastRowGallery: View {
         .scrollContentBackground(.hidden)
         .background(DSColor.paper)
         .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.preferencesStore())
     }
 }
 

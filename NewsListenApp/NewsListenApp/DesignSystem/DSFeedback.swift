@@ -23,13 +23,9 @@ enum DSFeedbackVocabulary: Hashable {
 final class DSFeedback {
     static let shared = DSFeedback()
 
-    /// AppStorage キーの一元化（Settings 画面と共有）。key 文字列の宣言は
-    /// `PreferenceRegistry`（ios-slice-auth-01）が正本で、ここはその別名（D-5）。
-    static let sfxEnabledKey = PreferenceRegistry.sfxEnabledKey
-    static let hapticsEnabledKey = PreferenceRegistry.hapticsEnabledKey
-
-    @AppStorage(DSFeedback.sfxEnabledKey) private var sfxEnabled = true
-    @AppStorage(DSFeedback.hapticsEnabledKey) private var hapticsEnabled = true
+    /// 効果音・触覚の有効かどうか。合成 root が設定の現在値を読む closure に差し替える（ios-dec-93）。
+    var isSoundEnabled: () -> Bool = { PreferenceCatalog.defaultSoundEnabled }
+    var isHapticsEnabled: () -> Bool = { PreferenceCatalog.defaultHapticsEnabled }
 
     /// 同一語彙の連打で Editorial の静けさを損なわないよう、単調増加時計で 300ms 間引く。
     private var lastPlayedAt: [DSFeedbackVocabulary: TimeInterval] = [:]
@@ -50,7 +46,7 @@ final class DSFeedback {
         lastPlayedAt[vocabulary] = now
         lastPlayedVocabulary = vocabulary
 
-        if hapticsEnabled, let style = impactStyle(for: vocabulary) {
+        if isHapticsEnabled(), let style = impactStyle(for: vocabulary) {
             let generator = UIImpactFeedbackGenerator(style: style)
             generator.prepare()
             generator.impactOccurred()
@@ -61,7 +57,7 @@ final class DSFeedback {
         //     AudioServicesPlaySystemSound を呼び出すと音が鳴らない/途切れることがある。
         //     実機テストでのみ確定でき、Simulator では検知できない既知の iOS 制限。
         //     TestFlight での実機検証時に再生中のクイズ採点音の再生を必ず確認すること。
-        if sfxEnabled && (vocabulary == .correct || vocabulary == .streakUp) {
+        if isSoundEnabled() && (vocabulary == .correct || vocabulary == .streakUp) {
             AudioServicesPlaySystemSound(soundId(for: vocabulary))
         }
     }

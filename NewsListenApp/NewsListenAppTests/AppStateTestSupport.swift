@@ -174,8 +174,7 @@ final class OfflineLibraryCallLog {
 // MARK: - AppState ファクトリ（主体離脱を伴うテスト共通。PM-8）
 
 /// 主体離脱（logout・401 失効）を伴うテストで使う `AppState` を、実機のキャッシュディレクトリや
-/// `MPNowPlayingInfoCenter` に触れない doubles 一式（NowPlayingCenter spy・UUID suite の
-/// PreferenceRegistry・空のキャッシュを模す MockFileManager）で組み立てる。
+/// `MPNowPlayingInfoCenter` に触れない doubles 一式（NowPlayingCenter spy・空のキャッシュを模す MockFileManager）で組み立てる。
 /// - Parameters:
 ///   - session: `apiClient`/`apiClientFactory` の通信に使う test double（未指定なら空応答の `MockURLSession`）。
 ///   - sessionStore: セッショントークンの保管（未指定ならインメモリ）。
@@ -195,18 +194,60 @@ func makeSubjectAwareAppState(
     bindOfflineSubject: @escaping (SubjectKey?) -> Void = { _ in },
     reclaimOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { _ in }
 ) -> AppState {
-    let suiteName = "AppStateTestSupport.\(UUID().uuidString)"
-    let suite = UserDefaults(suiteName: suiteName)!
     let cache = AudioCacheManager(fileManager: offlineFileManager)
-    return AppState(
+    // 起動時の設定の同期（`refreshAuth` → `GET /settings/preferences`）を本番と同じ配線で保つため、store を後結合で結ぶ。
+    let wired = makeAppStateWithPreferences(
+        session: session,
         sessionStore: sessionStore,
-        apiClientFactory: { token, onUnauthorized in
-            APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: session, onUnauthorized: onUnauthorized)
-        },
-        preferences: PreferenceRegistry(defaults: suite),
         nowPlayingCenter: nowPlayingCenter,
         clearOfflineLibrary: clearOfflineLibrary ?? { key in if let key { try cache.removeSubject(key) } },
         bindOfflineSubject: bindOfflineSubject,
         reclaimOfflineLibrary: reclaimOfflineLibrary
     )
+    return wired.state
+}
+
+// MARK: - AppState と PreferencesStore を本番と同じ後結合で結ぶファクトリ（ios-dec-92）
+
+/// `AppState` と `PreferencesStore` を、本番の合成 root と同じ後結合の箱（弱参照）で結ぶ。
+/// `apiClientFactory` を必ず渡すので、`AppState.apiClient` が Info.plist の `APIBaseURL` へ落ちる経路は無い。
+/// - Parameters:
+///   - session: gateway・`AppState` の通信に使う test double（未指定なら空応答 200 の `MockURLSession`）。
+///   - defaults: store の保存先 `PreferenceRegistry(defaults:)` の `UserDefaults`。
+///   - gatewayOverride: 指定すると `PreferencesGateway.live(client:)` の代わりに使う。
+/// - Returns: 戻り値の `state` をテストが保持するので、箱の弱参照は外れない。
+@MainActor
+func makeAppStateWithPreferences(
+    session: URLSessionProtocol = MockURLSession(data: Data("{}".utf8), statusCode: 200),
+    sessionStore: SessionStore = InMemorySessionStore(),
+    defaults: UserDefaults = UserDefaults(suiteName: "AppStateTestSupport.\(UUID().uuidString)")!,
+    nowPlayingCenter: NowPlayingCenterSpy = NowPlayingCenterSpy(),
+    clearOfflineLibrary: ((SubjectKey?) throws -> Void)? = nil,
+    bindOfflineSubject: @escaping (SubjectKey?) -> Void = { _ in },
+    reclaimOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { _ in },
+    gatewayOverride: PreferencesGateway? = nil
+) -> (state: AppState, store: PreferencesStore) {
+    final class Box { weak var state: AppState? }
+    let box = Box()
+    let store = PreferencesStore(
+        gateway: gatewayOverride ?? .live(client: { box.state?.apiClient }),
+        storage: .live(registry: PreferenceRegistry(defaults: defaults)),
+        isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false },
+        subjectStamp: { box.state!.subjectStamp },
+        isAuthenticated: { box.state?.currentSubject != nil }
+    )
+    let state = AppState(
+        sessionStore: sessionStore,
+        apiClientFactory: { token, onUnauthorized in
+            APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: session, onUnauthorized: onUnauthorized)
+        },
+        refreshPreferences: { await store.refreshFromServer() },
+        clearSubjectPreferences: { store.clearSubjectScoped() },
+        nowPlayingCenter: nowPlayingCenter,
+        clearOfflineLibrary: clearOfflineLibrary ?? { _ in },
+        bindOfflineSubject: bindOfflineSubject,
+        reclaimOfflineLibrary: reclaimOfflineLibrary
+    )
+    box.state = state
+    return (state, store)
 }

@@ -15,10 +15,8 @@ import SwiftUI
 struct SettingsView: View {
     /// アプリ全体で共有する設定状態。
     @ObservedObject private var appState: AppState
-    /// ADR-088 の端末ローカル設定。サーバー同期せずデバイスごとの好みを尊重する。
-    /// キーは DSFeedback で一元管理。
-    @AppStorage(DSFeedback.sfxEnabledKey) private var sfxEnabled = true
-    @AppStorage(DSFeedback.hapticsEnabledKey) private var hapticsEnabled = true
+    /// 設定の現在値の持ち主。値の読み取りと変更（`Binding(get:set:)` → command）はここを通す。
+    @EnvironmentObject private var preferencesStore: PreferencesStore
     /// RSS ソースの取得・追加・編集・削除を担う ViewModel。
     ///
     /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
@@ -37,13 +35,13 @@ struct SettingsView: View {
     @State private var newSourceURL = ""
 
     /// 設定画面で選択できる難易度の一覧（値, 表示ラベル）。
-    private let difficulties: [(String, String)] = [
-        ("toeic_600", "TOEIC 600以下"),
-        ("toeic_900", "TOEIC 730〜900"),
-        ("ielts_55", "IELTS 5.5〜6.5"),
-        ("ielts_7", "IELTS 7.0以上"),
-        ("eiken_2", "英検2級"),
-        ("eiken_p1", "英検準1級以上"),
+    private let difficulties: [(DifficultyLevel, String)] = [
+        (.toeic600, "TOEIC 600以下"),
+        (.toeic900, "TOEIC 730〜900"),
+        (.ielts55, "IELTS 5.5〜6.5"),
+        (.ielts7, "IELTS 7.0以上"),
+        (.eiken2, "英検2級"),
+        (.eikenP1, "英検準1級以上"),
     ]
 
     /// ビューを生成する。
@@ -99,30 +97,23 @@ struct SettingsView: View {
     /// 学習ペースの目標。生成上限とは別物であり、未達でも制限しないことを明記する。
     private var learningGoalSection: some View {
         Section("学習目標") {
-            Picker("1週間に聴くエピソード", selection: $appState.weeklyGoalEpisodes) {
-                ForEach([3, 5, 7, 10], id: \.self) { goal in
-                    Text("\(goal) 本").tag(goal)
+            Picker("1週間に聴くエピソード", selection: Binding(
+                get: { preferencesStore.weeklyGoal },
+                set: { goal in
+                    Task {
+                        await viewModel.savePreference(failureMessage: "学習目標の保存に失敗しました") {
+                            try await preferencesStore.setWeeklyGoal(goal)
+                        }
+                    }
+                }
+            )) {
+                ForEach(WeeklyGoalTarget.allCases, id: \.episodes) { goal in
+                    Text("\(goal.episodes) 本").tag(goal)
                 }
             }
             .pickerStyle(.segmented)
-            .onChange(of: appState.weeklyGoalEpisodes) { oldValue, newValue in
-                // 前の主体の応答で次の主体の値を書かない（ios-slice-auth-01）。
-                // stamp は最初の await より前（Task { の前）で捕捉する。
-                let stamp = appState.subjectStamp
-                // 新値がサーバーで既に確認済みなら同期をスキップ。
-                // revert 代入が .onChange を再発火してループする無限ループを防ぐ（issue #164）。
-                guard newValue != appState.lastConfirmedWeeklyGoalEpisodes else { return }
-                Task {
-                    let saved = await viewModel.syncWeeklyGoal(newValue)
-                    if saved {
-                        // 同期成功時は確認済み値を更新してループ防止。
-                        appState.confirmWeeklyGoalSync(newValue, capturedAt: stamp)
-                    } else if appState.isCurrentSubject(stamp) { appState.weeklyGoalEpisodes = oldValue }
-                    // 同期失敗時は旧値へロールバック（前の主体の revert は書かない: 上の行）。
-                }
-            }
 
-            Text(String(format: "1 日あたり平均 %.1f 本", Double(appState.weeklyGoalEpisodes) / 7))
+            Text(String(format: "1 日あたり平均 %.1f 本", Double(preferencesStore.weeklyGoal.episodes) / 7))
                 .font(DSFont.footnote)
                 .foregroundStyle(DSColor.inkSecondary)
 
@@ -135,27 +126,34 @@ struct SettingsView: View {
     /// 記事の開き方（アプリ内 / 外部 Safari）を切り替えるセクション。
     private var feedSection: some View {
         Section("フィード") {
-            Picker("記事の開き方", selection: $appState.articleOpenMode) {
+            Picker("記事の開き方", selection: Binding(
+                get: { preferencesStore.articleOpenMode },
+                set: { preferencesStore.setArticleOpenMode($0) }
+            )) {
                 ForEach(ArticleOpenMode.allCases) { mode in
                     Text(mode.label).tag(mode)
                 }
             }
             .accessibilityHint("記事を現在のアプリ内 Safari で開くか、システムの Safari で開くかを選択できます")
-            Picker("記事の日付表記", selection: $appState.timeFormat) {
-                Text("絶対表記 (YYYY-MM-DD)").tag("absolute")
-                Text("相対表記 (N分前)").tag("relative")
+            Picker("記事の日付表記", selection: Binding(
+                get: { preferencesStore.timeFormat },
+                set: { preferencesStore.setTimeFormat($0) }
+            )) {
+                ForEach(TimeFormat.allCases, id: \.rawValue) { format in
+                    Text(format == .absolute ? "絶対表記 (YYYY-MM-DD)" : "相対表記 (N分前)").tag(format)
+                }
             }
             .accessibilityHint("記事の公開日を絶対表記 (YYYY-MM-DD) または相対表記 (N分前など) で表示するか選択できます")
 
             // サーバー設定同期の失敗を可視化する（issue #164）。ローカル値は保持済みのため
             // アラームは出さず、控えめなインライン警告 + 再試行導線にとどめる。
-            if appState.preferencesSyncFailed {
+            if preferencesStore.syncFailed {
                 HStack {
                     Text("設定の同期に失敗しました。ローカルの値を表示しています。")
                         .font(DSFont.footnote)
                         .foregroundStyle(DSColor.danger)
                     Spacer()
-                    Button("再試行") { Task { await appState.refreshPreferences() } }
+                    Button("再試行") { Task { await preferencesStore.refreshFromServer() } }
                         .buttonStyle(.borderless)
                 }
             }
@@ -367,21 +365,18 @@ struct SettingsView: View {
     /// デフォルト難易度を選択するセクション。
     private var difficultySection: some View {
         Section("デフォルト難易度") {
-            Picker("難易度", selection: $appState.defaultDifficulty) {
-                ForEach(difficulties, id: \.0) { value, label in
-                    Text(label).tag(value)
+            Picker("難易度", selection: Binding(
+                get: { preferencesStore.defaultDifficulty },
+                set: { level in
+                    Task {
+                        await viewModel.savePreference(failureMessage: "設定の保存に失敗しました") {
+                            try await preferencesStore.setDefaultDifficulty(level)
+                        }
+                    }
                 }
-            }
-            .onChange(of: appState.defaultDifficulty) { oldValue, newValue in
-                // 前の主体の応答で次の主体の値を書かない（ios-slice-auth-01）。
-                // stamp は最初の await より前（Task { の前）で捕捉する。
-                let stamp = appState.subjectStamp
-                // ユーザーが難易度を変更したとき、サーバーへ同期する。
-                // 失敗時は errorBinding のアラートで通知し、UI 値をサーバー確認済みの
-                // 旧値へ戻す（issue #164・無音失敗の解消）。
-                Task {
-                    let ok = await viewModel.syncDefaultDifficulty(newValue)
-                    if !ok, appState.isCurrentSubject(stamp) { appState.defaultDifficulty = oldValue }
+            )) {
+                ForEach(difficulties, id: \.0) { level, label in
+                    Text(label).tag(level)
                 }
             }
         }
@@ -390,21 +385,18 @@ struct SettingsView: View {
     /// 既定の再生速度を選択するセクション。
     private var playbackSection: some View {
         Section("再生速度") {
-            Picker("デフォルト再生速度", selection: $appState.defaultPlaybackSpeed) {
+            Picker("デフォルト再生速度", selection: Binding(
+                get: { preferencesStore.defaultPlaybackSpeed },
+                set: { speed in
+                    Task {
+                        await viewModel.savePreference(failureMessage: "設定の保存に失敗しました") {
+                            try await preferencesStore.setDefaultPlaybackSpeed(speed)
+                        }
+                    }
+                }
+            )) {
                 ForEach(PlaybackConstants.speeds.map(Double.init), id: \.self) { speed in
                     Text(String(format: "%g×", speed)).tag(speed)
-                }
-            }
-            .onChange(of: appState.defaultPlaybackSpeed) { oldValue, newValue in
-                // 前の主体の応答で次の主体の値を書かない（ios-slice-auth-01）。
-                // stamp は最初の await より前（Task { の前）で捕捉する。
-                let stamp = appState.subjectStamp
-                // ユーザーが再生速度を変更したとき、サーバーへ同期する。
-                // 失敗時は errorBinding のアラートで通知し、UI 値をサーバー確認済みの
-                // 旧値へ戻す（issue #164・無音失敗の解消）。
-                Task {
-                    let ok = await viewModel.syncDefaultPlaybackSpeed(newValue)
-                    if !ok, appState.isCurrentSubject(stamp) { appState.defaultPlaybackSpeed = oldValue }
                 }
             }
         }
@@ -413,9 +405,9 @@ struct SettingsView: View {
     /// ADR-088 の効果音・触覚はアカウント設定ではなく端末ローカル設定として保持する。
     private var feedbackSection: some View {
         Section("操作フィードバック") {
-            Toggle("効果音", isOn: $sfxEnabled)
+            Toggle("効果音", isOn: Binding(get: { preferencesStore.soundEnabled }, set: { preferencesStore.setSoundEnabled($0) }))
                 .accessibilityHint("クイズやスワイプ確定時の控えめな効果音を切り替えます")
-            Toggle("ハプティクス", isOn: $hapticsEnabled)
+            Toggle("ハプティクス", isOn: Binding(get: { preferencesStore.hapticsEnabled }, set: { preferencesStore.setHapticsEnabled($0) }))
                 .accessibilityHint("クイズやスワイプ確定時の触覚フィードバックを切り替えます")
         }
     }

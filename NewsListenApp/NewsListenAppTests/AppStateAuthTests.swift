@@ -513,7 +513,7 @@ final class AppStateAuthTests: XCTestCase {
         scripted.configure(method: "GET", path: "/auth/me", status: 200, body: Data(aliceJSON.utf8))
         scripted.configurePending(method: "GET", path: "/settings/preferences")
         scripted.configure(method: "POST", path: "/notifications/device-tokens", status: 200)
-        let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
+        let (appState, prefs) = makeAppStateWithPreferences(session: scripted, sessionStore: store)
 
         let outer = Task { await appState.refreshAuth() }
         await scripted.waitUntilRequested(method: "GET", path: "/settings/preferences")
@@ -525,10 +525,10 @@ final class AppStateAuthTests: XCTestCase {
         guard case .authenticated(let user) = appState.session, user.username == "alice" else {
             return XCTFail("authenticated(alice) になるべき")
         }
-        XCTAssertEqual(appState.defaultDifficulty, "toeic_900")
-        XCTAssertEqual(appState.defaultPlaybackSpeed, 1.25)
-        XCTAssertEqual(appState.weeklyGoalEpisodes, 5)
-        XCTAssertFalse(appState.preferencesSyncFailed)
+        XCTAssertEqual(prefs.defaultDifficulty, .toeic900)
+        XCTAssertEqual(prefs.defaultPlaybackSpeed, 1.25)
+        XCTAssertEqual(prefs.weeklyGoal, WeeklyGoalTarget(episodes: 5))
+        XCTAssertFalse(prefs.syncFailed)
     }
 
     // MARK: - T-T14-19a〜c（ios-contract-20.16, G5〜G7）
@@ -681,29 +681,6 @@ final class AppStateAuthTests: XCTestCase {
         let resolvingState = makeSubjectAwareAppState(sessionStore: resolvingStore)
         let sR = resolvingState.subjectStamp
         XCTAssertFalse(resolvingState.isCurrentSubject(sR), "resolving（非 authenticated）では常に false")
-    }
-
-    // MARK: - T-T14-23（ios-contract-20.18）
-
-    // verifies: ios-contract-20.18
-    func testTT14_23_confirmWeeklyGoalSyncGuardedBySubject() async {
-        let store = InMemorySessionStore(token: "tA")
-        let appState = makeSubjectAwareAppState(sessionStore: store)
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
-        let sA = appState.subjectStamp
-
-        appState.confirmWeeklyGoalSync(5, capturedAt: sA)
-        XCTAssertEqual(appState.lastConfirmedWeeklyGoalEpisodes, 5)
-
-        await appState.logout()
-        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
-        let before = appState.lastConfirmedWeeklyGoalEpisodes
-
-        appState.confirmWeeklyGoalSync(7, capturedAt: sA)
-        XCTAssertEqual(appState.lastConfirmedWeeklyGoalEpisodes, before, "A の stamp では B の値を書き換えないべき")
-
-        appState.confirmWeeklyGoalSync(10, capturedAt: appState.subjectStamp)
-        XCTAssertEqual(appState.lastConfirmedWeeklyGoalEpisodes, 10)
     }
 
     // MARK: - APNs（既存。authStatus → session への機械的書換えのみ）

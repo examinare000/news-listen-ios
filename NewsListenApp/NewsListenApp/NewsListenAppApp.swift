@@ -15,13 +15,15 @@ import SwiftUI
 /// ローディング → ログイン → タブビューの順にゲートする。
 @main
 struct NewsListenAppApp: App {
-    /// アプリ全体で共有する設定状態。ロック画面 port は再生 ViewModel と同じ 1 個を共有する。
-    @StateObject private var appState = AppState(
-        nowPlayingCenter: NewsListenAppApp.nowPlayingCenter,
-        clearOfflineLibrary: { @MainActor key in try NewsListenAppApp.offlineLibrary.remove(subject: key) },
-        bindOfflineSubject: { @MainActor key in NewsListenAppApp.offlineLibrary.bind(subject: key) },
-        reclaimOfflineLibrary: { @MainActor key in try NewsListenAppApp.offlineLibrary.reclaim(keeping: key) }
-    )
+    /// アプリ全体で共有する認証状態。ロック画面 port は再生 ViewModel と同じ 1 個を共有する。
+    @StateObject private var appState: AppState
+    /// 設定の現在値の持ち主。`init()` で `AppState` と相互に結ぶ（ios-dec-92）。
+    @StateObject private var preferencesStore: PreferencesStore
+
+    /// `PreferencesStore` と `AppState` は互いの closure を必要とする。構築の順序を、後から結ぶ弱参照の箱で解く。
+    private final class AppStateBox {
+        weak var state: AppState?
+    }
 
     /// MetricKit クラッシュ診断の購読者（issue #83）。購読を維持するため保持する。
     private static let crashReporter = CrashReporter()
@@ -40,6 +42,28 @@ struct NewsListenAppApp: App {
     init() {
         DSAppearance.configure()
         Self.crashReporter.register()
+
+        let box = AppStateBox()
+        let store = PreferencesStore(
+            gateway: .live(client: { box.state?.apiClient }),
+            storage: .live(registry: PreferenceRegistry()),
+            isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false },
+            subjectStamp: { box.state!.subjectStamp },
+            isAuthenticated: { box.state?.currentSubject != nil }
+        )
+        let state = AppState(
+            refreshPreferences: { await store.refreshFromServer() },
+            clearSubjectPreferences: { store.clearSubjectScoped() },
+            nowPlayingCenter: Self.nowPlayingCenter,
+            clearOfflineLibrary: { @MainActor key in try Self.offlineLibrary.remove(subject: key) },
+            bindOfflineSubject: { @MainActor key in Self.offlineLibrary.bind(subject: key) },
+            reclaimOfflineLibrary: { @MainActor key in try Self.offlineLibrary.reclaim(keeping: key) }
+        )
+        box.state = state
+        _appState = StateObject(wrappedValue: state)
+        _preferencesStore = StateObject(wrappedValue: store)
+        DSFeedback.shared.isSoundEnabled = { store.soundEnabled }
+        DSFeedback.shared.isHapticsEnabled = { store.hapticsEnabled }
     }
 
     /// 設定状態・認証状態に応じてルート画面を出し分けるシーン。
@@ -78,7 +102,7 @@ struct NewsListenAppApp: App {
                             ContentView(
                                 apiClient: client,
                                 refreshListeningStreak: { await appState.refreshListeningStreak() },
-                                defaultSpeed: { Float(appState.defaultPlaybackSpeed) },
+                                defaultSpeed: { Float(preferencesStore.defaultPlaybackSpeed) },
                                 currentSubjectKey: { appState.currentSubject?.key },
                                 audioEngine: Self.audioEngine,
                                 nowPlayingCenter: Self.nowPlayingCenter,
@@ -105,6 +129,7 @@ struct NewsListenAppApp: App {
             }
             .tint(DSColor.accent)
             .environmentObject(appState)
+            .environmentObject(preferencesStore)
             // AppDelegate に AppState を注入し、保留中のトークン/通知遷移を反映させる。
             .onAppear { appDelegate.appState = appState }
         }
