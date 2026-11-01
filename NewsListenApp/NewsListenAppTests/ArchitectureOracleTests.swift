@@ -202,10 +202,10 @@ final class ArchitectureOracleTests: XCTestCase {
                          controlPath: "Podcast/Playback/Domain/PlaybackRules.swift", controlFragment: "min(duration, lowerBounded)"),
             LiteralGroup(key: "ios-rule-playback-04", pattern: #"\[\s*(0\.5\s*,\s*)?0\.75\s*,\s*1\.0\s*,\s*1\.25"#,
                          isCanonical: exact("Podcast/PlaybackConstants.swift", "Podcast/Playback/Domain/PlaybackConstants.swift"), excludesPath: never,
-                         controlPath: "Settings/SettingsView.swift", controlFragment: "playbackSpeeds"),
+                         controlPath: "Podcast/Playback/Domain/PlaybackConstants.swift", controlFragment: "static let speeds"),
             LiteralGroup(key: "ios-rule-account-01", pattern: #"\.count\s*(>=|<)\s*[0-9]+"#,
                          isCanonical: exact("Auth/Domain/PasswordPolicy.swift"), excludesPath: never,
-                         controlPath: "Settings/AccountSettingsView.swift", controlFragment: "newPassword.count >= 8"),
+                         controlPath: "Auth/Domain/PasswordPolicy.swift", controlFragment: "count >= 12"),
             LiteralGroup(key: "ios-rule-account-05", pattern: #""(admin|user)""#,
                          isCanonical: exact("Auth/Domain/Subject.swift"), excludesPath: { $0 == "Passkey/PasskeyOptionsDecoder.swift" },
                          controlPath: "Admin/AdminUsersViewModel.swift", controlFragment: #""user" : "admin""#),
@@ -678,6 +678,7 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Podcast/Playback/OfflineDownloads.swift", 7),
         ("Catalog/Application/EpisodeCatalog.swift", 6),
         ("Catalog/Application/EpisodeRow.swift", 7),
+        ("Auth/Application/AccountProfile.swift", 5),
     ]
 
     private func kindCounts(_ ledger: [OperationRow]) -> [String: Int] {
@@ -747,7 +748,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 170)
+        XCTAssertEqual(result.declared.count, 175)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -758,12 +759,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 170)
-        XCTAssertEqual(ledger.count, 170)
+        XCTAssertEqual(declared.count, 175)
+        XCTAssertEqual(ledger.count, 175)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 39, "query": 36, "port": 24, "internal": 24, "readModel": 38, "factory": 9]
+            ["command": 41, "query": 36, "port": 26, "internal": 24, "readModel": 38, "factory": 10]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -852,6 +853,6 @@ final class ArchitectureOracleTests: XCTestCase {
         let domainOnly = ArchitectureScan.unregisteredDomainTests(production: production, tests: tests, registered: [])
 
         XCTAssertEqual(unregistered, [], "登録漏れ")
-        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift", "SubjectTests.swift"], "domain だけを参照するテストファイル")
+        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift", "SubjectTests.swift", "PasswordPolicyTests.swift"], "domain だけを参照するテストファイル")
     }
 }

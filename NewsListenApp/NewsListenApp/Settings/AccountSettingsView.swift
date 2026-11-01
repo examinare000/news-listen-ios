@@ -19,6 +19,8 @@ struct AccountSettingsView: View {
     @StateObject private var credentialsViewModel: PasskeyCredentialsViewModel
     /// ログイン中のデバイス（セッション）を担う ViewModel（issue #84）。
     @StateObject private var sessionsViewModel: SessionsViewModel
+    /// 表示名の保存とパスワード変更の状態・文言を担う ViewModel。
+    @StateObject private var accountViewModel: AccountSettingsViewModel
 
     /// 入力中の表示名。
     @State private var displayName = ""
@@ -26,8 +28,6 @@ struct AccountSettingsView: View {
     @State private var currentPassword = ""
     /// 入力中の新パスワード。
     @State private var newPassword = ""
-    /// 操作結果のフィードバック文言。
-    @State private var message: String?
     /// Passkey 登録シートの表示状態。
     @State private var showPasskeyRegistration = false
     /// 「他のデバイスからログアウト」確認ダイアログの表示状態（issue #84）。
@@ -43,6 +43,10 @@ struct AccountSettingsView: View {
         ))
         _credentialsViewModel = StateObject(wrappedValue: PasskeyCredentialsViewModel(apiClient: apiClient))
         _sessionsViewModel = StateObject(wrappedValue: SessionsViewModel(apiClient: apiClient))
+        // 表示名・パスワードの操作は、この時点のクライアントで組んだ手順を View の寿命の間使う。
+        _accountViewModel = StateObject(wrappedValue: AccountSettingsViewModel(
+            profile: apiClient.map { AccountProfile(gateway: .live(apiClient: $0)) }
+        ))
     }
 
     var body: some View {
@@ -54,16 +58,28 @@ struct AccountSettingsView: View {
             // 表示名の更新
             HStack {
                 TextField("表示名", text: $displayName)
-                Button("更新") { Task { await saveProfile() } }
-                    .buttonStyle(.borderless)
+                Button("更新") {
+                    Task { await accountViewModel.saveProfile(displayName: displayName, appState: appState) }
+                }
+                .buttonStyle(.borderless)
             }
 
             // パスワード変更
             SecureField("現在のパスワード", text: $currentPassword)
-            SecureField("新しいパスワード（8文字以上）", text: $newPassword)
-            Button("パスワードを変更") { Task { await changePassword() } }
+            SecureField("新しいパスワード（\(PasswordPolicy.minLength)〜\(PasswordPolicy.maxLength)文字）", text: $newPassword)
+            Button("パスワードを変更") {
+                Task {
+                    let succeeded = await accountViewModel.changePassword(
+                        current: currentPassword, new: newPassword, appState: appState
+                    )
+                    if succeeded {
+                        currentPassword = ""
+                        newPassword = ""
+                    }
+                }
+            }
 
-            if let message {
+            if let message = accountViewModel.message {
                 Text(message).font(DSFont.footnote).foregroundStyle(DSColor.inkSecondary)
             }
 
@@ -298,40 +314,5 @@ struct AccountSettingsView: View {
             line += "　最終利用: \(extractDate(lastUsed))"
         }
         return line
-    }
-
-    /// 表示名をサーバへ保存し、ローカル状態も更新する。
-    ///
-    /// 前の主体の応答が次の主体の payload を書き換えないよう、await の前に stamp を捕捉し
-    /// （最初の await より前・独立した文: ios-slice-auth-01 / G9）、await の後は `capturedAt:` 付きで照合する。
-    private func saveProfile() async {
-        guard let client = appState.apiClient else { return }
-        let stamp = appState.subjectStamp
-        do {
-            let updated = try await client.updateProfile(displayName: displayName)
-            appState.updateCurrentSubject(updated.toSubject(), capturedAt: stamp)
-            message = "表示名を更新しました"
-        } catch {
-            message = "表示名の更新に失敗しました"
-        }
-    }
-
-    /// 現在パスワードを検証して新パスワードへ変更する。
-    private func changePassword() async {
-        guard newPassword.count >= 8 else {
-            message = "新しいパスワードは8文字以上にしてください"
-            return
-        }
-        guard let client = appState.apiClient else { return }
-        do {
-            try await client.changePassword(current: currentPassword, new: newPassword)
-            currentPassword = ""
-            newPassword = ""
-            message = "パスワードを変更しました"
-        } catch ApiFailure.validation {
-            message = "現在のパスワードが正しくありません"
-        } catch {
-            message = "パスワード変更に失敗しました"
-        }
     }
 }
