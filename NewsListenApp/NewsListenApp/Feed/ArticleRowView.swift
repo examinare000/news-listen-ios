@@ -13,7 +13,7 @@ struct ArticleRowView: View {
     /// 表示する記事。
     let article: Article
     /// アプリ全体で共有する設定状態。
-    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var preferencesStore: PreferencesStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: DSSpacing.s) {
@@ -45,7 +45,7 @@ struct ArticleRowView: View {
 
     /// timeFormat 設定に応じた日付表記を返す。
     private var formattedDate: String {
-        if appState.timeFormat == "relative" {
+        if preferencesStore.timeFormat == .relative {
             return RelativeTimeFormatter.format(article.publishedAt)
         } else {
             return String(article.publishedAt.prefix(10))
@@ -64,6 +64,7 @@ struct ArticleRowView: View {
     .scrollContentBackground(.hidden)
     .background(DSColor.paper)
     .environmentObject(PreviewSamples.appState())
+    .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("ArticleRow / Dark") {
@@ -76,6 +77,7 @@ struct ArticleRowView: View {
     .scrollContentBackground(.hidden)
     .background(DSColor.paper)
     .environmentObject(PreviewSamples.appState())
+    .environmentObject(PreviewSamples.preferencesStore())
     .preferredColorScheme(.dark)
 }
 #endif

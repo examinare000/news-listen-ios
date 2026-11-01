@@ -95,16 +95,16 @@ final class PreferenceRegistry {
             key: Self.defaultDifficultyKey,
             scope: .server,
             subjectScoped: true,
-            defaultValue: "toeic_600",
+            defaultValue: DifficultyLevel.default.code,
             decode: { $0 as? String },
             encode: { $0 },
-            isValid: { DifficultyLabel.allCodes.contains($0) }
+            isValid: { DifficultyLevel(code: $0) != nil }
         )
         defaultPlaybackSpeed = PreferenceSetting(
             key: Self.defaultPlaybackSpeedKey,
             scope: .server,
             subjectScoped: true,
-            defaultValue: 1.0,
+            defaultValue: PreferenceCatalog.defaultPlaybackSpeed,
             decode: { $0 as? Double },
             encode: { $0 },
             isValid: { value in PlaybackConstants.speeds.contains(Float(value)) }
@@ -113,10 +113,10 @@ final class PreferenceRegistry {
             key: Self.weeklyGoalEpisodesKey,
             scope: .server,
             subjectScoped: true,
-            defaultValue: 3,
+            defaultValue: WeeklyGoalTarget.default.episodes,
             decode: { $0 as? Int },
             encode: { $0 },
-            isValid: { [3, 5, 7, 10].contains($0) }
+            isValid: { WeeklyGoalTarget(episodes: $0) != nil }
         )
         seenAchievementIds = PreferenceSetting(
             key: Self.seenAchievementIdsKey,
@@ -130,7 +130,7 @@ final class PreferenceRegistry {
             key: Self.articleOpenModeKey,
             scope: .local,
             subjectScoped: false,
-            defaultValue: ArticleOpenMode.inApp.rawValue,
+            defaultValue: PreferenceCatalog.defaultArticleOpenMode.rawValue,
             decode: { $0 as? String },
             encode: { $0 },
             isValid: { ArticleOpenMode(rawValue: $0) != nil }
@@ -139,16 +139,16 @@ final class PreferenceRegistry {
             key: Self.timeFormatKey,
             scope: .local,
             subjectScoped: false,
-            defaultValue: "absolute",
+            defaultValue: TimeFormat.default.rawValue,
             decode: { $0 as? String },
             encode: { $0 },
-            isValid: { ["absolute", "relative"].contains($0) }
+            isValid: { TimeFormat(rawValue: $0) != nil }
         )
         sfxEnabled = PreferenceSetting(
             key: Self.sfxEnabledKey,
             scope: .local,
             subjectScoped: false,
-            defaultValue: true,
+            defaultValue: PreferenceCatalog.defaultSoundEnabled,
             decode: { $0 as? Bool },
             encode: { $0 }
         )
@@ -156,7 +156,7 @@ final class PreferenceRegistry {
             key: Self.hapticsEnabledKey,
             scope: .local,
             subjectScoped: false,
-            defaultValue: true,
+            defaultValue: PreferenceCatalog.defaultHapticsEnabled,
             decode: { $0 as? Bool },
             encode: { $0 }
         )
@@ -195,5 +195,39 @@ final class PreferenceRegistry {
         for key in subjectScopedKeys {
             defaults.removeObject(forKey: key)
         }
+    }
+}
+
+// MARK: - PreferencesStore の保存 port（adapter）
+
+extension PreferenceStorage {
+    /// `registry` を保存先にする。`read` は `get` の 7 つ（未保存・値域の外は既定へ倒れる）、`write` は `set` の 1 つ。
+    static func live(registry: PreferenceRegistry) -> PreferenceStorage {
+        PreferenceStorage(
+            read: {
+                PreferenceSnapshot(
+                    // `get` は値域の外を既定へ倒すので、domain の変換は常に成功する。
+                    difficulty: DifficultyLevel(code: registry.get(registry.defaultDifficulty)) ?? .default,
+                    playbackSpeed: registry.get(registry.defaultPlaybackSpeed),
+                    weeklyGoal: WeeklyGoalTarget(episodes: registry.get(registry.weeklyGoalEpisodes)) ?? .default,
+                    articleOpenMode: ArticleOpenMode(rawValue: registry.get(registry.articleOpenMode)) ?? PreferenceCatalog.defaultArticleOpenMode,
+                    timeFormat: TimeFormat(rawValue: registry.get(registry.timeFormat)) ?? .default,
+                    soundEnabled: registry.get(registry.sfxEnabled),
+                    hapticsEnabled: registry.get(registry.hapticsEnabled)
+                )
+            },
+            write: { preference in
+                switch preference {
+                case .difficulty(let level): registry.set(registry.defaultDifficulty, level.code)
+                case .playbackSpeed(let speed): registry.set(registry.defaultPlaybackSpeed, speed)
+                case .weeklyGoal(let goal): registry.set(registry.weeklyGoalEpisodes, goal.episodes)
+                case .articleOpenMode(let mode): registry.set(registry.articleOpenMode, mode.rawValue)
+                case .timeFormat(let format): registry.set(registry.timeFormat, format.rawValue)
+                case .soundEnabled(let enabled): registry.set(registry.sfxEnabled, enabled)
+                case .hapticsEnabled(let enabled): registry.set(registry.hapticsEnabled, enabled)
+                }
+            },
+            clearSubjectScoped: { registry.clearSubjectScoped() }
+        )
     }
 }

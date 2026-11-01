@@ -141,11 +141,13 @@ struct PodcastView: View {
 #Preview("Podcast List / Light") {
     PodcastView(viewModel: PreviewSamples.playerViewModel())
         .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("Podcast List / Dark") {
     PodcastView(viewModel: PreviewSamples.playerViewModel())
         .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.preferencesStore())
         .preferredColorScheme(.dark)
 }
 #endif

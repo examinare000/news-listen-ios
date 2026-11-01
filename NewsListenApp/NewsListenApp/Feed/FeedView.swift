@@ -11,6 +11,8 @@ import SwiftUI
 struct FeedView: View {
     /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var appState: AppState
+    /// 設定の現在値（記事の開き方の判定に使う）。
+    @EnvironmentObject private var preferencesStore: PreferencesStore
     /// 記事一覧と操作を担う ViewModel。
     ///
     /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
@@ -209,15 +211,14 @@ struct FeedView: View {
         .accessibilityValue("\(viewModel.selectedIds.count)件")
     }
 
-    /// 記事を設定（``AppState/articleOpenMode``）に従って開く。
+    /// 記事を設定（``PreferencesStore/articleOpenMode``）に従って開く。
     /// - Parameter article: タップされた記事。URL が不正なら何もしない。
     private func open(_ article: Article) {
         guard let url = URL(string: article.url) else { return }
-        switch appState.articleOpenMode {
-        case .inApp:
-            safariURL = IdentifiableURL(url: url)
-        case .external:
+        if preferencesStore.articleOpenMode == .external {
             openURL(url)
+        } else {
+            safariURL = IdentifiableURL(url: url)
         }
     }
 
@@ -236,11 +237,13 @@ struct FeedView: View {
 #Preview("Feed / Light") {
     FeedView(apiClient: PreviewSamples.apiClient())
         .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("Feed / Dark") {
     FeedView(apiClient: PreviewSamples.apiClient())
         .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.preferencesStore())
         .preferredColorScheme(.dark)
 }
 #endif

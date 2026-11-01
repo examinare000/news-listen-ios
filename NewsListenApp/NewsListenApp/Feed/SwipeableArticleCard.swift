@@ -30,7 +30,7 @@ struct SwipeableArticleCard: View {
     let onDismiss: () -> Void
 
     /// アプリ全体で共有する設定状態（日付表記）。
-    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var preferencesStore: PreferencesStore
     /// 指への追従オフセット（横方向）。
     @State private var dragOffset: CGFloat = 0
     /// 閾値を越えているか（触覚フィードバックのトリガ）。
@@ -167,7 +167,7 @@ struct SwipeableArticleCard: View {
 
     /// timeFormat 設定に応じた日付表記。
     private var formattedDate: String {
-        if appState.timeFormat == "relative" {
+        if preferencesStore.timeFormat == .relative {
             return RelativeTimeFormatter.format(article.publishedAt)
         } else {
             return String(article.publishedAt.prefix(10))

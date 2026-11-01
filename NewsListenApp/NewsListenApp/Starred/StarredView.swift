@@ -9,8 +9,10 @@ import SwiftUI
 
 /// スタータブのルートビュー。Star 済み記事の一覧表示と、スワイプによる un-star 導線を担う。
 struct StarredView: View {
-    /// アプリ全体で共有する設定状態（記事の開き方〈アプリ内/外部ブラウザ〉の判定に使う）。
+    /// アプリ全体で共有する認証状態（ストリーク表示のツールバーに使う）。
     @EnvironmentObject private var appState: AppState
+    /// 設定の現在値（記事の開き方〈アプリ内/外部ブラウザ〉の判定に使う）。
+    @EnvironmentObject private var preferencesStore: PreferencesStore
     /// 一覧取得を担う ViewModel。
     ///
     /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
@@ -137,15 +139,14 @@ struct StarredView: View {
         .refreshable { await viewModel.loadStarred() }
     }
 
-    /// 記事を設定（``AppState/articleOpenMode``）に従って開く。
+    /// 記事を設定（``PreferencesStore/articleOpenMode``）に従って開く。
     /// - Parameter article: タップされた記事。URL が不正なら何もしない。
     private func open(_ article: Article) {
         guard let url = URL(string: article.url) else { return }
-        switch appState.articleOpenMode {
-        case .inApp:
-            safariURL = IdentifiableURL(url: url)
-        case .external:
+        if preferencesStore.articleOpenMode == .external {
             openURL(url)
+        } else {
+            safariURL = IdentifiableURL(url: url)
         }
     }
 
@@ -164,11 +165,13 @@ struct StarredView: View {
 #Preview("Starred / Light") {
     StarredView(apiClient: PreviewSamples.apiClient())
         .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("Starred / Dark") {
     StarredView(apiClient: PreviewSamples.apiClient())
         .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.preferencesStore())
         .preferredColorScheme(.dark)
 }
 #endif
