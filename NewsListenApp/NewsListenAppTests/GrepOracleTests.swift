@@ -63,7 +63,7 @@ final class GrepOracleTests: XCTestCase {
         XCTAssertNil(o8Counts["appState.currentUser = "], "currentUser への直接代入は無くなるべき（computed 化）")
 
         let settingsViewURL = SourceGrep.appRoot.appendingPathComponent("Settings/SettingsView.swift")
-        let accountSettingsViewURL = SourceGrep.appRoot.appendingPathComponent("Settings/AccountSettingsView.swift")
+        let accountSettingsViewModelURL = SourceGrep.appRoot.appendingPathComponent("Settings/AccountSettingsViewModel.swift")
 
         // O-9: revert 3 行すべてが同じ行で isCurrentSubject(stamp) を持つ。
         let oldValueLines = SourceGrep.content(of: settingsViewURL).components(separatedBy: "\n").filter { $0.contains("= oldValue") }
@@ -73,7 +73,7 @@ final class GrepOracleTests: XCTestCase {
 
         // O-11: subjectStamp の出現数（捕捉の文の数と同じ）。
         XCTAssertEqual(SourceGrep.occurrenceCount(of: "subjectStamp", in: settingsViewURL), 3)
-        XCTAssertEqual(SourceGrep.occurrenceCount(of: "subjectStamp", in: accountSettingsViewURL), 1)
+        XCTAssertEqual(SourceGrep.occurrenceCount(of: "subjectStamp", in: accountSettingsViewModelURL), 1)
 
         // O-12: stamp の捕捉が、各書き手の最初の await より前にある。
         let settingsTokens = orderedTokens(
@@ -87,9 +87,9 @@ final class GrepOracleTests: XCTestCase {
         XCTAssertEqual(settingsMatches.filter { $0 == "onChange await" }.count, 0, "捕捉を欠く区間が残っている")
 
         let accountTokens = orderedTokens(
-            startPattern: #"func saveProfile\(\)"#,
+            startPattern: #"func saveProfile\("#,
             captureText: "let stamp = appState.subjectStamp",
-            in: accountSettingsViewURL,
+            in: accountSettingsViewModelURL,
             startWord: "func saveProfile"
         )
         let accountMatches = orderedMatches(tokens: accountTokens, startWord: "func saveProfile")
@@ -98,7 +98,7 @@ final class GrepOracleTests: XCTestCase {
 
         // O-13: capturedAt: に渡すのが捕捉した stamp。
         XCTAssertEqual(SourceGrep.lineCount(containing: "capturedAt: stamp)", in: settingsViewURL), 1)
-        XCTAssertEqual(SourceGrep.lineCount(containing: "capturedAt: stamp)", in: accountSettingsViewURL), 1)
+        XCTAssertEqual(SourceGrep.lineCount(containing: "capturedAt: stamp)", in: accountSettingsViewModelURL), 1)
     }
 
     /// O-12 の「開始行 → 捕捉の文 → 最初の await」の順序判定に使うトークン列を作る

@@ -44,8 +44,8 @@ final class AdminUsersViewModel: ObservableObject {
     /// 入力フォームの内容でユーザーを作成し、一覧を再取得する。
     func create() async {
         guard let apiClient else { return }
-        guard !newUsername.isEmpty, newPassword.count >= 8 else {
-            errorMessage = "ユーザーIDと8文字以上のパスワードを入力してください"
+        guard !newUsername.isEmpty, case .success = PasswordPolicy.validate(newPassword) else {
+            errorMessage = "ユーザーIDと\(PasswordPolicy.minLength)〜\(PasswordPolicy.maxLength)文字のパスワードを入力してください"
             return
         }
         do {

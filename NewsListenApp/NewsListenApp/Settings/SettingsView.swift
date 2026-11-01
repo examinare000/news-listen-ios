@@ -46,9 +46,6 @@ struct SettingsView: View {
         ("eiken_p1", "英検準1級以上"),
     ]
 
-    /// 設定画面で選択できる再生速度の候補。
-    private let playbackSpeeds: [Double] = [0.75, 1.0, 1.25, 1.5, 2.0]
-
     /// ビューを生成する。
     /// - Parameters:
     ///   - appState: 共有の設定状態。
@@ -393,7 +390,7 @@ struct SettingsView: View {
     private var playbackSection: some View {
         Section("再生速度") {
             Picker("デフォルト再生速度", selection: $appState.defaultPlaybackSpeed) {
-                ForEach(playbackSpeeds, id: \.self) { speed in
+                ForEach(PlaybackConstants.speeds.map(Double.init), id: \.self) { speed in
                     Text(String(format: "%g×", speed)).tag(speed)
                 }
             }

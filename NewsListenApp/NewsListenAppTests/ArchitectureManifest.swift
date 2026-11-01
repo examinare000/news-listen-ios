@@ -75,6 +75,7 @@ enum ArchitectureManifest {
         "Podcast/Playback/OfflineLibrary.swift",
         "Passkey/PasskeyAuthorizationProviding.swift",
         "Catalog/Application/EpisodeCatalog.swift",
+        "Auth/Application/AccountProfile.swift",
     ]
 
     /// domain の型だけを対象にするテストファイル（ios-check-08 の対象。`NewsListenAppTests/` からの相対）。
@@ -87,6 +88,7 @@ enum ArchitectureManifest {
         "PlayableEpisodeTests.swift",
         "PlaybackRulesTests.swift",
         "SubjectTests.swift",
+        "PasswordPolicyTests.swift",
     ]
 
     /// application の層の公開宣言の台帳（ios-check-15 (a)）。実コードと双方向に照合する。
@@ -137,6 +139,11 @@ enum ArchitectureManifest {
         (file: "Auth/SubjectCleanup.swift", type: "SubjectCleanup", name: "clearSubjectPreferences", kind: .internal),
         (file: "Auth/SubjectCleanup.swift", type: "SubjectCleanup", name: "clearOfflineLibrary", kind: .internal),
         (file: "Auth/SubjectCleanup.swift", type: "SubjectCleanup", name: "run()", kind: .command("ios-cmd-account-04")),
+        (file: "Auth/Application/AccountProfile.swift", type: "AccountGateway", name: "updateProfile", kind: .port),
+        (file: "Auth/Application/AccountProfile.swift", type: "AccountGateway", name: "changePassword", kind: .port),
+        (file: "Auth/Application/AccountProfile.swift", type: "AccountProfile", name: "init(gateway:)", kind: .factory),
+        (file: "Auth/Application/AccountProfile.swift", type: "AccountProfile", name: "updateDisplayName(_:)", kind: .command("ios-cmd-account-05")),
+        (file: "Auth/Application/AccountProfile.swift", type: "AccountProfile", name: "changePassword(current:new:)", kind: .command("ios-cmd-account-06")),
         (file: "Podcast/Playback/AudioEngine.swift", type: "AudioEngine", name: "load(url:)", kind: .port),
         (file: "Podcast/Playback/AudioEngine.swift", type: "AudioEngine", name: "play()", kind: .port),
         (file: "Podcast/Playback/AudioEngine.swift", type: "AudioEngine", name: "pause()", kind: .port),
@@ -407,9 +414,6 @@ enum ArchitectureManifest {
         ("ios-dep-06/DTO", "Sessions/SessionsViewModel.swift", 1),
         ("ios-dep-06/DTO", "Settings/SettingsViewModel.swift", 4),
         ("ios-dep-06/DTO", "Starred/StarredViewModel.swift", 2),
-        ("ios-rule-playback-04", "Settings/SettingsView.swift", 1),
-        ("ios-rule-account-01", "Admin/AdminUsersViewModel.swift", 1),
-        ("ios-rule-account-01", "Settings/AccountSettingsView.swift", 1),
         ("ios-rule-account-05", "Admin/AdminUsersView.swift", 2),
         ("ios-rule-account-05", "Admin/AdminUsersViewModel.swift", 3),
         ("ios-rule-account-06・ios-rule-curation-04・ios-rule-sources-02・ios-rule-learning-08", "Onboarding/OnboardingSourcesViewModel.swift", 1),
@@ -446,7 +450,7 @@ enum ArchitectureManifest {
         ("ios-dep-04", "Learning/VocabularyTestView.swift", 3),
         ("ios-dep-04", "Onboarding/OnboardingSourcesView.swift", 1),
         ("ios-dep-04", "Podcast/QuizSheetView.swift", 1),
-        ("ios-dep-04", "Settings/AccountSettingsView.swift", 2),
+        ("ios-dep-04", "Settings/AccountSettingsView.swift", 1),
         ("ios-dep-04", "Settings/SettingsView.swift", 2),
         ("ios-dep-04", "Starred/StarredView.swift", 1),
         ("ios-dep-06", "Admin/AdminUsersViewModel.swift", 2),

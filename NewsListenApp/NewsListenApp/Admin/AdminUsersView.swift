@@ -25,7 +25,7 @@ struct AdminUsersView: View {
                 TextField("ユーザーID", text: $viewModel.newUsername)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
-                SecureField("パスワード（8文字以上）", text: $viewModel.newPassword)
+                SecureField("パスワード（\(PasswordPolicy.minLength)〜\(PasswordPolicy.maxLength)文字）", text: $viewModel.newPassword)
                 TextField("表示名（任意）", text: $viewModel.newDisplayName)
                 Picker("ロール", selection: $viewModel.newRole) {
                     Text("user").tag("user")
