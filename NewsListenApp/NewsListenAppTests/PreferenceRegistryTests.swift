@@ -148,40 +148,30 @@ final class PreferenceRegistryTests: XCTestCase {
         XCTAssertEqual(suite.string(forKey: "other_key"), "kept")
     }
 
-    // MARK: - T-T17-07（ios-contract-23.7, AppState の読込）
+    // MARK: - T-T17-07（ios-contract-23.7, PreferencesStore の読込）
 
     // verifies: ios-contract-23.7
     func testTT17_07_appStateReadsRegistryDefaultsWhenUnset() {
-        let appState = AppState(
-            sessionStore: InMemorySessionStore(),
-            preferences: PreferenceRegistry(defaults: makeSuite()),
-            nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: { _ in }
-        )
+        let (_, store) = makeAppStateWithPreferences(defaults: makeSuite())
 
-        XCTAssertEqual(appState.defaultDifficulty, "toeic_600")
-        XCTAssertEqual(appState.defaultPlaybackSpeed, 1.0)
-        XCTAssertEqual(appState.weeklyGoalEpisodes, 3)
-        XCTAssertEqual(appState.articleOpenMode, .inApp)
-        XCTAssertEqual(appState.timeFormat, "absolute")
+        XCTAssertEqual(store.defaultDifficulty, .toeic600)
+        XCTAssertEqual(store.defaultPlaybackSpeed, 1.0)
+        XCTAssertEqual(store.weeklyGoal, .default)
+        XCTAssertEqual(store.articleOpenMode, .inApp)
+        XCTAssertEqual(store.timeFormat, .absolute)
     }
 
-    // MARK: - T-T17-08（ios-contract-23.8, AppState の保存）
+    // MARK: - T-T17-08（ios-contract-23.8, PreferencesStore の保存）
 
     // verifies: ios-contract-23.8
-    func testTT17_08_appStateWritesThroughInjectedRegistry() async {
+    func testTT17_08_appStateWritesThroughInjectedRegistry() async throws {
         let suite = makeSuite()
-        let appState = AppState(
-            sessionStore: InMemorySessionStore(token: "tA"),
-            preferences: PreferenceRegistry(defaults: suite),
-            nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: { _ in }
-        )
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
+        let (state, store) = makeAppStateWithPreferences(sessionStore: InMemorySessionStore(token: "tA"), defaults: suite)
+        state.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
-        appState.defaultDifficulty = "toeic_900"
-        appState.defaultPlaybackSpeed = 1.25
-        appState.weeklyGoalEpisodes = 5
+        try await store.setDefaultDifficulty(.toeic900)
+        try await store.setDefaultPlaybackSpeed(1.25)
+        try await store.setWeeklyGoal(WeeklyGoalTarget(episodes: 5)!)
 
         XCTAssertEqual(suite.string(forKey: "default_difficulty"), "toeic_900")
         XCTAssertEqual(suite.double(forKey: "default_playback_speed"), 1.25)
@@ -197,48 +187,35 @@ final class PreferenceRegistryTests: XCTestCase {
             data: Data(#"{"default_difficulty":"unknown_code","default_playback_speed":1.1}"#.utf8),
             statusCode: 200
         )
-        let appState = AppState(
-            sessionStore: InMemorySessionStore(token: "tA"),
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: session, onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: suite),
-            nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: { _ in }
-        )
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
+        let (state, store) = makeAppStateWithPreferences(session: session, sessionStore: InMemorySessionStore(token: "tA"), defaults: suite)
+        state.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
-        await appState.refreshPreferences()
+        await store.refreshFromServer()
 
-        XCTAssertEqual(appState.defaultDifficulty, "toeic_600", "列挙外のサーバ値は採用せずローカル値を保持する")
-        XCTAssertFalse(appState.preferencesSyncFailed)
+        XCTAssertEqual(store.defaultDifficulty, .toeic600, "列挙外のサーバ値は採用せずローカル値を保持する")
+        XCTAssertFalse(store.syncFailed)
     }
 
     // verifies: ios-contract-23.9, ios-contract-21.10
-    func testTT17_10_refreshPreferencesAdoptsInEnumServerValues() async {
+    func testTT17_10_refreshPreferencesAdoptsInEnumServerValues() async throws {
         let suite = makeSuite()
         let json = #"{"default_difficulty":"toeic_900","default_playback_speed":1.25,"weekly_goal_episodes":5}"#
-        let session = MockURLSession(data: Data(json.utf8), statusCode: 200)
-        let appState = AppState(
-            sessionStore: InMemorySessionStore(token: "tA"),
-            apiClientFactory: { token, onUnauthorized in
-                APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: session, onUnauthorized: onUnauthorized)
-            },
-            preferences: PreferenceRegistry(defaults: suite),
-            nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: { _ in }
-        )
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
+        let session = RecordingURLSession(delegate: MockURLSession(data: Data(json.utf8), statusCode: 200))
+        let (state, store) = makeAppStateWithPreferences(session: session, sessionStore: InMemorySessionStore(token: "tA"), defaults: suite)
+        state.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
-        await appState.refreshPreferences()
+        await store.refreshFromServer()
 
-        XCTAssertEqual(appState.defaultDifficulty, "toeic_900")
-        XCTAssertEqual(appState.defaultPlaybackSpeed, 1.25)
-        XCTAssertEqual(appState.weeklyGoalEpisodes, 5)
+        XCTAssertEqual(store.defaultDifficulty, .toeic900)
+        XCTAssertEqual(store.defaultPlaybackSpeed, 1.25)
+        XCTAssertEqual(store.weeklyGoal, WeeklyGoalTarget(episodes: 5))
         XCTAssertEqual(suite.string(forKey: "default_difficulty"), "toeic_900")
         XCTAssertEqual(suite.double(forKey: "default_playback_speed"), 1.25)
         XCTAssertEqual(suite.integer(forKey: "weekly_goal_episodes"), 5)
-        XCTAssertEqual(appState.lastConfirmedWeeklyGoalEpisodes, 5)
-        XCTAssertFalse(appState.preferencesSyncFailed)
+        // 取得した週の目標は確認済みなので、同じ値を選んでも更新要求は送られない
+        session.resetCounts()
+        try await store.setWeeklyGoal(WeeklyGoalTarget(episodes: 5)!)
+        XCTAssertEqual(session.writeCount, 0)
+        XCTAssertFalse(store.syncFailed)
     }
 }

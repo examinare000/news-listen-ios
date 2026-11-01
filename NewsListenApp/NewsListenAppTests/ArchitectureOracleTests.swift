@@ -214,13 +214,13 @@ final class ArchitectureOracleTests: XCTestCase {
                          controlPath: "AppState.swift", controlFragment: "catch ApiFailure.notFound(subject: .streak)"),
             LiteralGroup(key: "ios-rule-prefs-01", pattern: #""(toeic_600|toeic_900|ielts_55|ielts_7|eiken_2|eiken_p1)""#,
                          isCanonical: exact("Shared/Domain/DifficultyLevel.swift"), excludesPath: never,
-                         controlPath: "Utilities/DifficultyLabel.swift", controlFragment: #"case "toeic_600":"#),
+                         controlPath: "Shared/Domain/DifficultyLevel.swift", controlFragment: #""toeic_600""#),
             LiteralGroup(key: "ios-rule-prefs-02", pattern: #"\[3,\s*5,\s*7,\s*10\]"#,
                          isCanonical: exact("Settings/Domain/WeeklyGoalTarget.swift"), excludesPath: never,
-                         controlPath: "Settings/PreferenceRegistry.swift", controlFragment: "[3, 5, 7, 10].contains"),
+                         controlPath: "Settings/Domain/WeeklyGoalTarget.swift", controlFragment: "[3, 5, 7, 10]"),
             LiteralGroup(key: "ios-rule-prefs-03", pattern: #""(absolute|relative)""#,
                          isCanonical: exact("Settings/Domain/TimeFormat.swift"), excludesPath: never,
-                         controlPath: "Settings/SettingsView.swift", controlFragment: #".tag("absolute")"#),
+                         controlPath: "Settings/Domain/TimeFormat.swift", controlFragment: #""absolute""#),
             LiteralGroup(key: "ios-rule-curation-03", pattern: #"\blimit\s*==\s*0\b"#,
                          isCanonical: exact("Feed/Domain/GenerationAllowance.swift"), excludesPath: never,
                          controlPath: "Settings/SettingsView.swift", controlFragment: "quota.limit == 0"),
@@ -565,7 +565,8 @@ final class ArchitectureOracleTests: XCTestCase {
         )
         let viewHits = collectHits(in: views, where: viewMatcher)
         let viewModelHits = collectHits(in: viewModels, where: viewModelMatcher)
-        assertContainsHit(viewHits, path: "Settings/SettingsView.swift", fragment: "@AppStorage", "ios-dep-04")
+        assertContainsHit(viewHits, path: "Settings/AccountSettingsView.swift", fragment: "APIClient", "ios-dep-04")
+        XCTAssertFalse(viewHits.contains { $0.path == "Settings/SettingsView.swift" }, "SettingsView は @AppStorage・APIClient 等を書かない")
         assertAllowlistMatches(rule: "ios-dep-04", measured: viewHits)
         assertAllowlistMatches(rule: "ios-dep-06", measured: viewModelHits)
     }
@@ -662,7 +663,8 @@ final class ArchitectureOracleTests: XCTestCase {
     private var applicationSources: [SourceFile] { sources(inLayer: .application) }
 
     private let applicationFileCounts: [(path: String, count: Int)] = [
-        ("AppState.swift", 42),
+        ("AppState.swift", 31),
+        ("Settings/Application/PreferencesStore.swift", 33),
         ("Auth/SubjectCleanup.swift", 6),
         ("Podcast/Playback/AudioEngine.swift", 7),
         ("Podcast/Playback/NowPlayingCenter.swift", 14),
@@ -748,7 +750,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 181)
+        XCTAssertEqual(result.declared.count, 203)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -759,12 +761,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 181)
-        XCTAssertEqual(ledger.count, 181)
+        XCTAssertEqual(declared.count, 203)
+        XCTAssertEqual(ledger.count, 203)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 42, "query": 36, "port": 27, "internal": 28, "readModel": 38, "factory": 10]
+            ["command": 49, "query": 37, "port": 32, "internal": 28, "readModel": 46, "factory": 11]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -799,7 +801,7 @@ final class ArchitectureOracleTests: XCTestCase {
             doubleTypeNames: RecordingPorts.doubleTypeNames
         )
 
-        XCTAssertEqual(uncovered.count, 5, "受けられていない query ID は 5 個: \(uncovered.keys.sorted())")
+        XCTAssertEqual(uncovered.count, 4, "受けられていない query ID は 4 個: \(uncovered.keys.sorted())")
         XCTAssertNil(uncovered["ios-query-account-01"], "本 slice で契約テストを書く query は受けられている")
         let prefix = "ios-check-15/verifies/"
         let allowedIDs = Set(ArchitectureManifest.allowlist.filter { $0.rule.hasPrefix(prefix) }.map { String($0.rule.dropFirst(prefix.count)) })
@@ -814,12 +816,11 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let hits = ArchitectureScan.readWriteMixedHits(declared: declared, operations: ArchitectureManifest.readWriteMixedOperations)
 
-        XCTAssertEqual(hits.count, 3)
+        XCTAssertEqual(hits.count, 2)
         assertAllowlistMatches(rule: "ios-check-15/read-write", measured: hits)
         func ledgerKind(of name: String) -> OperationKind? {
             ArchitectureManifest.operationLedger.first { $0.name == name }?.kind
         }
-        XCTAssertEqual(ledgerKind(of: "refreshPreferences()"), .command("ios-cmd-prefs-04"))
         XCTAssertEqual(ledgerKind(of: "refreshListeningStreak()"), .command("ios-cmd-learning-05"))
         XCTAssertEqual(ledgerKind(of: "refreshOnboardingStatus()"), .query("ios-query-sources-02"))
     }
@@ -833,13 +834,15 @@ final class ArchitectureOracleTests: XCTestCase {
         let red = verdicts.filter { $0.value.outcome == .red }
         let skipped = verdicts.filter { $0.value.outcome == .skip }
         let green = verdicts.filter { $0.value.outcome == .green }
-        XCTAssertEqual(Set(red.keys), ["ArticleOpenMode", "FeaturedCategory"])
-        XCTAssertEqual(skipped.count, 6, "skip: \(skipped.keys.sorted())")
-        XCTAssertEqual(Set(green.keys), ["PlayableEpisode", "SubjectKey"])
+        XCTAssertEqual(Set(red.keys), ["FeaturedCategory"])
+        XCTAssertEqual(skipped.count, 3, "skip: \(skipped.keys.sorted())")
+        XCTAssertEqual(Set(green.keys), ["PlayableEpisode", "SubjectKey", "DifficultyLevel", "WeeklyGoalTarget", "TimeFormat", "ArticleOpenMode"])
         XCTAssertEqual(verdicts.count, 10)
         XCTAssertNil(red["PlayableEpisode"])
         XCTAssertEqual(green["PlayableEpisode"]?.initDeclarationCount, 1)
-        XCTAssertTrue(red["ArticleOpenMode"]?.reasons.contains(.notDomainStruct) ?? false)
+        for name in ["DifficultyLevel", "WeeklyGoalTarget", "TimeFormat", "ArticleOpenMode"] {
+            XCTAssertNotNil(green[name], "\(name) は domain の struct で、生成の入口が検査つき")
+        }
         XCTAssertTrue(red["FeaturedCategory"]?.reasons.contains(.notDomainStruct) ?? false)
         assertAllowlistMatches(rule: "ios-check-16", measured: red.values.compactMap(\.declaration))
     }
@@ -853,6 +856,6 @@ final class ArchitectureOracleTests: XCTestCase {
         let domainOnly = ArchitectureScan.unregisteredDomainTests(production: production, tests: tests, registered: [])
 
         XCTAssertEqual(unregistered, [], "登録漏れ")
-        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift", "SubjectTests.swift", "TestSubjectKeys.swift", "PasswordPolicyTests.swift"], "domain だけを参照するテストファイル")
+        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift", "SubjectTests.swift", "TestSubjectKeys.swift", "PasswordPolicyTests.swift", "PreferencesDomainTests.swift"], "domain だけを参照するテストファイル")
     }
 }

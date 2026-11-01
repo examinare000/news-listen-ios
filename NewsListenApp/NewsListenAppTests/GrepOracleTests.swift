@@ -42,50 +42,46 @@ final class GrepOracleTests: XCTestCase {
         let expectedO8: [String: Int] = [
             "appState.completeLogin(": 1,
             "appState.completeOnboarding(": 1,
-            "appState.confirmWeeklyGoalSync(": 1,
-            "appState.defaultDifficulty = ": 1,
-            "appState.defaultPlaybackSpeed = ": 1,
             "appState.didRegisterDeviceToken(": 2,
             "appState.handleNotificationPodcastId(": 2,
-            "appState.isCurrentSubject(": 3,
             "appState.logout(": 1,
             "appState.refreshAuth(": 1,
             "appState.refreshListeningStreak(": 5,
             "appState.refreshOnboardingStatus(": 1,
-            "appState.refreshPreferences(": 1,
             "appState.registerDownloads(": 1,
             "appState.registerPlaybackLifecycle(": 1,
             "appState.retryResolve(": 1,
             "appState.selectedPodcastId = ": 1,
             "appState.updateCurrentSubject(": 1,
-            "appState.weeklyGoalEpisodes = ": 1,
         ]
         XCTAssertEqual(o8Counts, expectedO8, "主体ガード表 §3.1 の外部行と一致しない（表に無い書き手があれば RJ-5 により表を先に直す）")
         XCTAssertNil(o8Counts["appState.currentUser = "], "currentUser への直接代入は無くなるべき（computed 化）")
 
         let settingsViewURL = SourceGrep.appRoot.appendingPathComponent("Settings/SettingsView.swift")
+        let preferencesStoreURL = SourceGrep.appRoot.appendingPathComponent("Settings/Application/PreferencesStore.swift")
         let accountSettingsViewModelURL = SourceGrep.appRoot.appendingPathComponent("Settings/AccountSettingsViewModel.swift")
 
-        // O-9: revert 3 行すべてが同じ行で isCurrentSubject(stamp) を持つ。
-        let oldValueLines = SourceGrep.content(of: settingsViewURL).components(separatedBy: "\n").filter { $0.contains("= oldValue") }
+        // O-9: revert 3 行すべてが同じ行で isCurrentSubject(stamp) を持つ（巻き戻しは PreferencesStore に移った）。
+        let oldValueLines = SourceGrep.content(of: preferencesStoreURL).components(separatedBy: "\n").filter { $0.contains("= oldValue") }
         XCTAssertEqual(oldValueLines.count, 3, "revert 行数は 3 のままであるべき")
         let unguardedReverts = oldValueLines.filter { !$0.contains("isCurrentSubject(stamp)") }
         XCTAssertTrue(unguardedReverts.isEmpty, "revert は isCurrentSubject(stamp) を同じ行に持つべき: \(unguardedReverts)")
 
         // O-11: subjectStamp の出現数（捕捉の文の数と同じ）。
-        XCTAssertEqual(SourceGrep.occurrenceCount(of: "subjectStamp", in: settingsViewURL), 3)
+        XCTAssertEqual(SourceGrep.occurrenceCount(of: "subjectStamp", in: settingsViewURL), 0, "View は stamp を捕捉しない")
+        XCTAssertEqual(SourceGrep.lineCount(containing: "let stamp = subjectStamp()", in: preferencesStoreURL), 4, "set 3 ＋ refreshFromServer 1")
         XCTAssertEqual(SourceGrep.occurrenceCount(of: "subjectStamp", in: accountSettingsViewModelURL), 1)
 
         // O-12: stamp の捕捉が、各書き手の最初の await より前にある。
-        let settingsTokens = orderedTokens(
-            startPattern: #"onChange\(of: appState\."#,
-            captureText: "let stamp = appState.subjectStamp",
-            in: settingsViewURL,
-            startWord: "onChange"
+        let storeTokens = orderedTokens(
+            startPattern: #"func set(DefaultDifficulty|DefaultPlaybackSpeed|WeeklyGoal)\("#,
+            captureText: "let stamp = subjectStamp()",
+            in: preferencesStoreURL,
+            startWord: "set"
         )
-        let settingsMatches = orderedMatches(tokens: settingsTokens, startWord: "onChange")
-        XCTAssertEqual(settingsMatches.filter { $0 == "onChange let stamp await" }.count, 3)
-        XCTAssertEqual(settingsMatches.filter { $0 == "onChange await" }.count, 0, "捕捉を欠く区間が残っている")
+        let storeMatches = orderedMatches(tokens: storeTokens, startWord: "set")
+        XCTAssertEqual(storeMatches.filter { $0 == "set let stamp await" }.count, 3)
+        XCTAssertEqual(storeMatches.filter { $0 == "set await" }.count, 0, "捕捉を欠く区間が残っている")
 
         let accountTokens = orderedTokens(
             startPattern: #"func saveProfile\("#,
@@ -98,7 +94,8 @@ final class GrepOracleTests: XCTestCase {
         XCTAssertEqual(accountMatches.filter { $0 == "func saveProfile await" }.count, 0)
 
         // O-13: capturedAt: に渡すのが捕捉した stamp。
-        XCTAssertEqual(SourceGrep.lineCount(containing: "capturedAt: stamp)", in: settingsViewURL), 1)
+        XCTAssertEqual(SourceGrep.lineCount(containing: "capturedAt: stamp)", in: settingsViewURL), 0, "書き手は PreferencesStore に移り、capturedAt: は無くなった")
+        XCTAssertEqual(SourceGrep.lineCount(containing: "capturedAt:", in: preferencesStoreURL), 0)
         XCTAssertEqual(SourceGrep.lineCount(containing: "capturedAt: stamp)", in: accountSettingsViewModelURL), 1)
     }
 

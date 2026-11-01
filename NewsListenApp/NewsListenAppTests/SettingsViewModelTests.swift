@@ -328,46 +328,6 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertFalse(vm.featuredSitesLoadFailed)
     }
 
-    // MARK: - デフォルト難易度・再生速度のサーバー同期失敗の可視化 (issue #164)
-
-    func testSyncDefaultDifficultySetsErrorMessageOnFailure() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: library, downloads: downloads)
-
-        let ok = await vm.syncDefaultDifficulty("toeic_600")
-
-        XCTAssertFalse(ok)
-        XCTAssertEqual(vm.errorMessage, "設定の保存に失敗しました")
-    }
-
-    func testSyncDefaultDifficultySucceedsAndClearsErrorMessage() async throws {
-        let json = #"{"default_difficulty":"toeic_600","default_playback_speed":null}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: json), library: library, downloads: downloads)
-
-        let ok = await vm.syncDefaultDifficulty("toeic_600")
-
-        XCTAssertTrue(ok)
-        XCTAssertNil(vm.errorMessage)
-    }
-
-    func testSyncDefaultPlaybackSpeedSetsErrorMessageOnFailure() async throws {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: library, downloads: downloads)
-
-        let ok = await vm.syncDefaultPlaybackSpeed(1.5)
-
-        XCTAssertFalse(ok)
-        XCTAssertEqual(vm.errorMessage, "設定の保存に失敗しました")
-    }
-
-    func testSyncDefaultPlaybackSpeedSucceedsAndClearsErrorMessage() async throws {
-        let json = #"{"default_difficulty":null,"default_playback_speed":1.5}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: json), library: library, downloads: downloads)
-
-        let ok = await vm.syncDefaultPlaybackSpeed(1.5)
-
-        XCTAssertTrue(ok)
-        XCTAssertNil(vm.errorMessage)
-    }
-
     // MARK: - 生成残回数の取得 (issue #164 / ADR-061)
 
     func testLoadGenerationQuotaFetchesFromAPI() async throws {
@@ -401,46 +361,6 @@ final class SettingsViewModelTests: XCTestCase {
 
         XCTAssertNil(vm.generationQuota)
         XCTAssertFalse(vm.generationQuotaLoadFailed, "404時はgraceful degradation。セクション非表示")
-    }
-
-    // MARK: - 難易度・再生速度同期のレース対策 (issue #164)
-
-    func testSyncDifficultyMultipleRequestsLastWins() async throws {
-        // 複数リクエストを連続実行し、最後（最新）のリクエストの結果が errorMessage に反映される。
-        // 途中の失敗は最新の成功で上書きされ、stale な失敗はロールバック・エラー表示なし。
-        let session = SequentialSession(results: [
-            (Data(), 500),  // 1番目：失敗レスポンス
-            (#"{"default_difficulty":"toeic_900","default_playback_speed":null}"#.data(using: .utf8)!, 200) // 2番目：成功レスポンス
-        ])
-        let vm = SettingsViewModel(apiClient: makeClient(session: session), library: library, downloads: downloads)
-
-        // 1番目のリクエスト（失敗）
-        let ok1 = await vm.syncDefaultDifficulty("toeic_600")
-        XCTAssertFalse(ok1, "1番目は失敗応答")
-
-        // 2番目のリクエスト（成功）
-        let ok2 = await vm.syncDefaultDifficulty("toeic_900")
-        XCTAssertTrue(ok2, "2番目は成功応答")
-
-        // 最新（2番目）の結果が反映されている
-        XCTAssertNil(vm.errorMessage, "最新の成功でエラーメッセージはクリア")
-    }
-
-    func testSyncPlaybackSpeedMultipleRequestsLastWins() async throws {
-        // 再生速度同期でも複数リクエストで最新のみ反映されることを確認。
-        let session = SequentialSession(results: [
-            (Data(), 500),  // 1番目：失敗
-            (#"{"default_difficulty":null,"default_playback_speed":1.5}"#.data(using: .utf8)!, 200) // 2番目：成功
-        ])
-        let vm = SettingsViewModel(apiClient: makeClient(session: session), library: library, downloads: downloads)
-
-        // 1番目（失敗）
-        _ = await vm.syncDefaultPlaybackSpeed(1.0)
-
-        // 2番目（成功）
-        let ok = await vm.syncDefaultPlaybackSpeed(1.5)
-        XCTAssertTrue(ok)
-        XCTAssertNil(vm.errorMessage, "最新の成功が反映")
     }
 
     // MARK: - ダウンロード音声キャッシュの容量表示・全削除 (issue #52)
@@ -484,89 +404,42 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertTrue(cacheManager.isCached("podcast-b", subject: subjectB), "他の主体の項目は残る")
     }
 
-    func testSyncDifficultySuccessMultipleTimes() async throws {
-        // 単一の成功ケースを複数回実行してレース対策ロジックが正常に動作することを確認。
-        let successJSON = #"{"default_difficulty":"toeic_900","default_playback_speed":null}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON), library: library, downloads: downloads)
+    // MARK: - savePreference（View が errorMessage へ直接書かないための窓口）
 
-        let ok1 = await vm.syncDefaultDifficulty("toeic_600")
-        XCTAssertTrue(ok1)
-        XCTAssertNil(vm.errorMessage)
+    func testSavePreferenceClearsErrorMessageOnSuccess() async {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "{}"), library: library, downloads: downloads)
+        await vm.savePreference(failureMessage: "x") { throw ApiFailure.server(status: 500) }
+        XCTAssertEqual(vm.errorMessage, "x", "前提: 直前の失敗で表示が出ている")
 
-        let ok2 = await vm.syncDefaultDifficulty("toeic_900")
-        XCTAssertTrue(ok2)
+        await vm.savePreference(failureMessage: "x") {}
+
         XCTAssertNil(vm.errorMessage)
     }
 
-    func testSyncWeeklyGoalValidation() async {
-        let successJSON = #"{"weekly_goal_episodes":5}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON), library: library, downloads: downloads)
+    func testSavePreferenceSetsFailureMessageForAnyError() async {
+        struct Other: Error {}
+        let vm = SettingsViewModel(apiClient: makeClient(json: "{}"), library: library, downloads: downloads)
 
-        let ok = await vm.syncWeeklyGoal(5)
-        XCTAssertTrue(ok)
-        XCTAssertNil(vm.errorMessage)
+        await vm.savePreference(failureMessage: "設定の保存に失敗しました") { throw ApiFailure.server(status: 500) }
+        XCTAssertEqual(vm.errorMessage, "設定の保存に失敗しました")
 
-        let badOk = await vm.syncWeeklyGoal(999)
-        XCTAssertFalse(badOk)
-        XCTAssertEqual(vm.errorMessage, "学習目標の値が正しくありません")
+        await vm.savePreference(failureMessage: "別の文言") { throw Other() }
+        XCTAssertEqual(vm.errorMessage, "別の文言", "ApiFailure 以外の error（キャンセル含む）も拾う")
+
+        await vm.savePreference(failureMessage: "キャンセル") { throw CancellationError() }
+        XCTAssertEqual(vm.errorMessage, "キャンセル")
     }
 
-    func testSyncWeeklyGoalFailureMessage() async {
-        let vm = SettingsViewModel(apiClient: makeClient(json: "", statusCode: 500), library: library, downloads: downloads)
+    func testSavePreferenceShowsTheGivenFailureMessageSeparately() async {
+        let vm = SettingsViewModel(apiClient: makeClient(json: "{}"), library: library, downloads: downloads)
 
-        let ok = await vm.syncWeeklyGoal(7)
-        XCTAssertFalse(ok)
-        XCTAssertEqual(vm.errorMessage, "学習目標の保存に失敗しました")
-    }
+        await vm.savePreference(failureMessage: "設定の保存に失敗しました") { throw ApiFailure.server(status: 500) }
+        let preference = vm.errorMessage
+        await vm.savePreference(failureMessage: "学習目標の保存に失敗しました") { throw ApiFailure.server(status: 500) }
+        let goal = vm.errorMessage
 
-    func testSyncWeeklyGoalStaleFailureIgnored() async {
-        // 複数の syncWeeklyGoal が並行実行される場合、最新リクエストのみが反映される。
-        // stale な失敗は true を返してロールバック・エラー表示を抑止する。
-        // ここでは SequentialSession で古い失敗→新しい成功をシミュレート。
-        let failureJSON = Data()
-        let successJSON = #"{"weekly_goal_episodes":7}"#.data(using: .utf8)!
-        let vm = SettingsViewModel(
-            apiClient: makeClient(
-                session: SequentialSession(
-                    results: [
-                        (failureJSON, 500),   // リクエスト 1（古い失敗）
-                        (successJSON, 200)    // リクエスト 2（新しい成功）
-                    ]
-                )
-            ),
-            library: library, downloads: downloads
-        )
-
-        // リクエスト 1 を開始（失敗）
-        let task1 = Task { await vm.syncWeeklyGoal(5) }
-        // リクエスト 2 を開始（成功）。この方がリクエスト ID が新しい。
-        let task2 = Task { await vm.syncWeeklyGoal(7) }
-
-        let ok1 = await task1.value
-        let ok2 = await task2.value
-
-        // task1（古い失敗）は stale と判定され、true を返してエラー表示を抑止。
-        // task2（新しい成功）は最新リクエストなので成功。
-        // 最終的なエラーメッセージは nil または「保存に失敗」ではない状態になる。
-        // （task2 が最後に処理された場合 nil、task1 が最後に処理された場合でも stale true で表示なし）
-        XCTAssertTrue(ok1 || ok2)  // 少なくとも一つは成功する
-    }
-
-    func testSyncWeeklyGoalMultipleSuccessNoLoop() async {
-        // 複数の syncWeeklyGoal が連続実行される場合、revert ループが発生しないことを確認。
-        let successJSON = #"{"weekly_goal_episodes":5}"#
-        let vm = SettingsViewModel(apiClient: makeClient(json: successJSON), library: library, downloads: downloads)
-
-        let ok1 = await vm.syncWeeklyGoal(5)
-        XCTAssertTrue(ok1)
-        XCTAssertNil(vm.errorMessage)
-
-        let ok2 = await vm.syncWeeklyGoal(7)
-        XCTAssertTrue(ok2)
-        XCTAssertNil(vm.errorMessage)
-
-        let ok3 = await vm.syncWeeklyGoal(3)
-        XCTAssertTrue(ok3)
-        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(preference, "設定の保存に失敗しました")
+        XCTAssertEqual(goal, "学習目標の保存に失敗しました")
+        XCTAssertNotEqual(preference, goal)
     }
 }

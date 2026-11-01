@@ -5,7 +5,7 @@ import Combine
 
 /// `AppState` の現行の query（`session`・`currentSubject`・`subjectStamp`・`isCurrentSubject(_:)`・
 /// `lastCleanupIncomplete`・`isConfigured`）が、書込み port に書かないことの契約テスト。
-/// 5 つの記録 double を既存の継ぎ目（`SessionStore`・`apiClientFactory`・`PreferenceRegistry`・
+/// 5 つの記録 double を既存の継ぎ目（`SessionStore`・`apiClientFactory`・
 /// `AudioCacheManager`・`clearOfflineLibrary`）に被せて `AppState` を組み、
 /// 同期の読み・`await` の後・Combine の購読の発火の後のそれぞれで書込みの合計が 0 であることを確かめる。
 @MainActor
@@ -30,7 +30,6 @@ final class AppStateQueryContractTests: XCTestCase {
                     onUnauthorized: onUnauthorized
                 )
             },
-            preferences: PreferenceRegistry(defaults: ports.userDefaults),
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearOfflineLibrary: { key in try ports.clearOfflineLibrary.run(subject: key) }
         )
