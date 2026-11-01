@@ -8,8 +8,8 @@
 import Foundation
 
 extension AuthUser {
-    /// `key` は ios-slice-departure-01 で主体キーを受け取るまで `nil`。
+    /// `key` は `userId` が主体キーの形式を満たすときだけ入る。欠落・形式外は `nil`。
     func toSubject() -> Subject {
-        Subject(username: username, displayName: displayName, role: Role(rawValue: role), key: nil)
+        Subject(username: username, displayName: displayName, role: Role(rawValue: role), key: SubjectKey(userId))
     }
 }

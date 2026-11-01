@@ -156,7 +156,7 @@ final class PreferenceRegistryTests: XCTestCase {
             sessionStore: InMemorySessionStore(),
             preferences: PreferenceRegistry(defaults: makeSuite()),
             nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
 
         XCTAssertEqual(appState.defaultDifficulty, "toeic_600")
@@ -175,7 +175,7 @@ final class PreferenceRegistryTests: XCTestCase {
             sessionStore: InMemorySessionStore(token: "tA"),
             preferences: PreferenceRegistry(defaults: suite),
             nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
@@ -204,7 +204,7 @@ final class PreferenceRegistryTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: suite),
             nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
@@ -226,7 +226,7 @@ final class PreferenceRegistryTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: suite),
             nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 

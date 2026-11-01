@@ -744,7 +744,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         XCTAssertEqual(rig.library.savedIds, ["a"])
         changes = 0
 
-        try rig.library.clearAll()
+        try rig.library.remove(subject: subjectA)
 
         XCTAssertEqual(rig.library.savedIds, [])
         XCTAssertGreaterThan(changes, 0, "保存庫の変化で画面の再描画が起きる")

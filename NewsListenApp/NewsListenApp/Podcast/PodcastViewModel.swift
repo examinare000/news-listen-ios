@@ -38,7 +38,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private let coordinator: PlaybackCoordinator
     private let positionReporter: PositionReporter
     private let library: OfflineLibrary
-    private let downloads: OfflineDownloads
+    let downloads: OfflineDownloads
     private let defaultSpeed: () -> Float
     private var cancellables = Set<AnyCancellable>()
 

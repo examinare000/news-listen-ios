@@ -157,8 +157,8 @@ final class RecordingFileManager: FileManagerProtocol {
     }
 }
 
-/// `AppState.init(clearOfflineLibrary:)` に `{ try recorder.run() }` として渡す。`run()` の呼出を数え、
-/// `AudioCacheManager.clearCache()` へ委譲する。
+/// `AppState.init(clearOfflineLibrary:)` に `{ key in try recorder.run(subject: key) }` として渡す。`run(subject:)` の呼出を数え、
+/// 主体が非 nil なら `AudioCacheManager.removeSubject(_:)` へ委譲する。
 final class RecordingClearOfflineLibrary {
     private let cache: AudioCacheManager
     private let counter = WriteCounter()
@@ -171,9 +171,9 @@ final class RecordingClearOfflineLibrary {
 
     func resetCounts() { counter.reset() }
 
-    func run() throws {
+    func run(subject: SubjectKey?) throws {
         counter.increment()
-        try cache.clearCache()
+        if let subject { try cache.removeSubject(subject) }
     }
 }
 

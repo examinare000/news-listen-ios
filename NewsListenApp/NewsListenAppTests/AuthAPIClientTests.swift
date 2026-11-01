@@ -128,4 +128,28 @@ final class AuthAPIClientTests: XCTestCase {
         XCTAssertFalse(subject.role.isAdmin)
         XCTAssertNil(subject.key)
     }
+
+    // verifies: ios-rule-account-04
+    func testAuthUserToSubjectCarriesUserIdAsSubjectKey() throws {
+        let json = #"{"username":"a","role":"user","display_name":"A","user_id":"user-a"}"#.data(using: .utf8)!
+        let user = try JSONDecoder().decode(AuthUser.self, from: json)
+
+        XCTAssertEqual(user.toSubject().key, subjectA)
+    }
+
+    // verifies: ios-rule-account-04（shared-leave-10: user_id 欠落・形式外でも decode は成功し key が nil）
+    // kills: user_id 欠落で decode が失敗しログイン不能になる／形式外の値を key にする
+    func testAuthUserWithMissingOrInvalidUserIdDecodesWithNilKey() throws {
+        let bodies = [
+            #"{"username":"a","role":"user","display_name":"A"}"#,
+            #"{"username":"a","role":"user","display_name":"A","user_id":"bad id"}"#,
+            #"{"username":"a","role":"user","display_name":"A","user_id":""}"#,
+            #"{"username":"a","role":"user","display_name":"A","user_id":"user-a\n"}"#,
+        ]
+        for body in bodies {
+            let user = try JSONDecoder().decode(AuthUser.self, from: Data(body.utf8))
+
+            XCTAssertNil(user.toSubject().key, body)
+        }
+    }
 }

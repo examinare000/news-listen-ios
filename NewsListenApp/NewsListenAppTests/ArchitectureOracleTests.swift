@@ -662,8 +662,8 @@ final class ArchitectureOracleTests: XCTestCase {
     private var applicationSources: [SourceFile] { sources(inLayer: .application) }
 
     private let applicationFileCounts: [(path: String, count: Int)] = [
-        ("AppState.swift", 41),
-        ("Auth/SubjectCleanup.swift", 5),
+        ("AppState.swift", 42),
+        ("Auth/SubjectCleanup.swift", 6),
         ("Podcast/Playback/AudioEngine.swift", 7),
         ("Podcast/Playback/NowPlayingCenter.swift", 14),
         ("Podcast/Playback/PlaybackLifecycle.swift", 1),
@@ -674,7 +674,7 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Podcast/Playback/PlaybackCoordinator+Preview.swift", 1),
         ("Podcast/Playback/NowPlaying.swift", 21),
         ("Podcast/Playback/PositionReporter.swift", 5),
-        ("Podcast/Playback/OfflineLibrary.swift", 15),
+        ("Podcast/Playback/OfflineLibrary.swift", 19),
         ("Podcast/Playback/OfflineDownloads.swift", 7),
         ("Catalog/Application/EpisodeCatalog.swift", 6),
         ("Catalog/Application/EpisodeRow.swift", 7),
@@ -748,7 +748,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 175)
+        XCTAssertEqual(result.declared.count, 181)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -759,12 +759,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 175)
-        XCTAssertEqual(ledger.count, 175)
+        XCTAssertEqual(declared.count, 181)
+        XCTAssertEqual(ledger.count, 181)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 41, "query": 36, "port": 26, "internal": 24, "readModel": 38, "factory": 10]
+            ["command": 42, "query": 36, "port": 27, "internal": 28, "readModel": 38, "factory": 10]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -853,6 +853,6 @@ final class ArchitectureOracleTests: XCTestCase {
         let domainOnly = ArchitectureScan.unregisteredDomainTests(production: production, tests: tests, registered: [])
 
         XCTAssertEqual(unregistered, [], "登録漏れ")
-        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift", "SubjectTests.swift", "PasswordPolicyTests.swift"], "domain だけを参照するテストファイル")
+        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift", "SubjectTests.swift", "TestSubjectKeys.swift", "PasswordPolicyTests.swift"], "domain だけを参照するテストファイル")
     }
 }

@@ -53,6 +53,7 @@ final class GrepOracleTests: XCTestCase {
             "appState.refreshListeningStreak(": 5,
             "appState.refreshOnboardingStatus(": 1,
             "appState.refreshPreferences(": 1,
+            "appState.registerDownloads(": 1,
             "appState.registerPlaybackLifecycle(": 1,
             "appState.retryResolve(": 1,
             "appState.selectedPodcastId = ": 1,

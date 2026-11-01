@@ -40,21 +40,32 @@ private final class FailingWriteFileManager: FileManagerProtocol {
     var files: [String: Data] = [:]
     var directories: Set<String> = []
 
-    func fileExists(atPath: String) -> Bool { files[atPath] != nil || directories.contains(atPath) }
+    func fileExists(atPath: String) -> Bool {
+        let prefix = atPath + "/"
+        return files[atPath] != nil || directories.contains(atPath)
+            || files.keys.contains { $0.hasPrefix(prefix) }
+            || directories.contains { $0.hasPrefix(prefix) }
+    }
     func createDirectory(at: URL, withIntermediateDirectories: Bool, attributes: [FileAttributeKey: Any]?) throws {
         directories.insert(at.path)
     }
-    func removeItem(at: URL) throws { files.removeValue(forKey: at.path) }
+    func removeItem(at: URL) throws {
+        let path = at.path
+        let prefix = path + "/"
+        files = files.filter { $0.key != path && !$0.key.hasPrefix(prefix) }
+        directories = directories.filter { $0 != path && !$0.hasPrefix(prefix) }
+    }
     func write(_ data: Data, to: URL) throws { throw WriteFailure() }
     func fileSize(atPath: String) -> Int64? { files[atPath]?.count.int64 }
     func cachesDirectory() -> URL { URL(fileURLWithPath: "/mock-caches") }
     func contentsOfDirectory(atPath path: String) throws -> [String] {
         let prefix = path.hasSuffix("/") ? path : path + "/"
-        return files.keys.compactMap { key in
-            guard key.hasPrefix(prefix) else { return nil }
-            let name = String(key.dropFirst(prefix.count))
-            return name.contains("/") ? nil : name
+        var names: [String] = []
+        for key in Array(files.keys) + Array(directories) where key.hasPrefix(prefix) {
+            if let name = String(key.dropFirst(prefix.count)).split(separator: "/").first.map(String.init),
+               !names.contains(name) { names.append(name) }
         }
+        return names
     }
 }
 
@@ -119,16 +130,20 @@ final class OfflineDownloadsTests: XCTestCase {
         fileManager: FileManagerProtocol = AudioCacheManagerTests.MockFileManager()
     ) -> (library: OfflineLibrary, cache: AudioCacheManager) {
         let cache = AudioCacheManager(fileManager: fileManager)
-        return (OfflineLibrary(store: .live(cacheManager: cache)), cache)
+        let library = OfflineLibrary(store: .live(cacheManager: cache))
+        library.bind(subject: subjectA)
+        return (library, cache)
     }
 
     private func makeDownloads(
-        library: OfflineLibrary, gateway: GatewayDouble
+        library: OfflineLibrary, gateway: GatewayDouble,
+        currentSubject: @escaping () -> SubjectKey? = { subjectA }
     ) -> OfflineDownloads {
         OfflineDownloads(
             library: library,
             fetchEpisode: { id in try await gateway.fetch(id) },
-            downloadAudio: { url in try await gateway.download(url) }
+            downloadAudio: { url in try await gateway.download(url) },
+            currentSubject: currentSubject
         )
     }
 
@@ -166,7 +181,7 @@ final class OfflineDownloadsTests: XCTestCase {
     // verifies: ios-cmd-playback-18, ios-rule-playback-08（ios-test-015 (b)）
     func testT015_downloadOfSavedIdReturnsAlreadySavedWithoutCalling() async throws {
         let (library, _) = makeLibrary()
-        try library.save(Data([1]), for: "a")
+        try library.save(Data([1]), for: "a", subject: subjectA)
         let gateway = GatewayDouble()
         let downloads = makeDownloads(library: library, gateway: gateway)
 
@@ -341,7 +356,7 @@ final class OfflineDownloadsTests: XCTestCase {
     // verifies: ios-cmd-playback-19（ios-test-016）
     func testT016_removeDeletesSavedIdAndIgnoresUnknownId() throws {
         let (library, _) = makeLibrary()
-        try library.save(Data([1]), for: "a")
+        try library.save(Data([1]), for: "a", subject: subjectA)
         let downloads = makeDownloads(library: library, gateway: GatewayDouble())
 
         try downloads.remove(episodeId: "a")
@@ -356,9 +371,9 @@ final class OfflineDownloadsTests: XCTestCase {
     func testT016_failedRemoveThrowsStoreFailureAndRealignsSavedIds() throws {
         let failing = FailingRemoveFileManager()
         let (library, cache) = makeLibrary(fileManager: failing)
-        try library.save(Data([1]), for: "a")
-        try library.save(Data([1]), for: "b")
-        failing.files.removeValue(forKey: cache.cachedURL(for: "b").path)  // b は実体だけが消えた
+        try library.save(Data([1]), for: "a", subject: subjectA)
+        try library.save(Data([1]), for: "b", subject: subjectA)
+        failing.files.removeValue(forKey: cache.cachedURL(for: "b", subject: subjectA).path)  // b は実体だけが消えた
         let downloads = makeDownloads(library: library, gateway: GatewayDouble())
 
         XCTAssertThrowsError(try downloads.remove(episodeId: "a")) { error in
@@ -371,11 +386,14 @@ final class OfflineDownloadsTests: XCTestCase {
         XCTAssertTrue(library.has("a"))
     }
 
-    // verifies: ios-cmd-playback-19（ios-test-016）
+    // verifies: ios-cmd-playback-19（ios-test-016。removeAll は現在主体の保存だけを消し、繰り返せる）
+    // kills: 端末単位の全削除（他の主体のディレクトリまで消す）
     func testT016_removeAllClearsEverythingAndIsRepeatable() throws {
-        let (library, _) = makeLibrary()
-        try library.save(Data([1]), for: "a")
-        try library.save(Data([1]), for: "b")
+        let mock = AudioCacheManagerTests.MockFileManager()
+        let (library, cache) = makeLibrary(fileManager: mock)
+        try library.save(Data([1]), for: "a", subject: subjectA)
+        try library.save(Data([1]), for: "b", subject: subjectA)
+        try cache.cache(Data([9]), for: "x", subject: subjectB)
         let downloads = makeDownloads(library: library, gateway: GatewayDouble())
 
         try downloads.removeAll()
@@ -384,15 +402,16 @@ final class OfflineDownloadsTests: XCTestCase {
         XCTAssertTrue(library.savedIds.isEmpty)
         XCTAssertFalse(library.has("a"))
         XCTAssertFalse(library.has("b"))
+        XCTAssertTrue(cache.isCached("x", subject: subjectB), "B のディレクトリの項目は残る")
     }
 
     // verifies: ios-cmd-playback-19（ios-test-016。removeAll の失敗）
     func testT016_failedRemoveAllThrowsStoreFailureAndRealignsSavedIds() throws {
         let failing = FailingRemoveFileManager()
         let (library, cache) = makeLibrary(fileManager: failing)
-        try library.save(Data([1]), for: "a")
-        try library.save(Data([1]), for: "b")
-        failing.files.removeValue(forKey: cache.cachedURL(for: "b").path)
+        try library.save(Data([1]), for: "a", subject: subjectA)
+        try library.save(Data([1]), for: "b", subject: subjectA)
+        failing.files.removeValue(forKey: cache.cachedURL(for: "b", subject: subjectA).path)
         let downloads = makeDownloads(library: library, gateway: GatewayDouble())
 
         XCTAssertThrowsError(try downloads.removeAll()) { error in
@@ -447,7 +466,7 @@ final class OfflineDownloadsTests: XCTestCase {
         XCTAssertEqual(downloads.state(for: "a"), .notDownloaded)
         XCTAssertTrue(downloads.downloadingIds.isEmpty, "初期値は空")
 
-        try library.save(Data([1]), for: "b")
+        try library.save(Data([1]), for: "b", subject: subjectA)
 
         XCTAssertEqual(downloads.state(for: "b"), .downloaded)
         XCTAssertEqual(downloads.state(for: "a"), .notDownloaded)
@@ -461,7 +480,7 @@ final class OfflineDownloadsTests: XCTestCase {
         let downloads = makeDownloads(library: library, gateway: gateway)
         let task = Task { try await downloads.download(episodeId: "a") }
         await gateway.waitUntilEntered(1)
-        try library.save(Data([1]), for: "a")  // 実体もある
+        try library.save(Data([1]), for: "a", subject: subjectA)  // 実体もある
 
         XCTAssertEqual(downloads.state(for: "a"), .downloading)
 
@@ -490,5 +509,82 @@ final class OfflineDownloadsTests: XCTestCase {
         XCTAssertEqual(downloads.downloadingIds, ["a"])
         gateway.releaseAll()
         _ = try await task.value
+    }
+
+    // MARK: - ios-contract-21（shared-leave-06: 開始時の主体のディレクトリへ書く）
+
+    // verifies: ios-contract-21（shared-leave-06）
+    // kills: 保存の直前に currentSubject() を読み直して B のディレクトリへ書く／束縛中の主体へ書く
+    func testTT_SL06_downloadInFlightWritesToTheSubjectCapturedAtStartAndReclaimRemovesIt() async throws {
+        let mock = AudioCacheManagerTests.MockFileManager()
+        let (library, cache) = makeLibrary(fileManager: mock)
+        let gateway = GatewayDouble()
+        gateway.holdsDownloads = true
+        var current: SubjectKey? = subjectA
+        let downloads = makeDownloads(library: library, gateway: gateway, currentSubject: { current })
+        let task = Task { try await downloads.download(episodeId: "p1") }
+        await gateway.waitUntilEntered(1)
+
+        // 保留中に主体が B へ変わる。cancelAll は呼ばない（cancel が間に合わない）。
+        current = subjectB
+        library.bind(subject: subjectB)
+        gateway.releaseAll()
+        let receipt = try await task.value
+
+        XCTAssertEqual(receipt, .saved)
+        XCTAssertTrue(cache.isCached("p1", subject: subjectA), "開始時の A のディレクトリに保存される")
+        XCTAssertFalse(cache.isCached("p1", subject: subjectB), "B のディレクトリには書かない")
+        XCTAssertFalse(library.has("p1"), "B の範囲に p1 は見えない")
+        XCTAssertTrue(library.savedIds.isEmpty)
+
+        try library.reclaim(keeping: subjectB)
+
+        XCTAssertFalse(mock.fileExists(atPath: "/mock-caches/NewsListenApp/audio/user-a"), "次回起動の回収で A のディレクトリは消える")
+    }
+
+    // verifies: ios-contract-21（shared-leave-06: 離脱で束縛が nil になり、cancel が届かない）
+    // kills: 束縛 nil で保存を cacheDisabled にして捨てる／savedIds に足す
+    func testTT_SL06_downloadCompletingAfterDepartureStillWritesToDepartedSubjectAndIsReclaimed() async throws {
+        let mock = AudioCacheManagerTests.MockFileManager()
+        let (library, cache) = makeLibrary(fileManager: mock)
+        let gateway = GatewayDouble()
+        gateway.holdsDownloads = true
+        var current: SubjectKey? = subjectA
+        let downloads = makeDownloads(library: library, gateway: gateway, currentSubject: { current })
+        let task = Task { try await downloads.download(episodeId: "p1") }
+        await gateway.waitUntilEntered(1)
+
+        // 離脱: 主体も束縛も nil。cancelAll は呼ばない。
+        current = nil
+        library.bind(subject: nil)
+        gateway.releaseAll()
+        let receipt = try await task.value
+
+        XCTAssertEqual(receipt, .saved)
+        XCTAssertTrue(cache.isCached("p1", subject: subjectA), "A のディレクトリに実体がある")
+        XCTAssertTrue(library.savedIds.isEmpty)
+
+        try library.reclaim(keeping: nil)
+
+        XCTAssertFalse(mock.fileExists(atPath: "/mock-caches/NewsListenApp/audio/user-a"), "次回起動の回収で A のディレクトリは消える")
+    }
+
+    // MARK: - ios-contract-21（shared-leave-10: 主体キーが無ければダウンロード不可）
+
+    // verifies: ios-contract-21（shared-leave-10）
+    // kills: nil のまま取得を始める／別の失敗種別にする
+    func testTT_SL10_downloadWithoutSubjectFailsWithoutFetching() async {
+        let (library, _) = makeLibrary()
+        let gateway = GatewayDouble()
+        let downloads = makeDownloads(library: library, gateway: gateway, currentSubject: { nil })
+
+        let error = await thrownError(by: downloads, id: "a")
+
+        XCTAssertEqual(
+            error as? DownloadFailure,
+            .store(OfflineLibrary.SaveError.cacheDisabled.localizedDescription)
+        )
+        XCTAssertTrue(gateway.fetchedIds.isEmpty, "取得を始めない")
+        XCTAssertTrue(downloads.downloadingIds.isEmpty, "登録もしない")
     }
 }

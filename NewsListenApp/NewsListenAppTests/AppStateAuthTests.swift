@@ -344,13 +344,16 @@ final class AppStateAuthTests: XCTestCase {
     // verifies: ios-contract-20.10
     func testTT14_11_completeLoginStoresTokenAndSession() {
         let store = InMemorySessionStore()
-        let appState = makeSubjectAwareAppState(sessionStore: store)
+        let log = OfflineLibraryCallLog()
+        let appState = makeSubjectAwareAppState(sessionStore: store, bindOfflineSubject: log.bind)
         let receipt = LoginReceipt(
             token: "tok-1",
-            subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "admin"), key: nil)
+            subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "admin"), key: subjectA)
         )
 
         appState.completeLogin(receipt)
+
+        XCTAssertEqual(log.bindCalls, [subjectA], "receipt の key で束縛が 1 回")
 
         XCTAssertEqual(store.token, "tok-1")
         XCTAssertEqual(appState.currentSubject?.username, "alice")
@@ -409,7 +412,8 @@ final class AppStateAuthTests: XCTestCase {
     // verifies: ios-contract-20.12
     func testTT14_14_logoutClearsTokenAndSession() async {
         let store = InMemorySessionStore(token: "tok-1")
-        let appState = makeSubjectAwareAppState(sessionStore: store)
+        let scripted = ScriptedURLSession()
+        let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
         appState.completeLogin(LoginReceipt(token: "tok-1", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
         await appState.logout()
@@ -417,6 +421,8 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertNil(store.token)
         XCTAssertNil(appState.currentSubject)
         guard case .anonymous = appState.session else { return XCTFail("session は anonymous になるべき") }
+        // 送信は await されない Task なので、テストの後に漏れないよう到達を待ってから終える。
+        await scripted.waitUntilRequested(method: "POST", path: "/auth/logout")
     }
 
     // MARK: - T-T14-16（ios-contract-20.15, ios-contract-20.7）
@@ -626,7 +632,6 @@ final class AppStateAuthTests: XCTestCase {
         let aliceJSON = #"{"username":"alice","role":"user","display_name":"Alice"}"#
         scripted.configure(method: "GET", path: "/auth/me", status: 200, body: Data(aliceJSON.utf8))
         scripted.configurePending(method: "GET", path: "/settings/preferences")
-        scripted.configure(method: "DELETE", path: "/notifications/device-tokens", status: 200)
         scripted.configure(method: "POST", path: "/auth/logout", status: 200)
         scripted.configurePending(method: "POST", path: "/notifications/device-tokens")
         let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
@@ -734,7 +739,7 @@ final class AppStateAuthTests: XCTestCase {
 
         await appState.registerDeviceTokenIfPossible()
 
-        // logout() 自体が /auth/logout・デバイストークン解除の HTTP 呼び出しを行うため
+        // logout() 自体が /auth/logout の HTTP 呼び出しを行うため
         // lastRequest は nil にならない。検証すべきは「登録（POST /notifications/device-tokens）
         // が発生していないこと」。
         let isRegisterRequest = session.lastRequest?.httpMethod == "POST"

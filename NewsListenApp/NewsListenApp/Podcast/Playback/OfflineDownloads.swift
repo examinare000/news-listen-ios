@@ -28,23 +28,30 @@ final class OfflineDownloads: ObservableObject {
     private let library: OfflineLibrary
     private let fetchEpisode: (String) async throws -> Episode
     private let downloadAudio: (URL) async throws -> Data
+    private let currentSubject: () -> SubjectKey?
     private var tasks: [String: Task<DownloadReceipt, Error>] = [:]
 
     init(library: OfflineLibrary,
          fetchEpisode: @escaping (String) async throws -> Episode,
-         downloadAudio: @escaping (URL) async throws -> Data) {
+         downloadAudio: @escaping (URL) async throws -> Data,
+         currentSubject: @escaping () -> SubjectKey?) {
         self.library = library
         self.fetchEpisode = fetchEpisode
         self.downloadAudio = downloadAudio
+        self.currentSubject = currentSubject
     }
 
     @discardableResult
     func download(episodeId: String) async throws -> DownloadReceipt {
+        // 開始時の主体を最初の中断点より前に控える。途中で主体が変わっても、書込先はこの主体のまま。
+        guard let subject = currentSubject() else {
+            throw DownloadFailure.store(OfflineLibrary.SaveError.cacheDisabled.localizedDescription)
+        }
         if library.has(episodeId) { return .alreadySaved }
         if downloadingIds.contains(episodeId) { return .alreadyRunning }
 
         // 最初の中断点より前に同期で登録する。Task の中で登録すると、同時に始めた 2 回目が空の集合を見て二重実行になる。
-        let task = Task { try await self.run(episodeId) }
+        let task = Task { try await self.run(episodeId, subject: subject) }
         downloadingIds.insert(episodeId)
         tasks[episodeId] = task
         return try await task.value
@@ -60,7 +67,7 @@ final class OfflineDownloads: ObservableObject {
 
     func removeAll() throws {
         do {
-            try library.clearAll()
+            try library.remove(subject: currentSubject())
         } catch {
             throw DownloadFailure.store(error.localizedDescription)
         }
@@ -75,7 +82,7 @@ final class OfflineDownloads: ObservableObject {
         return library.has(episodeId) ? .downloaded : .notDownloaded
     }
 
-    private func run(_ id: String) async throws -> DownloadReceipt {
+    private func run(_ id: String, subject: SubjectKey) async throws -> DownloadReceipt {
         defer {
             downloadingIds.remove(id)
             tasks[id] = nil
@@ -93,7 +100,7 @@ final class OfflineDownloads: ObservableObject {
         // cancel を見ない取得が data を返しても保存しない。
         try Task.checkCancellation()
         do {
-            try library.save(data, for: id)
+            try library.save(data, for: id, subject: subject)
         } catch {
             throw DownloadFailure.store(error.localizedDescription)
         }

@@ -166,7 +166,8 @@ enum PreviewSamples {
         let downloads = OfflineDownloads(
             library: parts.library,
             fetchEpisode: { _ in throw CancellationError() },
-            downloadAudio: { _ in throw CancellationError() })
+            downloadAudio: { _ in throw CancellationError() },
+            currentSubject: { nil })
         let catalog = EpisodeCatalog(gateway: CatalogGateway(fetchEpisodes: { episodes }))
         return PodcastViewModel(
             apiClient: apiClient(),

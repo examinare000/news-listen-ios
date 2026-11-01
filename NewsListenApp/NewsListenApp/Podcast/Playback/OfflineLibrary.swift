@@ -10,39 +10,57 @@ import Foundation
 import Combine
 
 struct AudioFileStore {
-    let url: (String) -> URL?
-    let exists: (String) -> Bool
-    let write: (Data, String) throws -> Void
-    let remove: (String) throws -> Void
-    let removeAll: () throws -> Void
-    let size: () -> Int64
+    let url: (String, SubjectKey) -> URL?
+    let exists: (String, SubjectKey) -> Bool
+    let write: (Data, String, SubjectKey) throws -> Void
+    let remove: (String, SubjectKey) throws -> Void
+    let removeSubject: (SubjectKey) throws -> Void
+    let size: (SubjectKey) -> Int64
+    let reclaim: (SubjectKey?) throws -> Void
 }
 
 @MainActor
 final class OfflineLibrary: ObservableObject {
+    enum SaveError: LocalizedError, Equatable {
+        case cacheDisabled
+
+        var errorDescription: String? { "オフライン保存を利用できません" }
+    }
+
     @Published private(set) var savedIds: Set<String> = []
     private let store: AudioFileStore
+    private var boundSubject: SubjectKey?
 
     nonisolated init(store: AudioFileStore) {
         self.store = store
     }
 
-    func save(_ data: Data, for id: String) throws {
-        try store.write(data, id)
-        savedIds.insert(id)
+    func bind(subject: SubjectKey?) {
+        boundSubject = subject
+        savedIds = []
+    }
+
+    /// 書込先は渡された主体で決める。離脱で束縛が外れた後に完了した書き込みも、その主体のディレクトリに入る。
+    func save(_ data: Data, for id: String, subject: SubjectKey?) throws {
+        guard let subject else { throw SaveError.cacheDisabled }
+        try store.write(data, id, subject)
+        if subject == boundSubject { savedIds.insert(id) }
     }
 
     func has(_ id: String) -> Bool {
-        store.exists(id)
+        guard let boundSubject else { return false }
+        return store.exists(id, boundSubject)
     }
 
     func url(_ id: String) -> URL? {
-        store.url(id)
+        guard let boundSubject else { return nil }
+        return store.url(id, boundSubject)
     }
 
     func remove(_ id: String) throws {
+        guard let boundSubject else { return }
         do {
-            try store.remove(id)
+            try store.remove(id, boundSubject)
         } catch {
             resyncWithStore()
             throw error
@@ -50,18 +68,25 @@ final class OfflineLibrary: ObservableObject {
         savedIds.remove(id)
     }
 
-    func clearAll() throws {
+    func remove(subject: SubjectKey?) throws {
+        guard let subject else { return }
         do {
-            try store.removeAll()
+            try store.removeSubject(subject)
         } catch {
             resyncWithStore()
             throw error
         }
-        savedIds = []
+        if subject == boundSubject { savedIds = [] }
+    }
+
+    func reclaim(keeping: SubjectKey?) throws {
+        try store.reclaim(keeping)
+        savedIds = savedIds.filter(has)
     }
 
     func usage() -> Int64 {
-        store.size()
+        guard let boundSubject else { return 0 }
+        return store.size(boundSubject)
     }
 
     func refresh(candidateIds: [String]) {

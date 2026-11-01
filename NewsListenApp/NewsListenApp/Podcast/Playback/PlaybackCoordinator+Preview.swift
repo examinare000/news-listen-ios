@@ -36,12 +36,13 @@ extension PlaybackCoordinator {
     }
 
     private static let previewStore = AudioFileStore(
-        url: { _ in nil },
-        exists: { _ in false },
-        write: { _, _ in },
-        remove: { _ in },
-        removeAll: {},
-        size: { 0 })
+        url: { _, _ in nil },
+        exists: { _, _ in false },
+        write: { _, _, _ in },
+        remove: { _, _ in },
+        removeSubject: { _ in },
+        size: { _ in 0 },
+        reclaim: { _ in })
 }
 
 @MainActor
