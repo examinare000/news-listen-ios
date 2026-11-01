@@ -125,6 +125,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
         init(spy: NowPlayingCenterSpy = NowPlayingCenterSpy()) {
             self.spy = spy
             library = OfflineLibrary(store: .live(cacheManager: AudioCacheManager(fileManager: AudioCacheManagerTests.MockFileManager())))
+            library.bind(subject: subjectA)
             let gateway = self.gateway
             let fetch = self.fetch
             let environment = self.environment
@@ -152,7 +153,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
 
         /// 保存庫に音声を置く（`cached` として解決される）。
         func cached(_ episode: Episode) throws {
-            try library.save(Data([1, 2, 3]), for: episode.id)
+            try library.save(Data([1, 2, 3]), for: episode.id, subject: subjectA)
         }
 
         /// キャッシュ済みとして開始し、`ready`（playing）まで進める。

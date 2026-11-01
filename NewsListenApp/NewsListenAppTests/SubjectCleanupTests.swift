@@ -45,9 +45,9 @@ final class SubjectCleanupTests: XCTestCase {
         let fm = AudioCacheManagerTests.MockFileManager()
         fm.directories.insert("/mock-caches")
         fm.directories.insert("/mock-caches/NewsListenApp")
-        fm.directories.insert("/mock-caches/NewsListenApp/audio-cache")
-        fm.files["/mock-caches/NewsListenApp/audio-cache/p1.mp3"] = Data("audio1".utf8)
-        fm.files["/mock-caches/NewsListenApp/audio-cache/p2.mp3"] = Data("audio2".utf8)
+        fm.directories.insert("/mock-caches/NewsListenApp/audio/user-a")
+        fm.files["/mock-caches/NewsListenApp/audio/user-a/p1.mp3"] = Data("audio1".utf8)
+        fm.files["/mock-caches/NewsListenApp/audio/user-a/p2.mp3"] = Data("audio2".utf8)
         return fm
     }
 
@@ -69,10 +69,10 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: suite),
             nowPlayingCenter: nowPlaying,
-            clearOfflineLibrary: { try AudioCacheManager(fileManager: fileManager).clearCache() }
+            clearOfflineLibrary: { key in if let key { try AudioCacheManager(fileManager: fileManager).removeSubject(key) } }
         )
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: subjectA)))
 
         var observedTokenAtStop: String?
         var observedAnonymousAtStop = false
@@ -85,7 +85,7 @@ final class SubjectCleanupTests: XCTestCase {
 
         XCTAssertNil(observedTokenAtStop, "後始末が観測する時点で token は既に nil であるべき")
         XCTAssertTrue(observedAnonymousAtStop, "後始末が観測する時点で session は既に anonymous であるべき")
-        XCTAssertEqual(AudioCacheManager(fileManager: fileManager).cacheSize(), 0)
+        XCTAssertEqual(AudioCacheManager(fileManager: fileManager).cacheSize(subject: subjectA), 0)
         XCTAssertEqual(playback.stopForLogoutCallCount, 1)
         XCTAssertEqual(nowPlaying.clearCallCount, 1)
         for key in subjectScopedKeys {
@@ -119,16 +119,16 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: suite),
             nowPlayingCenter: nowPlaying,
-            clearOfflineLibrary: { try AudioCacheManager(fileManager: fileManager).clearCache() }
+            clearOfflineLibrary: { key in if let key { try AudioCacheManager(fileManager: fileManager).removeSubject(key) } }
         )
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: subjectA)))
 
         await appState.refreshListeningStreak() // 保存トークン付きの任意 API が 401（shared-leave-02 の契機）
 
         guard case .anonymous = appState.session else { return XCTFail(".anonymous になるべき") }
         XCTAssertNil(store.token)
-        XCTAssertEqual(AudioCacheManager(fileManager: fileManager).cacheSize(), 0)
+        XCTAssertEqual(AudioCacheManager(fileManager: fileManager).cacheSize(subject: subjectA), 0)
         XCTAssertEqual(playback.stopForLogoutCallCount, 1)
         XCTAssertEqual(nowPlaying.clearCallCount, 1)
         for key in subjectScopedKeys {
@@ -150,8 +150,7 @@ final class SubjectCleanupTests: XCTestCase {
         let failingFileManager = FailingRemoveFileManager()
         failingFileManager.directories.insert("/mock-caches")
         failingFileManager.directories.insert("/mock-caches/NewsListenApp")
-        failingFileManager.directories.insert("/mock-caches/NewsListenApp/audio-cache")
-        failingFileManager.files["/mock-caches/NewsListenApp/audio-cache/p1.mp3"] = Data("audio1".utf8)
+        failingFileManager.files["/mock-caches/NewsListenApp/audio/user-a/p1.mp3"] = Data("audio1".utf8)
         let suite = UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!
         let appState = AppState(
             sessionStore: store,
@@ -160,10 +159,10 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: suite),
             nowPlayingCenter: nowPlaying,
-            clearOfflineLibrary: { try AudioCacheManager(fileManager: failingFileManager).clearCache() }
+            clearOfflineLibrary: { key in if let key { try AudioCacheManager(fileManager: failingFileManager).removeSubject(key) } }
         )
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: subjectA)))
 
         await appState.logout()
 
@@ -179,16 +178,17 @@ final class SubjectCleanupTests: XCTestCase {
         let nowPlaying = NowPlayingCenterSpy()
         let playback = PlaybackLifecycleSpy()
         let failingFileManager = FailingRemoveFileManager()
-        failingFileManager.files["/mock-caches/NewsListenApp/audio-cache/p1.mp3"] = Data("audio1".utf8)
+        failingFileManager.files["/mock-caches/NewsListenApp/audio/user-a/p1.mp3"] = Data("audio1".utf8)
         let cacheManager = AudioCacheManager(fileManager: failingFileManager)
         let cleanup = SubjectCleanup(
             playbackLifecycle: playback,
             nowPlayingCenter: nowPlaying,
             clearSubjectPreferences: {},
-            clearOfflineLibrary: { try cacheManager.clearCache() }
+            clearOfflineLibrary: { key in if let key { try cacheManager.removeSubject(key) } },
+            cancelDownloads: {}
         )
 
-        let firstResult = cleanup.run()
+        let firstResult = cleanup.run(departing: subjectA)
         XCTAssertEqual(firstResult?.failedParts, [.offlineLibrary])
 
         // double を回復させる（removeItem が成功するようになる）。
@@ -199,16 +199,17 @@ final class SubjectCleanupTests: XCTestCase {
             playbackLifecycle: playback,
             nowPlayingCenter: nowPlaying,
             clearSubjectPreferences: {},
-            clearOfflineLibrary: { try recoveredCacheManager.clearCache() }
+            clearOfflineLibrary: { key in if let key { try recoveredCacheManager.removeSubject(key) } },
+            cancelDownloads: {}
         )
 
-        let secondResult = recoveredCleanup.run()
+        let secondResult = recoveredCleanup.run(departing: subjectA)
         XCTAssertNil(secondResult)
-        XCTAssertEqual(recoveredCacheManager.cacheSize(), 0)
+        XCTAssertEqual(recoveredCacheManager.cacheSize(subject: subjectA), 0)
 
-        let thirdResult = recoveredCleanup.run()
+        let thirdResult = recoveredCleanup.run(departing: subjectA)
         XCTAssertNil(thirdResult, "冪等: 再実行しても nil のまま")
-        XCTAssertEqual(recoveredCacheManager.cacheSize(), 0)
+        XCTAssertEqual(recoveredCacheManager.cacheSize(subject: subjectA), 0)
     }
 
     // MARK: - T-T15-05（ios-contract-21.5, ios-contract-20.7, ios-contract-20.12）
@@ -226,7 +227,7 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
             nowPlayingCenter: nowPlaying,
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         appState.registerPlaybackLifecycle(playback)
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
@@ -256,7 +257,7 @@ final class SubjectCleanupTests: XCTestCase {
                 },
                 preferences: PreferenceRegistry(defaults: suite),
                 nowPlayingCenter: nowPlaying,
-                clearOfflineLibrary: {}
+                clearOfflineLibrary: { _ in }
             )
             appState.registerPlaybackLifecycle(playback)
 
@@ -283,7 +284,7 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
             nowPlayingCenter: nowPlaying,
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
 
         await appState.refreshAuth()
@@ -307,7 +308,7 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
             nowPlayingCenter: nowPlaying,
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         appState.registerPlaybackLifecycle(playback)
         guard case .resolving = appState.session else { return XCTFail("前提: resolving") }
@@ -337,7 +338,7 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
             nowPlayingCenter: nowPlaying,
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         // registerPlaybackLifecycle を呼ばない（未登録）。
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
@@ -359,7 +360,7 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
             nowPlayingCenter: nowPlaying,
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         autoreleasepool {
             let playback = PlaybackLifecycleSpy()
@@ -383,7 +384,7 @@ final class SubjectCleanupTests: XCTestCase {
             sessionStore: InMemorySessionStore(),
             preferences: PreferenceRegistry(defaults: suite),
             nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         guard case .resolving = appState.session else { return XCTFail("前提: 非 authenticated（resolving）") }
 
@@ -415,7 +416,7 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: suite),
             nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         appState.completeLogin(LoginReceipt(token: "t0", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         let failedBefore = appState.preferencesSyncFailed
@@ -448,7 +449,7 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: suite),
             nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         let failedBefore = appState.preferencesSyncFailed
@@ -481,7 +482,7 @@ final class SubjectCleanupTests: XCTestCase {
                 },
                 preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
                 nowPlayingCenter: NowPlayingCenterSpy(),
-                clearOfflineLibrary: {}
+                clearOfflineLibrary: { _ in }
             )
             guard case .resolving = appState.session else { return XCTFail("前提: 非 authenticated") }
 
@@ -508,7 +509,7 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
             nowPlayingCenter: nowPlaying,
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         appState.registerPlaybackLifecycle(playback)
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
@@ -549,7 +550,7 @@ final class SubjectCleanupTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!),
             nowPlayingCenter: nowPlaying,
-            clearOfflineLibrary: {}
+            clearOfflineLibrary: { _ in }
         )
         appState.registerPlaybackLifecycle(playback)
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
@@ -586,7 +587,7 @@ final class SubjectCleanupTests: XCTestCase {
                 },
                 preferences: PreferenceRegistry(defaults: suite),
                 nowPlayingCenter: NowPlayingCenterSpy(),
-                clearOfflineLibrary: {}
+                clearOfflineLibrary: { _ in }
             )
             appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
             appState.defaultDifficulty = "ielts_7"
@@ -597,5 +598,47 @@ final class SubjectCleanupTests: XCTestCase {
             XCTAssertFalse(appState.preferencesSyncFailed, "キャンセルは失敗として扱わないべき")
             XCTAssertEqual(appState.defaultDifficulty, "ielts_7")
         }
+    }
+
+    // MARK: - 後始末の順序と離脱主体（ios-contract-21）
+
+    // verifies: ios-contract-21.2
+    // kills: cancelDownloads を clearOfflineLibrary の後に呼ぶ／順序の入れ替え／離脱主体を渡さない
+    func testRunCallsStepsInOrderAndCancelsDownloadsBeforeClearingTheLibrary() {
+        var order: [String] = []
+        let nowPlaying = NowPlayingCenterSpy()
+        let playback = PlaybackLifecycleSpy()
+        playback.onStopForLogout = { order.append("stop") }
+        nowPlaying.onClear = { order.append("clearNowPlaying") }
+        let cleanup = SubjectCleanup(
+            playbackLifecycle: playback,
+            nowPlayingCenter: nowPlaying,
+            clearSubjectPreferences: { order.append("preferences") },
+            clearOfflineLibrary: { key in order.append("clear:\(key?.rawValue ?? "nil")") },
+            cancelDownloads: { order.append("cancel") }
+        )
+
+        let result = cleanup.run(departing: subjectA)
+
+        XCTAssertNil(result)
+        XCTAssertEqual(order, ["stop", "clearNowPlaying", "preferences", "cancel", "clear:user-a"])
+    }
+
+    // verifies: ios-contract-21.2
+    // kills: 離脱主体 nil を握りつぶして clearOfflineLibrary を呼ばない／既定の key を補う
+    func testRunPassesNilDepartingSubjectToClearOfflineLibrary() {
+        var received: [SubjectKey?] = []
+        let cleanup = SubjectCleanup(
+            playbackLifecycle: nil,
+            nowPlayingCenter: NowPlayingCenterSpy(),
+            clearSubjectPreferences: {},
+            clearOfflineLibrary: { key in received.append(key) },
+            cancelDownloads: {}
+        )
+
+        _ = cleanup.run(departing: nil)
+
+        XCTAssertEqual(received.count, 1)
+        XCTAssertNil(received[0], "離脱主体 nil はそのまま渡る")
     }
 }

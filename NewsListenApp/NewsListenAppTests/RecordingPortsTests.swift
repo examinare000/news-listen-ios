@@ -129,19 +129,20 @@ final class RecordingPortsTests: XCTestCase {
     }
 
     func testClearOfflineLibraryCountsEveryRun() throws {
-        try ports.clearOfflineLibrary.run()
+        try ports.clearOfflineLibrary.run(subject: subjectA)
         XCTAssertEqual(ports.clearOfflineLibrary.writeCount, 1)
-        try ports.clearOfflineLibrary.run()
+        try ports.clearOfflineLibrary.run(subject: subjectA)
         XCTAssertEqual(ports.clearOfflineLibrary.writeCount, 2, "同じ状態への再実行も数える")
     }
 
     func testClearOfflineLibraryCountsEvenWhenDelegateThrows() {
         let failing = FailingRemoveFileManager()
-        failing.files["/mock-caches/NewsListenApp/audio-cache/x.mp3"] = Data([1])
+        failing.files["/mock-caches/NewsListenApp/audio/user-a/x.mp3"] = Data([1])
+        failing.directories.insert("/mock-caches/NewsListenApp/audio/user-a")
         let throwing = RecordingPorts(fileManagerDelegate: failing)
         defer { throwing.removeSuite() }
 
-        XCTAssertThrowsError(try throwing.clearOfflineLibrary.run())
+        XCTAssertThrowsError(try throwing.clearOfflineLibrary.run(subject: subjectA))
 
         XCTAssertEqual(throwing.clearOfflineLibrary.writeCount, 1, "委譲の前に数えるので、throw しても数えた 1 は残る")
     }
@@ -151,7 +152,7 @@ final class RecordingPortsTests: XCTestCase {
         ports.sessionStore.token = "t"
         _ = try await ports.urlSession.data(for: request("POST"))
         try ports.fileManager.write(Data([1]), to: URL(fileURLWithPath: "/mock-caches/x.bin"))
-        try ports.clearOfflineLibrary.run()
+        try ports.clearOfflineLibrary.run(subject: subjectA)
         XCTAssertEqual(ports.totalWrites, 5, "5 つの double に 1 回ずつ書いた合計")
 
         ports.resetCounts()

@@ -529,7 +529,7 @@ final class PodcastViewModelTests: XCTestCase {
         let loaded = try XCTUnwrap(rig.engine.loadedURL)
         XCTAssertEqual(loaded, rig.library.url("p1"))
         XCTAssertTrue(loaded.isFileURL)
-        XCTAssertTrue(loaded.path.hasSuffix("audio-cache/p1.mp3"))
+        XCTAssertTrue(loaded.path.hasSuffix("audio/user-a/p1.mp3"))
     }
 
     func testStartEpisodeLoadsAudioURLWhenOnlineAndNotCached() async throws {
@@ -1250,7 +1250,10 @@ extension PodcastViewModelTests {
         var directories: Set<String> = []
 
         func fileExists(atPath: String) -> Bool {
-            files[atPath] != nil || directories.contains(atPath)
+            let prefix = atPath + "/"
+            return files[atPath] != nil || directories.contains(atPath)
+                || files.keys.contains { $0.hasPrefix(prefix) }
+                || directories.contains { $0.hasPrefix(prefix) }
         }
 
         func createDirectory(at: URL, withIntermediateDirectories: Bool, attributes: [FileAttributeKey: Any]?) throws {
@@ -1258,7 +1261,10 @@ extension PodcastViewModelTests {
         }
 
         func removeItem(at: URL) throws {
-            files.removeValue(forKey: at.path)
+            let path = at.path
+            let prefix = path + "/"
+            files = files.filter { $0.key != path && !$0.key.hasPrefix(prefix) }
+            directories = directories.filter { $0 != path && !$0.hasPrefix(prefix) }
         }
 
         func write(_ data: Data, to: URL) throws {
@@ -1275,11 +1281,12 @@ extension PodcastViewModelTests {
 
         func contentsOfDirectory(atPath path: String) throws -> [String] {
             let prefix = path.hasSuffix("/") ? path : path + "/"
-            return files.keys.compactMap { key in
-                guard key.hasPrefix(prefix) else { return nil }
-                let name = String(key.dropFirst(prefix.count))
-                return name.contains("/") ? nil : name
+            var names: [String] = []
+            for key in Array(files.keys) + Array(directories) where key.hasPrefix(prefix) {
+                if let name = String(key.dropFirst(prefix.count)).split(separator: "/").first.map(String.init),
+                   !names.contains(name) { names.append(name) }
             }
+            return names
         }
     }
 }

@@ -32,7 +32,7 @@ final class AppStateQueryContractTests: XCTestCase {
             },
             preferences: PreferenceRegistry(defaults: ports.userDefaults),
             nowPlayingCenter: NowPlayingCenterSpy(),
-            clearOfflineLibrary: { try ports.clearOfflineLibrary.run() }
+            clearOfflineLibrary: { key in try ports.clearOfflineLibrary.run(subject: key) }
         )
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
         ports.resetCounts()

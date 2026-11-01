@@ -18,7 +18,9 @@ struct NewsListenAppApp: App {
     /// アプリ全体で共有する設定状態。ロック画面 port は再生 ViewModel と同じ 1 個を共有する。
     @StateObject private var appState = AppState(
         nowPlayingCenter: NewsListenAppApp.nowPlayingCenter,
-        clearOfflineLibrary: { @MainActor in try NewsListenAppApp.offlineLibrary.clearAll() }
+        clearOfflineLibrary: { @MainActor key in try NewsListenAppApp.offlineLibrary.remove(subject: key) },
+        bindOfflineSubject: { @MainActor key in NewsListenAppApp.offlineLibrary.bind(subject: key) },
+        reclaimOfflineLibrary: { @MainActor key in try NewsListenAppApp.offlineLibrary.reclaim(keeping: key) }
     )
 
     /// MetricKit クラッシュ診断の購読者（issue #83）。購読を維持するため保持する。
@@ -77,6 +79,7 @@ struct NewsListenAppApp: App {
                                 apiClient: client,
                                 refreshListeningStreak: { await appState.refreshListeningStreak() },
                                 defaultSpeed: { Float(appState.defaultPlaybackSpeed) },
+                                currentSubjectKey: { appState.currentSubject?.key },
                                 audioEngine: Self.audioEngine,
                                 nowPlayingCenter: Self.nowPlayingCenter,
                                 library: Self.offlineLibrary
@@ -133,6 +136,7 @@ struct ContentView: View {
     ///   - apiClient: 再生 ViewModel に注入する API クライアント。
     ///   - refreshListeningStreak: 完聴時に共有ストリークを更新するクロージャ。
     ///   - defaultSpeed: 既定の再生速度（`appState` に依るので呼ぶ側が closure にして渡す）。
+    ///   - currentSubjectKey: ダウンロードの開始時に固定する現在の主体キー（`defaultSpeed` と同じ形で渡す）。
     ///   - audioEngine: 再生エンジン（App がプロセスで 1 個作ったもの）。
     ///   - nowPlayingCenter: ロック画面 port（同上）。
     ///   - library: 保存庫（同上）。
@@ -143,6 +147,7 @@ struct ContentView: View {
         apiClient: APIClient,
         refreshListeningStreak: @escaping @MainActor () async -> Void,
         defaultSpeed: @escaping () -> Float,
+        currentSubjectKey: @escaping () -> SubjectKey?,
         audioEngine: any AudioEngine,
         nowPlayingCenter: NowPlayingCenter,
         library: OfflineLibrary
@@ -154,6 +159,7 @@ struct ContentView: View {
                 apiClient: apiClient,
                 refreshListeningStreak: refreshListeningStreak,
                 defaultSpeed: defaultSpeed,
+                currentSubjectKey: currentSubjectKey,
                 engine: audioEngine,
                 nowPlayingCenter: nowPlayingCenter,
                 library: library
@@ -167,6 +173,7 @@ struct ContentView: View {
         apiClient: APIClient,
         refreshListeningStreak: @escaping @MainActor () async -> Void,
         defaultSpeed: @escaping () -> Float,
+        currentSubjectKey: @escaping () -> SubjectKey?,
         engine: any AudioEngine,
         nowPlayingCenter: NowPlayingCenter,
         library: OfflineLibrary
@@ -195,7 +202,8 @@ struct ContentView: View {
         let downloads = OfflineDownloads(
             library: library,
             fetchEpisode: gateway.fetchEpisode,
-            downloadAudio: gateway.downloadAudio
+            downloadAudio: gateway.downloadAudio,
+            currentSubject: currentSubjectKey
         )
         let playerViewModel = PodcastViewModel(
             apiClient: apiClient,
@@ -227,7 +235,7 @@ struct ContentView: View {
             }
             // Settings は API 未設定の修正導線として常に表示する（第 4 タブ末尾）。
             // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
-            SettingsView(appState: appState, library: library)
+            SettingsView(appState: appState, library: library, downloads: playerViewModel.downloads)
                 .withMiniPlayer(playerViewModel)
                 .tabItem { Label("設定", systemImage: "gearshape") }
                 .tag(4)
@@ -249,7 +257,10 @@ struct ContentView: View {
             await appState.refreshListeningStreak()
         }
         // 主体離脱時の再生停止 port を登録する（ios-slice-auth-01 / ios-contract-21.9。実体は `PlaybackCoordinator`）。
-        .onAppear { appState.registerPlaybackLifecycle(playerViewModel.playbackLifecycle) }
+        .onAppear {
+            appState.registerPlaybackLifecycle(playerViewModel.playbackLifecycle)
+            appState.registerDownloads(playerViewModel.downloads)
+        }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:

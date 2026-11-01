@@ -84,15 +84,18 @@ final class PlaybackLifecycleSpy: PlaybackLifecycle {
 // MARK: - FileManager 失敗版（ios-contract-21.3）
 
 /// `AudioCacheManagerTests.MockFileManager` と同じインメモリ実装だが、`removeItem` だけ throw する。
-/// `clearCache()` はディレクトリ内の各ファイルへ `removeItem` を呼ぶため、これを注入すると
-/// `AudioCacheManager.clearCache()` が必ず失敗する（SubjectCleanup の音声キャッシュ手順の失敗経路）。
+/// `removeSubject` は主体ディレクトリへ `removeItem` を呼ぶため、これを注入すると
+/// `AudioCacheManager.removeSubject(_:)` が必ず失敗する（SubjectCleanup の音声キャッシュ手順の失敗経路）。
 final class FailingRemoveFileManager: FileManagerProtocol {
     var files: [String: Data] = [:]
     var directories: Set<String> = []
     struct RemoveFailure: Error {}
 
     func fileExists(atPath: String) -> Bool {
-        files[atPath] != nil || directories.contains(atPath)
+        let prefix = atPath + "/"
+        return files[atPath] != nil || directories.contains(atPath)
+            || files.keys.contains { $0.hasPrefix(prefix) }
+            || directories.contains { $0.hasPrefix(prefix) }
     }
 
     func createDirectory(at: URL, withIntermediateDirectories: Bool, attributes: [FileAttributeKey: Any]?) throws {
@@ -117,10 +120,53 @@ final class FailingRemoveFileManager: FileManagerProtocol {
 
     func contentsOfDirectory(atPath path: String) throws -> [String] {
         let prefix = path.hasSuffix("/") ? path : path + "/"
-        return files.keys.compactMap { key in
-            guard key.hasPrefix(prefix) else { return nil }
-            let name = String(key.dropFirst(prefix.count))
-            return name.contains("/") ? nil : name
+        var names: [String] = []
+        for key in Array(files.keys) + Array(directories) where key.hasPrefix(prefix) {
+            if let name = String(key.dropFirst(prefix.count)).split(separator: "/").first.map(String.init),
+               !names.contains(name) { names.append(name) }
+        }
+        return names
+    }
+}
+
+// MARK: - 音声ライブラリの呼出記録（AppState の 3 つの closure の spy）
+
+/// `AppState` が受ける `bindOfflineSubject`・`reclaimOfflineLibrary`・`clearOfflineLibrary` の呼出を、
+/// 呼ばれた順に記録するテスト専用の spy。
+@MainActor
+final class OfflineLibraryCallLog {
+    enum Event: Equatable {
+        case bind(SubjectKey?)
+        case reclaim(SubjectKey?)
+        case clear(SubjectKey?)
+    }
+
+    private(set) var events: [Event] = []
+    /// 設定すると `reclaim` の closure が throw する。
+    var reclaimError: Error?
+    /// `clear` の closure が呼ばれた時点の追加観測（token と session のスナップショット用）。
+    var onClear: ((SubjectKey?) -> Void)?
+
+    var lastBindEvent: Event? { events.last { if case .bind = $0 { return true } else { return false } } }
+    var bindCalls: [SubjectKey?] { events.compactMap { (event) -> SubjectKey?? in if case .bind(let k) = event { return .some(k) } else { return nil } } }
+    var reclaimCalls: [SubjectKey?] { events.compactMap { (event) -> SubjectKey?? in if case .reclaim(let k) = event { return .some(k) } else { return nil } } }
+    var clearCalls: [SubjectKey?] { events.compactMap { (event) -> SubjectKey?? in if case .clear(let k) = event { return .some(k) } else { return nil } } }
+
+    var bind: (SubjectKey?) -> Void {
+        { [unowned self] key in self.events.append(.bind(key)) }
+    }
+
+    var reclaim: (SubjectKey?) throws -> Void {
+        { [unowned self] key in
+            self.events.append(.reclaim(key))
+            if let error = self.reclaimError { throw error }
+        }
+    }
+
+    var clear: (SubjectKey?) throws -> Void {
+        { [unowned self] key in
+            self.events.append(.clear(key))
+            self.onClear?(key)
         }
     }
 }
@@ -137,12 +183,17 @@ final class FailingRemoveFileManager: FileManagerProtocol {
 ///   - offlineFileManager: `AudioCacheManager` に注入する `FileManagerProtocol`
 ///     （未指定なら空の `AudioCacheManagerTests.MockFileManager`。失敗させたい場合は
 ///     `FailingRemoveFileManager` を渡す）。
+///   - clearOfflineLibrary: 未指定なら離脱主体のディレクトリだけを `cache` から消す。
+///   - bindOfflineSubject / reclaimOfflineLibrary: 未指定なら何もしない。
 @MainActor
 func makeSubjectAwareAppState(
     session: URLSessionProtocol = MockURLSession(data: Data("{}".utf8), statusCode: 200),
     sessionStore: SessionStore = InMemorySessionStore(),
     nowPlayingCenter: NowPlayingCenterSpy = NowPlayingCenterSpy(),
-    offlineFileManager: FileManagerProtocol = AudioCacheManagerTests.MockFileManager()
+    offlineFileManager: FileManagerProtocol = AudioCacheManagerTests.MockFileManager(),
+    clearOfflineLibrary: ((SubjectKey?) throws -> Void)? = nil,
+    bindOfflineSubject: @escaping (SubjectKey?) -> Void = { _ in },
+    reclaimOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { _ in }
 ) -> AppState {
     let suiteName = "AppStateTestSupport.\(UUID().uuidString)"
     let suite = UserDefaults(suiteName: suiteName)!
@@ -154,6 +205,8 @@ func makeSubjectAwareAppState(
         },
         preferences: PreferenceRegistry(defaults: suite),
         nowPlayingCenter: nowPlayingCenter,
-        clearOfflineLibrary: { try cache.clearCache() }
+        clearOfflineLibrary: clearOfflineLibrary ?? { key in if let key { try cache.removeSubject(key) } },
+        bindOfflineSubject: bindOfflineSubject,
+        reclaimOfflineLibrary: reclaimOfflineLibrary
     )
 }

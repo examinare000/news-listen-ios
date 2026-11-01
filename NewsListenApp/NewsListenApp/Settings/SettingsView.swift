@@ -49,11 +49,12 @@ struct SettingsView: View {
     /// ビューを生成する。
     /// - Parameters:
     ///   - appState: 共有の設定状態。
-    ///   - library: 合成 root が作った保存庫（キャッシュの容量表示・全削除に使う）。
+    ///   - library: 合成 root が作った保存庫（キャッシュの容量表示に使う）。
+    ///   - downloads: ダウンロード use case（キャッシュの全削除に使う）。
     @MainActor
-    init(appState: AppState, library: OfflineLibrary) {
+    init(appState: AppState, library: OfflineLibrary, downloads: OfflineDownloads) {
         self.appState = appState
-        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState, library: library))
+        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState, library: library, downloads: downloads))
     }
 
     var body: some View {

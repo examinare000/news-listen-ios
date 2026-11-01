@@ -60,6 +60,7 @@ final class PlaybackQueryContractTests: XCTestCase {
         let spy = NowPlayingCenterSpy()
         let files = RecordingFileManager(delegate: AudioCacheManagerTests.MockFileManager())
         let library = OfflineLibrary(store: .live(cacheManager: AudioCacheManager(fileManager: files)))
+        library.bind(subject: subjectA)
         let a = try episode("a")
         let b = try episode("b")
         let c = try episode("c")
@@ -71,7 +72,8 @@ final class PlaybackQueryContractTests: XCTestCase {
         let downloads = OfflineDownloads(
             library: library,
             fetchEpisode: { _ in downloadCalls.recordFetch(); return c },
-            downloadAudio: { _ in downloadCalls.recordDownload(); return Data([4, 5, 6]) }
+            downloadAudio: { _ in downloadCalls.recordDownload(); return Data([4, 5, 6]) },
+            currentSubject: { subjectA }
         )
         XCTAssertEqual(files.writeCount, 0, "Given: OfflineDownloads を組んだだけでは保存庫に書かない")
         XCTAssertEqual(downloadCalls.fetchCount + downloadCalls.downloadCount, 0, "Given: 組んだだけでは closure を呼ばない")
@@ -103,7 +105,7 @@ final class PlaybackQueryContractTests: XCTestCase {
         self.reporter = reporter
         self.coordinator = coordinator
 
-        try library.save(Data([1, 2, 3]), for: "a")
+        try library.save(Data([1, 2, 3]), for: "a", subject: subjectA)
         await coordinator.startEpisode(a)
         await engine.send(.ready)
         await engine.send(.timeUpdate(seconds: 12, duration: 300))

@@ -32,7 +32,7 @@ struct SubjectKey: Equatable {
     }
 }
 
-/// ログイン中の主体。`key` は ios-slice-departure-01 まで常に `nil`。
+/// ログイン中の主体。`key` は主体キー。無効・欠落なら `nil`。
 struct Subject: Equatable {
     let username: String
     let displayName: String

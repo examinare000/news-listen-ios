@@ -10,12 +10,15 @@ import Foundation
 extension AudioFileStore {
     static func live(cacheManager: AudioCacheManager) -> AudioFileStore {
         AudioFileStore(
-            url: { id in cacheManager.isCached(id) ? cacheManager.cachedURL(for: id) : nil },
-            exists: { id in cacheManager.isCached(id) },
-            write: { data, id in try cacheManager.cache(data, for: id) },
-            remove: { id in try cacheManager.remove(id) },
-            removeAll: { try cacheManager.clearCache() },
-            size: { cacheManager.cacheSize() }
+            url: { (id: String, subject: SubjectKey) in
+                cacheManager.isCached(id, subject: subject) ? cacheManager.cachedURL(for: id, subject: subject) : nil
+            },
+            exists: { (id: String, subject: SubjectKey) in cacheManager.isCached(id, subject: subject) },
+            write: { (data: Data, id: String, subject: SubjectKey) in try cacheManager.cache(data, for: id, subject: subject) },
+            remove: { (id: String, subject: SubjectKey) in try cacheManager.remove(id, subject: subject) },
+            removeSubject: { (subject: SubjectKey) in try cacheManager.removeSubject(subject) },
+            size: { (subject: SubjectKey) in cacheManager.cacheSize(subject: subject) },
+            reclaim: { (keeping: SubjectKey?) in try cacheManager.reclaim(keeping: keeping) }
         )
     }
 }

@@ -42,6 +42,8 @@ final class SettingsViewModel: ObservableObject {
     private var apiClient: APIClient? { appState?.apiClient ?? apiClientOverride }
     /// ダウンロード音声の保存庫。容量取得・全削除に使う（issue #52）。
     private let library: OfflineLibrary
+    /// 「キャッシュ全削除」の窓口。範囲は `OfflineDownloads` の現在主体に従う。
+    private let downloads: OfflineDownloads
 
     /// おすすめサイトをカテゴリでグループ化したもの（表示順で並ぶ）。0件のカテゴリは除外。
     var categorizedFeaturedSites: [(category: FeaturedCategory, sites: [FeaturedSite])] {
@@ -66,23 +68,28 @@ final class SettingsViewModel: ObservableObject {
     /// - Parameters:
     ///   - apiClient: API 通信に使うクライアント。未設定時は `nil`。
     ///   - library: 保存庫。合成 root が作った 1 個を渡す。
+    ///   - downloads: ダウンロード use case。キャッシュの全削除に使う。
     init(
         apiClient: APIClient?,
-        library: OfflineLibrary
+        library: OfflineLibrary,
+        downloads: OfflineDownloads
     ) {
         self.apiClientOverride = apiClient
         self.appState = nil
         self.library = library
+        self.downloads = downloads
     }
 
     /// 共有 AppState を正本として使う本番用 initializer。
     init(
         appState: AppState,
-        library: OfflineLibrary
+        library: OfflineLibrary,
+        downloads: OfflineDownloads
     ) {
         self.apiClientOverride = nil
         self.appState = appState
         self.library = library
+        self.downloads = downloads
     }
 
     /// RSS ソース一覧を取得して `sources` を更新する。失敗時は `errorMessage` に反映する。
@@ -197,7 +204,7 @@ final class SettingsViewModel: ObservableObject {
     /// 実際の残容量を再取得して反映する（削除が一部失敗した場合の不整合表示を避ける）。
     func clearCache() async {
         do {
-            try library.clearAll()
+            try downloads.removeAll()
             errorMessage = nil
         } catch {
             errorMessage = "キャッシュの削除に失敗しました"

@@ -16,6 +16,8 @@ struct AuthUser: Codable, Identifiable, Equatable {
     let role: String
     /// アプリ内で表示する名前。
     let displayName: String
+    /// 主体キー（サーバーが返す `user_id`）。欠落していてもログインは成立させる。
+    let userId: String?
 
     /// `Identifiable` 準拠。username を一意キーに使う。
     var id: String { username }
@@ -25,6 +27,7 @@ struct AuthUser: Codable, Identifiable, Equatable {
         case username
         case role
         case displayName = "display_name"
+        case userId = "user_id"
     }
 }
 

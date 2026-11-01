@@ -156,8 +156,20 @@ final class AppState: ObservableObject {
     /// 再生停止 port。`ContentView` が `registerPlaybackLifecycle(_:)` で登録する（weak）。
     private weak var playbackLifecycle: PlaybackLifecycle?
 
-    /// 音声キャッシュ削除（主体離脱の後始末）。本番は `AudioCacheManager.clearCache()`。
-    private let clearOfflineLibrary: () throws -> Void
+    /// 離脱主体の音声キャッシュ削除（主体離脱の後始末）。本番は `AudioCacheManager().removeSubject(_:)`。
+    private let clearOfflineLibrary: (SubjectKey?) throws -> Void
+
+    /// 音声ライブラリの束縛を現在の主体へ更新する。離脱では nil。
+    private let bindOfflineSubject: (SubjectKey?) -> Void
+
+    /// 起動時の回収。現在の主体以外の音声キャッシュと旧置き場を消す。
+    private let reclaimOfflineLibrary: (SubjectKey?) throws -> Void
+
+    /// ダウンロードの cancel 先。`ContentView` が `registerDownloads(_:)` で登録する（weak）。
+    private weak var offlineDownloads: OfflineDownloads?
+
+    /// 起動後に回収を済ませたか。起動単位の状態で、永続化しない。
+    private var didReclaimOfflineLibrary = false
 
     /// デバイストークン登録の投げっぱなし Task。`logout()` との競合を避けるため、
     /// 起動時に既存タスクを cancel してから差し替える。
@@ -212,8 +224,21 @@ final class AppState: ObservableObject {
     /// ログイン成功を受けてトークンを Keychain に保存し、ユーザー状態を更新する。
     /// - Parameter receipt: ログイン成功の結果（トークンと主体）。
     func completeLogin(_ receipt: LoginReceipt) {
+        let previous = currentSubject
         sessionStore.token = receipt.token
-        session = .authenticated(receipt.subject)
+        if let previous, isSameSubject(previous, receipt.subject) {
+            // 同じ主体の再認証は離脱ではない。既存の主体キーは保ち、キーが初めて分かったときだけ束縛する。
+            let incoming = receipt.subject
+            session = .authenticated(Subject(
+                username: incoming.username, displayName: incoming.displayName, role: incoming.role,
+                key: incoming.key ?? previous.key))
+            if previous.key == nil, let key = incoming.key { bindOfflineSubject(key) }
+        } else {
+            session = .authenticated(receipt.subject)
+            bindOfflineSubject(receipt.subject.key)
+            if let previous { runSubjectCleanup(departing: previous.key) }
+        }
+        reclaimOfflineLibraryOnce(keeping: currentSubject?.key)
         // ログイン直後、取得済みトークンがあれば backend に登録する。
         scheduleDeviceTokenRegistration()
     }
@@ -225,7 +250,16 @@ final class AppState: ObservableObject {
     ///   - stamp: await の前に捕捉した `subjectStamp`。
     func updateCurrentSubject(_ subject: Subject, capturedAt stamp: SubjectStamp) {
         guard isCurrentSubject(stamp) else { return }
-        session = .authenticated(subject)
+        // プロフィール更新は主体キーを変えない。差し替え後の key が何であれ現在の key を保つ。
+        session = .authenticated(Subject(
+            username: subject.username, displayName: subject.displayName, role: subject.role,
+            key: currentSubject?.key))
+    }
+
+    /// 同じ主体か。キーが両方あればキーの一致、どちらかが無ければ username の一致。
+    private func isSameSubject(_ lhs: Subject, _ rhs: Subject) -> Bool {
+        if let lhsKey = lhs.key, let rhsKey = rhs.key { return lhsKey == rhsKey }
+        return lhs.username == rhs.username
     }
 
     /// `unavailable` から再解決を試みる（`retryResolve()`）。`unavailable` 以外からは no-op。
@@ -294,12 +328,16 @@ final class AppState: ObservableObject {
         let t0 = sessionStore.token
         guard let t0, let apiClient else {
             session = .anonymous
+            reclaimOfflineLibraryOnce(keeping: nil)
             return
         }
         do {
             let user = try await apiClient.fetchMe()
             guard case .resolving = session, sessionStore.token == t0 else { return }
-            session = .authenticated(user.toSubject())
+            let subject = user.toSubject()
+            session = .authenticated(subject)
+            bindOfflineSubject(subject.key)
+            reclaimOfflineLibraryOnce(keeping: subject.key)
             // 起動時の preferences 同期は AppState 保持の非構造化 Task で行う。呼び出し元
             // （`ProgressView.task`）がキャンセルされても、この同期は中断されない（D-10）。
             let syncTask = Task<Void, Never> { [weak self] in
@@ -315,6 +353,7 @@ final class AppState: ObservableObject {
             guard case .resolving = session, sessionStore.token == t0 else { return }
             sessionStore.token = nil
             session = .anonymous
+            reclaimOfflineLibraryOnce(keeping: nil)
         } catch let failure as ApiFailure {
             guard case .resolving = session, sessionStore.token == t0 else { return }
             session = .unavailable(failure)
@@ -393,46 +432,56 @@ final class AppState: ObservableObject {
         lastConfirmedWeeklyGoalEpisodes = value
     }
 
-    /// ログアウトしてサーバ側セッションを破棄し、ローカル状態を未認証にする（G4）。
+    /// ログアウトしてローカル状態を未認証にし、サーバ側セッションの破棄をベストエフォートで送る（G4）。
     ///
-    /// 開始時に `t0` を捕捉し、サーバ呼出（ベストエフォート）を await した後、保存トークンが
-    /// `t0` のままのときだけ遷移する。別の主体のトークン・状態・後始末には触れない（ios-contract-20.12）。
+    /// 送信は破棄前のトークンで作った client に任せ、応答を待たない。通知登録の解除は
+    /// セッション削除に連鎖する backend 側の責務で、client からは送らない。
     func logout() async {
-        let t0 = sessionStore.token
+        let departingClient = apiClient
         // 進行中のデバイストークン登録タスクをキャンセルし、logout 後にサーバへ登録リクエストが
         // 到達してトークン紐付けが復活する競合を防ぐ（issue #80 レビュー指摘）。
         deviceTokenRegistrationTask?.cancel()
-        if let apiClient {
-            // 他ユーザーへの誤配信を避けるため、ログアウト前にデバイストークンの解除を試みる
-            // （ベストエフォート。失敗するとサーバ側の紐付けは残存し、同一端末で次のユーザーが
-            // 登録し直す（同一トークンの upsert 上書き）まで旧ユーザー宛通知が届き得る。
-            // 少数ユーザー運用の現段階ではこのリスクを許容し、失敗時リトライは導入しない）。
-            if let token = apnsDeviceToken {
-                _ = try? await apiClient.unregisterDeviceToken(token)
-            }
-            _ = try? await apiClient.logout()
-        }
-        guard sessionStore.token == t0 else { return }
         if case .authenticated = session {
             performLeaveProcessing()
         } else {
             sessionStore.token = nil
             session = .anonymous
         }
+        Task { _ = try? await departingClient?.logout() }
     }
 
     /// 主体離脱（logout・失効の両方）の事後条件を実行する（spec §3.2）。呼出元は、呼ぶ直前に
-    /// `session` が authenticated かつ保存トークンが自分の照合値と一致することを確かめておくこと。
+    /// `session` が authenticated であることを確かめておくこと。
     private func performLeaveProcessing() {
+        let departing = currentSubject?.key
         sessionStore.token = nil
         session = .anonymous
+        bindOfflineSubject(nil)
+        runSubjectCleanup(departing: departing)
+    }
+
+    /// 離脱主体の後始末を実行する。logout・401・主体の直接交代が同じ入口を使う。
+    private func runSubjectCleanup(departing: SubjectKey?) {
         let cleanup = SubjectCleanup(
             playbackLifecycle: playbackLifecycle,
             nowPlayingCenter: nowPlayingCenter,
             clearSubjectPreferences: { [weak self] in self?.resetSubjectScopedPreferencesToDefaults() },
-            clearOfflineLibrary: clearOfflineLibrary
+            clearOfflineLibrary: clearOfflineLibrary,
+            cancelDownloads: { [weak self] in self?.offlineDownloads?.cancelAll() }
         )
-        lastCleanupIncomplete = cleanup.run()
+        lastCleanupIncomplete = cleanup.run(departing: departing)
+    }
+
+    /// 起動後に主体が最初に確定した時点で 1 回だけ、現在の主体以外の音声キャッシュを回収する。
+    /// 失敗は黙殺せず `lastCleanupIncomplete` に載せる。旗は戻さない（次回起動の回収が再実行する）。
+    private func reclaimOfflineLibraryOnce(keeping key: SubjectKey?) {
+        guard !didReclaimOfflineLibrary else { return }
+        didReclaimOfflineLibrary = true
+        do {
+            try reclaimOfflineLibrary(key)
+        } catch {
+            lastCleanupIncomplete = CleanupIncomplete(failedParts: [.offlineLibrary])
+        }
     }
 
     /// AppState が保持する主体依存値をメモリ上で registry 既定値へ戻し、registry の
@@ -467,6 +516,12 @@ final class AppState: ObservableObject {
     /// - Parameter lifecycle: 再生停止の実処理を持つオブジェクト。
     func registerPlaybackLifecycle(_ lifecycle: PlaybackLifecycle) {
         playbackLifecycle = lifecycle
+    }
+
+    /// cancel 先の `OfflineDownloads` を登録する（weak）。未登録・解放済みなら後始末の cancel は何もしない。
+    /// - Parameter downloads: 実行中のダウンロードを持つ use case。
+    func registerDownloads(_ downloads: OfflineDownloads) {
+        offlineDownloads = downloads
     }
 
     /// サーバから初回オンボーディング状態を取得し `onboardingCompleted` を更新する（G6）。
@@ -521,14 +576,20 @@ final class AppState: ObservableObject {
     ///   - apiClientFactory: テスト seam（D-3）。保存トークンと observer から client を作る factory。
     ///   - preferences: 設定宣言の正本。既定は `.standard` を使う `PreferenceRegistry()`。
     ///   - nowPlayingCenter: ロック画面表示クリア port。既定は本番実装。
-    ///   - clearOfflineLibrary: 音声キャッシュ削除。既定は `AudioCacheManager().clearCache()`。
+    ///   - clearOfflineLibrary: 離脱主体の音声キャッシュ削除。既定は `AudioCacheManager()` で主体のディレクトリだけを消す。
+    ///   - bindOfflineSubject: 音声ライブラリの束縛。既定は何もしない。
+    ///   - reclaimOfflineLibrary: 起動時の回収。既定は何もしない。
     init(
         sessionStore: SessionStore = KeychainSessionStore(),
         apiClientOverride: APIClient? = nil,
         apiClientFactory: ((String?, @escaping @MainActor () -> Void) -> APIClient)? = nil,
         preferences: PreferenceRegistry = PreferenceRegistry(),
         nowPlayingCenter: NowPlayingCenter = MediaPlayerNowPlaying(),
-        clearOfflineLibrary: @escaping () throws -> Void = { try AudioCacheManager().clearCache() }
+        clearOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { key in
+            if let key { try AudioCacheManager().removeSubject(key) }
+        },
+        bindOfflineSubject: @escaping (SubjectKey?) -> Void = { _ in },
+        reclaimOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { _ in }
     ) {
         self.sessionStore = sessionStore
         self.apiClientOverride = apiClientOverride
@@ -536,6 +597,8 @@ final class AppState: ObservableObject {
         self.preferences = preferences
         self.nowPlayingCenter = nowPlayingCenter
         self.clearOfflineLibrary = clearOfflineLibrary
+        self.bindOfflineSubject = bindOfflineSubject
+        self.reclaimOfflineLibrary = reclaimOfflineLibrary
         // API URL・キーはビルド時注入のみ（ユーザー入力・UserDefaults フォールバックは廃止）。
         self.apiBaseURL = Self.injectedValue("APIBaseURL") ?? ""
         self.apiKey = Self.injectedValue("APIKey") ?? ""

@@ -321,6 +321,7 @@ final class PlaybackEntryRig {
         environment.speed = defaultSpeed
         let library = OfflineLibrary(
             store: .live(cacheManager: AudioCacheManager(fileManager: PodcastViewModelTests.MockFileManager())))
+        library.bind(subject: subjectA)
         self.library = library
 
         let reporter = PositionReporter(
@@ -358,7 +359,8 @@ final class PlaybackEntryRig {
         let downloads = OfflineDownloads(
             library: library,
             fetchEpisode: { id in try await fetch.fetch(id) },
-            downloadAudio: { url in try await download.download(url) })
+            downloadAudio: { url in try await download.download(url) },
+            currentSubject: { subjectA })
         self.downloads = downloads
 
         let listSession = SeedableListSession(
@@ -381,7 +383,7 @@ final class PlaybackEntryRig {
 
     /// 保存庫に音声を置く（キャッシュ済みとして解決される）。
     func cached(_ id: String) throws {
-        try library.save(Data([1, 2, 3]), for: id)
+        try library.save(Data([1, 2, 3]), for: id, subject: subjectA)
     }
 
     /// 取得の応答を登録する。
