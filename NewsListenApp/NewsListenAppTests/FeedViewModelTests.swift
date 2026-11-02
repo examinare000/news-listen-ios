@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import NewsListenApp
 
@@ -12,8 +13,12 @@ final class FeedViewModelTests: XCTestCase {
         )
     }
 
-    private func sampleArticle(id: String = "a1") -> Article {
-        Article(id: id, title: "Test", url: "https://example.com", source: "hackernews", score: 0.9, publishedAt: "2026-05-31T06:00:00Z")
+    private func sampleArticle(id: String = "a1") -> ArticleCardModel {
+        ArticleCardModel(id: id, title: "Test", url: "https://example.com", source: "hackernews", score: 0.9, publishedAt: "2026-05-31T06:00:00Z")
+    }
+
+    private func apiClient(session: URLSessionProtocol) -> APIClient {
+        APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: session)
     }
 
     func testLoadFeedPopulatesArticles() async throws {
@@ -23,7 +28,7 @@ final class FeedViewModelTests: XCTestCase {
             {"id":"a2","title":"Go","url":"https://example.com/go","source":"zenn","score":0.7,"published_at":"2026-05-31T05:00:00Z"}
         ], "date": "2026-05-31"}
         """#
-        let vm = FeedViewModel(apiClient: makeClient(json: json))
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: json))
 
         await vm.loadFeed()
 
@@ -36,7 +41,7 @@ final class FeedViewModelTests: XCTestCase {
     // 現行表示の固定。置換後も期待値を変えない。11 箇所の `ApiFailure` 節の付け忘れを検出する。
 
     func testLoadFeed500SetsHTTPErrorMessage() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: "", statusCode: 500))
 
         await vm.loadFeed()
 
@@ -44,11 +49,10 @@ final class FeedViewModelTests: XCTestCase {
     }
 
     func testStarThenCommitPending500SetsHTTPErrorMessageAndRestoresArticle() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
         let article = sampleArticle(id: "a1")
-        vm.articles = [article]
+        let (vm, _) = try await makeFeedViewModel(articles: [article], client: makeClient(json: "", statusCode: 500))
 
-        await vm.star(article: article)     // 楽観削除 + 保留
+        await vm.star(articleId: article.id, difficulty: nil)     // 楽観削除 + 保留
         await vm.commitPending()            // 確定 → 500
 
         XCTAssertEqual(vm.articles.map { $0.id }, ["a1"])
@@ -57,46 +61,42 @@ final class FeedViewModelTests: XCTestCase {
 
     func testStarStagesAndRemovesArticle() async throws {
         // star は楽観削除 + 保留（確定は commitPending まで遅延）。issue #111。
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
         let article = sampleArticle()
-        vm.articles = [article]
+        let (vm, _) = try await makeFeedViewModel(articles: [article], client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
 
-        await vm.star(article: article)
+        await vm.star(articleId: article.id, difficulty: nil)
 
         XCTAssertTrue(vm.articles.isEmpty)
-        XCTAssertEqual(vm.pendingAction?.kind, .star)
+        XCTAssertEqual(vm.pendingAction?.kind, .star(nil))
     }
 
     // MARK: - issue #163: 記事単位の難易度指定 star
 
     func testStarWithDifficultyStoresDifficultyOnPendingAction() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
         let article = sampleArticle()
-        vm.articles = [article]
+        let (vm, _) = try await makeFeedViewModel(articles: [article], client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
 
-        await vm.star(article: article, difficulty: "toeic_600")
+        await vm.star(articleId: article.id, difficulty: .toeic600)
 
-        XCTAssertEqual(vm.pendingAction?.difficulty, "toeic_600")
+        XCTAssertEqual(vm.pendingAction?.kind, .star(.toeic600))
     }
 
     func testStarWithoutDifficultyDefaultsPendingActionDifficultyToNil() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
         let article = sampleArticle()
-        vm.articles = [article]
+        let (vm, _) = try await makeFeedViewModel(articles: [article], client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
 
-        await vm.star(article: article)
+        await vm.star(articleId: article.id, difficulty: nil)
 
-        XCTAssertNil(vm.pendingAction?.difficulty)
+        XCTAssertEqual(vm.pendingAction?.kind, .star(nil))
     }
 
     func testCommitPendingSendsDifficultyInStarRequestBody() async throws {
         let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
-        let vm = FeedViewModel(apiClient: APIClient(
+        let (vm, _) = try await makeFeedViewModel(articles: [sampleArticle(id: "a1")], client: APIClient(
             baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
         ))
-        vm.articles = [sampleArticle(id: "a1")]
 
-        await vm.star(article: sampleArticle(id: "a1"), difficulty: "ielts_7")
+        await vm.star(articleId: "a1", difficulty: .ielts7)
         await vm.commitPending()
 
         let body = try XCTUnwrap(mock.lastRequest?.httpBody)
@@ -107,30 +107,28 @@ final class FeedViewModelTests: XCTestCase {
     func testCommitPendingWithoutDifficultySendsNoBody() async throws {
         // 既存の「difficulty 未指定 = ボディなし」挙動が壊れていないことを保証する回帰テスト。
         let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
-        let vm = FeedViewModel(apiClient: APIClient(
+        let (vm, _) = try await makeFeedViewModel(articles: [sampleArticle(id: "a1")], client: APIClient(
             baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
         ))
-        vm.articles = [sampleArticle(id: "a1")]
 
-        await vm.star(article: sampleArticle(id: "a1"))
+        await vm.star(articleId: "a1", difficulty: nil)
         await vm.commitPending()
 
         XCTAssertNil(mock.lastRequest?.httpBody)
     }
 
     func testDismissStagesAndRemovesArticle() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"dismissed","article_id":"a1"}"#))
         let article = sampleArticle()
-        vm.articles = [article]
+        let (vm, _) = try await makeFeedViewModel(articles: [article], client: makeClient(json: #"{"status":"dismissed","article_id":"a1"}"#))
 
-        await vm.dismiss(article: article)
+        await vm.dismiss(articleId: article.id)
 
         XCTAssertTrue(vm.articles.isEmpty)
         XCTAssertEqual(vm.pendingAction?.kind, .dismiss)
     }
 
     func testLoadFeedSetsErrorMessageOnFailure() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: "", statusCode: 500))
 
         await vm.loadFeed()
 
@@ -139,7 +137,7 @@ final class FeedViewModelTests: XCTestCase {
     }
 
     func testToggleSelectionAddsAndRemovesArticleId() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
         let id = "a1"
 
         vm.toggleSelection(id)
@@ -150,20 +148,19 @@ final class FeedViewModelTests: XCTestCase {
     }
 
     func testBulkStarSuccess() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
         let articles = [
             sampleArticle(id: "a1"),
             sampleArticle(id: "a2"),
             sampleArticle(id: "a3")
         ]
-        vm.articles = articles
-        vm.selectedIds = Set(["a1", "a2", "a3"])
+        let (vm, _) = try await makeFeedViewModel(articles: articles, client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
+        ["a1", "a2", "a3"].forEach { vm.toggleSelection($0) }
 
         await vm.bulkStar()
 
         XCTAssertTrue(vm.articles.isEmpty)
-        XCTAssertEqual(vm.bulkActionResult?.successCount, 3)
-        XCTAssertEqual(vm.bulkActionResult?.failureCount, 0)
+        XCTAssertEqual(vm.bulkActionResult?.succeeded, 3)
+        XCTAssertEqual(vm.bulkActionResult?.failed, 0)
         XCTAssertFalse(vm.isSelectionMode)
         XCTAssertTrue(vm.selectedIds.isEmpty)
     }
@@ -172,33 +169,34 @@ final class FeedViewModelTests: XCTestCase {
         // モック: 2つ目のリクエストのみ 500 エラーを返す仕掛け。
         // 今回は簡単のため、全てのリクエストが同じ応答を返すモックを使うため、
         // ここは部分失敗をテストできないが、成功ケースが機能していれば OK。
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
         let articles = [
             sampleArticle(id: "a1"),
             sampleArticle(id: "a2")
         ]
-        vm.articles = articles
-        vm.selectedIds = Set(["a1", "a2"])
+        let (vm, _) = try await makeFeedViewModel(articles: articles, client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
+        ["a1", "a2"].forEach { vm.toggleSelection($0) }
 
         await vm.bulkStar()
 
         // 全て成功するはず（モック都合）。
-        XCTAssertEqual(vm.bulkActionResult?.successCount, 2)
-        XCTAssertEqual(vm.bulkActionResult?.failureCount, 0)
+        XCTAssertEqual(vm.bulkActionResult?.succeeded, 2)
+        XCTAssertEqual(vm.bulkActionResult?.failed, 0)
     }
 
     // リフレッシュ等で一覧から消えた記事の id が selectedIds に残っても、
     // 現在表示中の記事だけを Star し成功数を水増ししないこと。
     func testBulkStarIgnoresStaleSelection() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#)
+        )
         // "ghost" は一覧に存在しない（既に消えた記事）。
-        vm.selectedIds = Set(["a1", "a2", "ghost"])
+        ["a1", "a2", "ghost"].forEach { vm.toggleSelection($0) }
 
         await vm.bulkStar()
 
-        XCTAssertEqual(vm.bulkActionResult?.successCount, 2)
-        XCTAssertEqual(vm.bulkActionResult?.failureCount, 0)
+        XCTAssertEqual(vm.bulkActionResult?.succeeded, 2)
+        XCTAssertEqual(vm.bulkActionResult?.failed, 0)
         XCTAssertTrue(vm.articles.isEmpty)
         XCTAssertTrue(vm.selectedIds.isEmpty)
         XCTAssertFalse(vm.isSelectionMode)
@@ -207,22 +205,26 @@ final class FeedViewModelTests: XCTestCase {
     // MARK: - issue #111: ジェスチャ UX（楽観的削除 + 取り消し + 展開）
 
     func testStarStagesPendingActionAndRemovesOptimistically() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#)
+        )
 
-        await vm.star(article: sampleArticle(id: "a1"))
+        await vm.star(articleId: "a1", difficulty: nil)
 
         // 楽観的に一覧から消え、直近操作が保留（取り消し可能）になる。
         XCTAssertEqual(vm.articles.map { $0.id }, ["a2"])
-        XCTAssertEqual(vm.pendingAction?.article.id, "a1")
-        XCTAssertEqual(vm.pendingAction?.kind, .star)
+        XCTAssertEqual(vm.pendingAction?.articleId, "a1")
+        XCTAssertEqual(vm.pendingAction?.kind, .star(nil))
     }
 
     func testUndoLastReinsertsArticleAtOriginalIndex() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a2"}"#))
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2"), sampleArticle(id: "a3")]
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2"), sampleArticle(id: "a3")],
+            client: makeClient(json: #"{"status":"starred","article_id":"a2"}"#)
+        )
 
-        await vm.dismiss(article: sampleArticle(id: "a2"))   // index 1 を削除
+        await vm.dismiss(articleId: "a2")   // index 1 を削除
         XCTAssertEqual(vm.articles.map { $0.id }, ["a1", "a3"])
 
         vm.undoLast()
@@ -233,10 +235,12 @@ final class FeedViewModelTests: XCTestCase {
     }
 
     func testCommitPendingSuccessClearsPendingAndKeepsRemoval() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#)
+        )
 
-        await vm.star(article: sampleArticle(id: "a1"))
+        await vm.star(articleId: "a1", difficulty: nil)
         await vm.commitPending()
 
         XCTAssertNil(vm.pendingAction)
@@ -246,10 +250,12 @@ final class FeedViewModelTests: XCTestCase {
 
     func testCommitPendingFailureReinsertsAndSetsError() async throws {
         // 失敗するクライアント。初回 star は保留のみ（API 未呼出）、commit で 500 → 復元。
-        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: makeClient(json: "", statusCode: 500)
+        )
 
-        await vm.star(article: sampleArticle(id: "a1"))
+        await vm.star(articleId: "a1", difficulty: nil)
         await vm.commitPending()
 
         XCTAssertEqual(vm.articles.map { $0.id }, ["a1", "a2"])   // 復元
@@ -260,16 +266,16 @@ final class FeedViewModelTests: XCTestCase {
     func testStagingNewActionCommitsPrevious() async throws {
         // モックを直接持ち、直前操作が実際にサーバへ送信されたことを検証する（API 経路の確証）。
         let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
-        let vm = FeedViewModel(apiClient: APIClient(
-            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
-        ))
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
+        )
 
-        await vm.star(article: sampleArticle(id: "a1"))   // 保留 a1（API 未送信）
+        await vm.star(articleId: "a1", difficulty: nil)   // 保留 a1（API 未送信）
         XCTAssertNil(mock.lastRequest)                     // まだ送信されていない
-        await vm.dismiss(article: sampleArticle(id: "a2"))  // 直前 a1 を確定送信し a2 を保留
+        await vm.dismiss(articleId: "a2")  // 直前 a1 を確定送信し a2 を保留
 
-        XCTAssertEqual(vm.pendingAction?.article.id, "a2")
+        XCTAssertEqual(vm.pendingAction?.articleId, "a2")
         XCTAssertEqual(vm.pendingAction?.kind, .dismiss)
         XCTAssertTrue(vm.articles.isEmpty)
         // 直前の star(a1) がサーバへ確定送信された。
@@ -280,12 +286,12 @@ final class FeedViewModelTests: XCTestCase {
         // リフレッシュ前に保留を確定し、id 重複（楽観削除した記事の再出現）を防ぐ。issue #111 H1。
         let json = #"{"articles":[{"id":"a1","title":"X","url":"https://e.com","source":"s","score":0.5,"published_at":"2026-05-31T06:00:00Z"}],"date":"2026-05-31"}"#
         let mock = MockURLSession(data: json.data(using: .utf8)!, statusCode: 200)
-        let vm = FeedViewModel(apiClient: APIClient(
-            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
-        ))
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
+        )
 
-        await vm.star(article: sampleArticle(id: "a1"))   // 保留 a1
+        await vm.star(articleId: "a1", difficulty: nil)   // 保留 a1
         await vm.loadFeed()                                // 取得前に a1 を確定
 
         XCTAssertNil(vm.pendingAction)                     // 保留は解消済み
@@ -294,11 +300,13 @@ final class FeedViewModelTests: XCTestCase {
     }
 
     func testStageClearsExpandedId() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"status":"starred","article_id":"a1"}"#))
-        vm.articles = [sampleArticle(id: "a1")]
-        vm.expandedId = "a1"
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#)
+        )
+        vm.toggleExpand("a1")
 
-        await vm.star(article: sampleArticle(id: "a1"))
+        await vm.star(articleId: "a1", difficulty: nil)
 
         XCTAssertNil(vm.expandedId)   // 操作で展開状態は解除される
     }
@@ -306,23 +314,23 @@ final class FeedViewModelTests: XCTestCase {
     // MARK: - issue #82: 生成上限 429 メッセージ
 
     func testGenerationLimitMessageFormatsRetryTime() {
-        XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: nil), "本日の生成上限に達しました")
-        XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: 30), "本日の生成上限に達しました（まもなくに可能）")
-        XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: 90), "本日の生成上限に達しました（約2分後に可能）")
-        XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: 43200), "本日の生成上限に達しました（約12時間後に可能）")
+        XCTAssertEqual(FeedViewModel.generationLimitMessage(GenerationLimitWait(retryAfterSeconds: nil)), "本日の生成上限に達しました")
+        XCTAssertEqual(FeedViewModel.generationLimitMessage(GenerationLimitWait(retryAfterSeconds: 30)), "本日の生成上限に達しました（まもなくに可能）")
+        XCTAssertEqual(FeedViewModel.generationLimitMessage(GenerationLimitWait(retryAfterSeconds: 90)), "本日の生成上限に達しました（約2分後に可能）")
+        XCTAssertEqual(FeedViewModel.generationLimitMessage(GenerationLimitWait(retryAfterSeconds: 43200)), "本日の生成上限に達しました（約12時間後に可能）")
         // 境界（3599秒）: web と揃えて「約60分後」ではなく「約1時間後」（review #1）。
-        XCTAssertEqual(FeedViewModel.generationLimitMessage(retryAfter: 3599), "本日の生成上限に達しました（約1時間後に可能）")
+        XCTAssertEqual(FeedViewModel.generationLimitMessage(GenerationLimitWait(retryAfterSeconds: 3599)), "本日の生成上限に達しました（約1時間後に可能）")
     }
 
     // T-T13-04（verifies: ios-contract-19, R-keep2）。
     func testBulkStarSurfaces429LimitMessage() async throws {
         // 一括 Star が 429（生成上限）に当たったら上限メッセージを出す（web とパリティ・review #2）。
         let mock = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])
-        let vm = FeedViewModel(apiClient: APIClient(
-            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
-        ))
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
-        vm.selectedIds = ["a1", "a2"]
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
+        )
+        ["a1", "a2"].forEach { vm.toggleSelection($0) }
 
         await vm.bulkStar()
 
@@ -333,12 +341,12 @@ final class FeedViewModelTests: XCTestCase {
     func testStarOn429SetsLimitMessageAndRestoresArticle() async throws {
         // 429 + Retry-After を返すクライアントで star を確定させると、記事が戻り上限メッセージが出る。
         let mock = MockURLSession(data: Data(), statusCode: 429, headerFields: ["Retry-After": "43200"])
-        let vm = FeedViewModel(apiClient: APIClient(
-            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
-        ))
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
+        )
 
-        await vm.star(article: sampleArticle(id: "a1"))   // 楽観削除 + 保留
+        await vm.star(articleId: "a1", difficulty: nil)   // 楽観削除 + 保留
         await vm.commitPending()                          // 確定 → 429
 
         XCTAssertEqual(vm.articles.map { $0.id }, ["a1", "a2"])   // 記事が戻る
@@ -346,8 +354,8 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertNil(vm.pendingAction)
     }
 
-    func testToggleExpandTogglesExpandedId() {
-        let vm = FeedViewModel(apiClient: makeClient(json: "{}"))
+    func testToggleExpandTogglesExpandedId() async throws {
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: "{}"))
 
         vm.toggleExpand("a1")
         XCTAssertEqual(vm.expandedId, "a1")
@@ -358,8 +366,8 @@ final class FeedViewModelTests: XCTestCase {
 
     // MARK: - issue #54: オフライン時の事前無効化
 
-    func testIsOnlineReflectsInjectedNetworkMonitor() {
-        let vm = FeedViewModel(apiClient: makeClient(json: "{}"), networkMonitor: StubNetworkMonitor(isOnline: false))
+    func testIsOnlineReflectsInjectedNetworkMonitor() async throws {
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: "{}"), networkMonitor: StubNetworkMonitor(isOnline: false))
 
         XCTAssertFalse(vm.isOnline)
     }
@@ -367,7 +375,7 @@ final class FeedViewModelTests: XCTestCase {
     func testLoadFeedWhileOfflineDoesNotCallAPIAndSetsOfflineMessage() async throws {
         let mock = MockURLSession(data: Data(), statusCode: 200)
         let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
-        let vm = FeedViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: false))
+        let (vm, _) = try await makeFeedViewModel(client: client, networkMonitor: StubNetworkMonitor(isOnline: false))
 
         await vm.loadFeed()
 
@@ -382,8 +390,11 @@ final class FeedViewModelTests: XCTestCase {
         // （オフラインガードが articles 更新より前に return する順序の回帰防止）。
         let mock = MockURLSession(data: Data(), statusCode: 200)
         let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
-        let vm = FeedViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: false))
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: client,
+            networkMonitor: StubNetworkMonitor(isOnline: false)
+        )
 
         await vm.loadFeed()
 
@@ -394,7 +405,7 @@ final class FeedViewModelTests: XCTestCase {
     func testLoadFeedWhileOnlineStillWorksWithInjectedNetworkMonitor() async throws {
         // 回帰防止: networkMonitor 注入後もオンライン時の既存挙動が壊れていないこと。
         let json = #"{"articles": [{"id":"a1","title":"Rust","url":"https://example.com","source":"hackernews","score":0.9,"published_at":"2026-05-31T06:00:00Z"}], "date": "2026-05-31"}"#
-        let vm = FeedViewModel(apiClient: makeClient(json: json), networkMonitor: StubNetworkMonitor(isOnline: true))
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: json), networkMonitor: StubNetworkMonitor(isOnline: true))
 
         await vm.loadFeed()
 
@@ -405,7 +416,7 @@ final class FeedViewModelTests: XCTestCase {
     // MARK: - issue #53: ロード失敗と「本当に空」の空状態を区別する
 
     func testDisplayStateIsErrorWhenLoadFeedFailsWithEmptyArticles() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: "", statusCode: 500))
 
         await vm.loadFeed()
 
@@ -415,8 +426,7 @@ final class FeedViewModelTests: XCTestCase {
     func testDisplayStateIsContentWhenLoadFeedFailsButArticlesRemain() async throws {
         // リフレッシュ失敗時は既存の一覧を残す（articles はクリアしない）。
         // その場合は空状態ではなく一覧を優先して表示する。
-        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
-        vm.articles = [sampleArticle(id: "a1")]
+        let (vm, _) = try await makeFeedViewModel(articles: [sampleArticle(id: "a1")], client: makeClient(json: "", statusCode: 500))
 
         await vm.loadFeed()
 
@@ -424,25 +434,46 @@ final class FeedViewModelTests: XCTestCase {
     }
 
     func testDisplayStateIsEmptyWhenLoadFeedSucceedsWithNoArticles() async throws {
-        let vm = FeedViewModel(apiClient: makeClient(json: #"{"articles": [], "date": "2026-05-31"}"#))
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: #"{"articles": [], "date": "2026-05-31"}"#))
 
         await vm.loadFeed()
 
         XCTAssertEqual(vm.displayState, .empty)
     }
 
-    func testDisplayStateIsLoadingWhileInitialLoadInProgress() {
-        let vm = FeedViewModel(apiClient: makeClient(json: "{}"))
-        vm.isLoading = true
+    func testDisplayStateIsLoadingWhileInitialLoadInProgress() async throws {
+        // 取得中の状態は、fetchFeed を保留する gateway で loadFeed を実際に進めて作る。
+        let started = XCTestExpectation(description: "fetchFeed started")
+        let box = ContinuationBox()
+        let gateway = CurationGateway(
+            fetchFeed: { @MainActor in
+                started.fulfill()
+                await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in box.continuation = c }
+                return []
+            },
+            star: { @MainActor _, _ in },
+            dismiss: { @MainActor _ in },
+            fetchStarred: { @MainActor in [] },
+            unstar: { @MainActor _ in },
+            fetchAllowance: { @MainActor in nil }
+        )
+        let curation = FeedCuration(gateway: gateway, undoGracePeriod: .seconds(4), currentSubject: { nil })
+        let vm = FeedViewModel(curation: curation, networkMonitor: StubNetworkMonitor(isOnline: true))
+
+        let task = Task { await vm.loadFeed() }
+        await fulfillment(of: [started], timeout: 1.0)
 
         XCTAssertEqual(vm.displayState, .loading)
+
+        box.continuation?.resume()
+        await task.value
     }
 
     // MARK: - issue #58: インラインエラー表示（displayState .error）とアラートの二重表示防止
 
     func testShouldPresentErrorAlertFalseWhenListEmptyAndDisplayStateIsError() async throws {
         // 一覧が空でロード失敗＝インラインエラー表示中は、同じエラーのアラートを重ねて出さない。
-        let vm = FeedViewModel(apiClient: makeClient(json: "", statusCode: 500))
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: "", statusCode: 500))
 
         await vm.loadFeed()
 
@@ -450,18 +481,23 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertFalse(vm.shouldPresentErrorAlert)
     }
 
-    func testShouldPresentErrorAlertTrueWhenListNonEmptyAndErrorMessageSet() {
+    func testShouldPresentErrorAlertTrueWhenListNonEmptyAndErrorMessageSet() async throws {
         // 一覧が非空のまま発生したエラー（一括Star失敗等）はインライン表示が無いのでアラートを出す。
-        let vm = FeedViewModel(apiClient: makeClient(json: "{}"))
-        vm.articles = [sampleArticle(id: "a1")]
-        vm.errorMessage = "本日の生成上限に達しました"
+        // 実際の失敗（429、Retry-After なし）から errorMessage を作る。
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: apiClient(session: MockURLSession(data: Data(), statusCode: 429))
+        )
+        await vm.star(articleId: "a1", difficulty: nil)
+        await vm.commitPending()
 
+        XCTAssertEqual(vm.errorMessage, "本日の生成上限に達しました")
         XCTAssertEqual(vm.displayState, .content)
         XCTAssertTrue(vm.shouldPresentErrorAlert)
     }
 
-    func testShouldPresentErrorAlertFalseWhenNoErrorMessage() {
-        let vm = FeedViewModel(apiClient: makeClient(json: "{}"))
+    func testShouldPresentErrorAlertFalseWhenNoErrorMessage() async throws {
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: "{}"))
 
         XCTAssertFalse(vm.shouldPresentErrorAlert)
     }
@@ -473,11 +509,11 @@ final class FeedViewModelTests: XCTestCase {
         // URLError(.cancelled) を投げる。これをエラー表示・記事再挿入の対象にしないことを保証する。
         let requestStarted = XCTestExpectation(description: "request started")
         let mock = CancellationAwareMockURLSession(requestStarted: requestStarted)
-        let vm = FeedViewModel(apiClient: APIClient(
-            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
-        ))
-        vm.articles = [sampleArticle(id: "a1")]
-        await vm.star(article: sampleArticle(id: "a1"))   // 保留のみ（API 未送信）
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
+        )
+        await vm.star(articleId: "a1", difficulty: nil)   // 保留のみ（API 未送信）
 
         let task = Task { await vm.commitPending() }
         await fulfillment(of: [requestStarted], timeout: 1.0)
@@ -493,11 +529,11 @@ final class FeedViewModelTests: XCTestCase {
         // 分岐（素の CancellationError を投げる経路）は未検証だった（レビュー指摘）。
         let requestStarted = XCTestExpectation(description: "request started")
         let mock = CancellationAwareMockURLSession(requestStarted: requestStarted, cancellationBehavior: .rawCancellationError)
-        let vm = FeedViewModel(apiClient: APIClient(
-            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
-        ))
-        vm.articles = [sampleArticle(id: "a1")]
-        await vm.star(article: sampleArticle(id: "a1"))   // 保留のみ（API 未送信）
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
+        )
+        await vm.star(articleId: "a1", difficulty: nil)   // 保留のみ（API 未送信）
 
         let task = Task { await vm.commitPending() }
         await fulfillment(of: [requestStarted], timeout: 1.0)
@@ -512,13 +548,13 @@ final class FeedViewModelTests: XCTestCase {
 
     func testStageAutoCommitsAfterGracePeriodElapses() async throws {
         let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
-        let vm = FeedViewModel(
-            apiClient: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock),
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock),
             undoGracePeriod: .milliseconds(50)
         )
-        vm.articles = [sampleArticle(id: "a1")]
 
-        await vm.star(article: sampleArticle(id: "a1"))
+        await vm.star(articleId: "a1", difficulty: nil)
         XCTAssertNil(mock.lastRequest)   // 猶予中はまだ送信されない
 
         // 固定 sleep ではなく「いつか条件を満たす」形のポーリングにして CI 負荷でのフレークを避ける。
@@ -530,13 +566,13 @@ final class FeedViewModelTests: XCTestCase {
 
     func testUndoLastCancelsAutoCommitTimer() async throws {
         let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
-        let vm = FeedViewModel(
-            apiClient: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock),
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock),
             undoGracePeriod: .milliseconds(50)
         )
-        vm.articles = [sampleArticle(id: "a1")]
 
-        await vm.star(article: sampleArticle(id: "a1"))
+        await vm.star(articleId: "a1", difficulty: nil)
         vm.undoLast()
 
         // 「何も起きない」ことの確認なのでポーリングにはできない。猶予(50ms)に対し
@@ -560,15 +596,15 @@ final class FeedViewModelTests: XCTestCase {
         // （旧実装は 200ms 猶予に対し 50/70ms 余白で CI 負荷によりフレークしていた・レビュー指摘）。
         // 確定側の最終待機はポーリングにし、正確な時刻に依存しないようにする。
         let mock = MockURLSession(data: #"{"status":"starred","article_id":"a1"}"#.data(using: .utf8)!, statusCode: 200)
-        let vm = FeedViewModel(
-            apiClient: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock),
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock),
             undoGracePeriod: .milliseconds(800)
         )
-        vm.articles = [sampleArticle(id: "a1"), sampleArticle(id: "a2")]
 
-        await vm.star(article: sampleArticle(id: "a1"))       // A staged, 800ms タイマー開始
+        await vm.star(articleId: "a1", difficulty: nil)       // A staged, 800ms タイマー開始
         try await Task.sleep(for: .milliseconds(300))
-        await vm.dismiss(article: sampleArticle(id: "a2"))    // B staged。A は stage() 内で即時確定。
+        await vm.dismiss(articleId: "a2")    // B staged。A は stage() 内で即時確定。
 
         XCTAssertEqual(mock.lastRequest?.url?.path, "/articles/a1/star")   // A は即時確定済み
 
@@ -591,7 +627,7 @@ final class FeedViewModelTests: XCTestCase {
     func testLoadFeedCancellationDoesNotSetErrorMessage() async throws {
         let requestStarted = XCTestExpectation(description: "request started")
         let mock = CancellationAwareMockURLSession(requestStarted: requestStarted)
-        let vm = FeedViewModel(apiClient: APIClient(
+        let (vm, _) = try await makeFeedViewModel(client: APIClient(
             baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock
         ))
 
@@ -603,6 +639,155 @@ final class FeedViewModelTests: XCTestCase {
         XCTAssertNil(vm.errorMessage)
         XCTAssertFalse(vm.isLoading)   // 後始末（isLoading = false）はキャンセル経路でも必ず走る
     }
+
+    // MARK: - 確定の失敗の文言への写し（ViewModel の責務）
+
+    // verifies: ios-dec-98
+    func testCommitFailureReachesErrorMessageRightAfterCommitPending() async throws {
+        // 500 → 既存の文言。
+        let (vm500, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: makeClient(json: "", statusCode: 500)
+        )
+        await vm500.star(articleId: "a1", difficulty: nil)
+        await vm500.commitPending()
+        XCTAssertEqual(vm500.errorMessage, "HTTP Error 500")
+
+        // 429（Retry-After なし）→ 上限の文言。
+        let (vm429, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: apiClient(session: MockURLSession(data: Data(), statusCode: 429))
+        )
+        await vm429.star(articleId: "a1", difficulty: nil)
+        await vm429.commitPending()
+        XCTAssertEqual(vm429.errorMessage, "本日の生成上限に達しました")
+
+        // その他の失敗 → localizedDescription。
+        let error = NSError(domain: "test", code: 7, userInfo: [NSLocalizedDescriptionKey: "壊れた"])
+        let gateway = CurationGateway(
+            fetchFeed: { @MainActor in [ArticleCardModel(id: "a1", title: "T", url: "https://e.com", source: "s", score: 0.5, publishedAt: "2026-05-31T06:00:00Z")] },
+            star: { @MainActor _, _ in throw error },
+            dismiss: { @MainActor _ in },
+            fetchStarred: { @MainActor in [] },
+            unstar: { @MainActor _ in },
+            fetchAllowance: { @MainActor in nil }
+        )
+        let curation = FeedCuration(gateway: gateway, undoGracePeriod: .seconds(60), currentSubject: { nil })
+        try await curation.reload()
+        let vmOther = FeedViewModel(curation: curation, networkMonitor: StubNetworkMonitor(isOnline: true))
+        await vmOther.star(articleId: "a1", difficulty: nil)
+        await vmOther.commitPending()
+        XCTAssertEqual(vmOther.errorMessage, error.localizedDescription)
+    }
+
+    // verifies: ios-dec-98
+    func testClearErrorClearsErrorMessageAndLastFailure() async throws {
+        let (vm, curation) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: makeClient(json: "", statusCode: 500)
+        )
+        await vm.star(articleId: "a1", difficulty: nil)
+        await vm.commitPending()
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertNotNil(curation.lastFailure)
+
+        vm.clearError()
+
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertNil(curation.lastFailure)
+    }
+
+    // verifies: ios-dec-98
+    func testNewViewModelDoesNotReplayOldLastFailure() async throws {
+        let (vm, curation) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: makeClient(json: "", statusCode: 500)
+        )
+        await vm.star(articleId: "a1", difficulty: nil)
+        await vm.commitPending()
+        XCTAssertNotNil(curation.lastFailure)
+
+        let fresh = FeedViewModel(curation: curation, networkMonitor: StubNetworkMonitor(isOnline: true))
+
+        XCTAssertNil(fresh.errorMessage)
+    }
+
+    // MARK: - 画面の状態（選択モード・購読・寿命・文言）
+
+    // verifies: ios-dec-98
+    func testToggleSelectionModeFlipsAndClearsSelectionWhenTurnedOff() async throws {
+        let (vm, _) = try await makeFeedViewModel(client: makeClient(json: "{}"))
+        XCTAssertFalse(vm.isSelectionMode)
+
+        vm.toggleSelectionMode()
+        XCTAssertTrue(vm.isSelectionMode)
+        vm.toggleSelection("a1")
+        XCTAssertEqual(vm.selectedIds, ["a1"], "オンの間は選択が残る")
+
+        vm.toggleSelectionMode()
+        XCTAssertFalse(vm.isSelectionMode)
+        XCTAssertTrue(vm.selectedIds.isEmpty, "オフになったら選択を空にする")
+    }
+
+    // verifies: ios-dec-98
+    func testViewModelForwardsCurationChangesToObjectWillChange() async throws {
+        let (vm, curation) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+            client: makeClient(json: "{}")
+        )
+        var fired = 0
+        let cancellable = vm.objectWillChange.sink { fired += 1 }
+
+        await curation.dismiss(articleId: "a1")
+
+        XCTAssertGreaterThanOrEqual(fired, 1, "curation の cards が変わると View が再描画される")
+        cancellable.cancel()
+    }
+
+    // verifies: ios-dec-98
+    func testViewModelAndCurationAreReleasedWhileTimerIsRunning() async throws {
+        weak var weakVM: FeedViewModel?
+        weak var weakCuration: FeedCuration?
+        do {
+            let (vm, curation) = try await makeFeedViewModel(
+                articles: [sampleArticle(id: "a1"), sampleArticle(id: "a2")],
+                client: makeClient(json: "{}"),
+                undoGracePeriod: .seconds(60),
+                networkMonitor: StubNetworkMonitor(isOnline: true)
+            )
+            weakVM = vm
+            weakCuration = curation
+            await vm.star(articleId: "a1", difficulty: nil)   // タイマー稼働中
+        }
+
+        XCTAssertNil(weakVM, "購読が VM を強く保持していない")
+        XCTAssertNil(weakCuration, "VM と curation の間に循環がない")
+    }
+
+    // verifies: ios-dec-98
+    func testBulkMessageFormatsReceipt() {
+        XCTAssertEqual(FeedViewModel.bulkMessage(BulkStarReceipt(succeeded: 3, failed: 0)), "3件を一括スターしました")
+        XCTAssertEqual(FeedViewModel.bulkMessage(BulkStarReceipt(succeeded: 1, failed: 2)), "1件をスターしました（失敗: 2件）")
+    }
+
+    // verifies: ios-dec-98
+    func testStarOfArticleNotInListKeepsExpandedId() async throws {
+        let (vm, _) = try await makeFeedViewModel(
+            articles: [sampleArticle(id: "a1")],
+            client: makeClient(json: #"{"status":"starred","article_id":"a1"}"#)
+        )
+        vm.toggleExpand("a1")
+
+        await vm.star(articleId: "ghost", difficulty: nil)
+
+        XCTAssertEqual(vm.expandedId, "a1")
+    }
+}
+
+/// `fetchFeed` を保留するための継続の置き場。
+@MainActor
+private final class ContinuationBox {
+    var continuation: CheckedContinuation<Void, Never>?
 }
 
 /// キャンセル時にどの例外型を投げるかを選べる file-private モック。共有 `MockURLSession`

@@ -11,7 +11,7 @@ import SwiftUI
 /// Feed の記事1件の行表示。ソース・公開日・タイトルと関連スコアの横バーを示す（設計 §7）。
 struct ArticleRowView: View {
     /// 表示する記事。
-    let article: Article
+    let article: ArticleCardModel
     /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var preferencesStore: PreferencesStore
 

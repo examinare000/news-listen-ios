@@ -13,11 +13,11 @@ import Combine
 @MainActor
 final class StarredViewModel: ObservableObject {
     /// 表示中の Star 済み記事一覧。
-    @Published var articles: [Article] = []
+    @Published private(set) var articles: [ArticleCardModel] = []
     /// 読み込み中かどうか。
-    @Published var isLoading = false
+    @Published private(set) var isLoading = false
     /// 直近のエラーメッセージ（なければ `nil`）。アラート表示に使う。
-    @Published var errorMessage: String?
+    @Published private(set) var errorMessage: String?
     /// 現在ネットワークがオンラインかどうか（オフラインバナー表示用に View から購読する）。
     @Published private(set) var isOnline: Bool
 
@@ -34,17 +34,16 @@ final class StarredViewModel: ObservableObject {
         ListDisplayState.shouldPresentAlert(errorMessage: errorMessage, displayState: displayState)
     }
 
-    /// API 通信に使うクライアント。
-    private let apiClient: APIClient
+    private let starred: StarredArticles
     /// ネットワーク接続状態を監視する。
     private let networkMonitor: NetworkMonitoring
 
     /// ViewModel を生成する。
     /// - Parameters:
-    ///   - apiClient: API 通信に使うクライアント。
+    ///   - starred: 一覧と Star 解除を持つ application。
     ///   - networkMonitor: ネットワーク監視（既定: 実機監視の `NetworkMonitor()`。`FeedViewModel` と同一パターン）。
-    init(apiClient: APIClient, networkMonitor: NetworkMonitoring = NetworkMonitor()) {
-        self.apiClient = apiClient
+    init(starred: StarredArticles, networkMonitor: NetworkMonitoring = NetworkMonitor()) {
+        self.starred = starred
         self.networkMonitor = networkMonitor
         self.isOnline = networkMonitor.isOnline
         networkMonitor.isOnlinePublisher
@@ -70,8 +69,7 @@ final class StarredViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         do {
-            let response = try await apiClient.fetchStarredArticles()
-            articles = response.articles
+            articles = try await starred.list()
         } catch is CancellationError {
             // 画面遷移等で呼び出し元 Task がキャンセルされただけ。ユーザーに見せるエラーではない
             // （FeedViewModel.loadFeed() と同じ理由・star cancelled alert バグ対応を参照）。
@@ -87,9 +85,9 @@ final class StarredViewModel: ObservableObject {
 
     /// 指定記事の Star を解除する（スタータブのスワイプ導線）。
     ///
-    /// `FeedViewModel.commit(_:)` と同じ楽観的更新の流儀: 先に一覧から除去し、失敗時のみ
-    /// 元の位置（他の削除で index がずれていれば末尾）へ戻す。404 は「記事 doc が既に存在しない」
-    /// という backend の冪等仕様上の成功扱いのため、行を残さない（残すとゴースト化するため）。
+    /// 楽観的更新: 先に一覧から除去し、失敗時のみ元の位置（他の削除で index がずれていれば末尾）へ戻す。
+    /// 404 は「記事 doc が既に存在しない」という backend の冪等仕様上の成功扱い（`StarredArticles` が吸収する）
+    /// のため、行を残さない（残すとゴースト化するため）。
     /// キャンセルは黙殺し、非復元のまま次回 `loadStarred()` でサーバの真実に収束させる。
     ///
     /// - Note: 複数記事の un-star をネットワーク往復中に連続実行し、いずれも失敗した場合、
@@ -98,7 +96,7 @@ final class StarredViewModel: ObservableObject {
     ///   直列化・排他制御は導入せず許容とし、次回 `loadStarred()` でサーバの真実（順序含む）に
     ///   収束させる（`loadStarred()` 側の既知レース Note と同型の割り切り）。
     /// - Parameter article: 解除対象の記事。
-    func unstar(_ article: Article) async {
+    func unstar(_ article: ArticleCardModel) async {
         guard networkMonitor.isOnline else {
             errorMessage = FeedViewModel.offlineMessage
             return
@@ -106,9 +104,7 @@ final class StarredViewModel: ObservableObject {
         guard let index = articles.firstIndex(where: { $0.id == article.id }) else { return }
         articles.remove(at: index)
         do {
-            try await apiClient.unstarArticle(id: article.id)
-        } catch ApiFailure.notFound(subject: .star) {
-            // 記事 doc が既に存在しない＝サーバ側としては既に望みどおりの状態。復元しない。
+            try await starred.unstar(articleId: article.id)
         } catch is CancellationError {
             // 呼び出し元 Task がキャンセルされただけで、ユーザーに見せるエラーではない。
         } catch let error as URLError where error.code == .cancelled {
@@ -122,5 +118,10 @@ final class StarredViewModel: ObservableObject {
             articles.insert(article, at: restoreIndex)
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// エラー文言を消す。
+    func clearError() {
+        errorMessage = nil
     }
 }

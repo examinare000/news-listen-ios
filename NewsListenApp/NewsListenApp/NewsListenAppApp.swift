@@ -153,6 +153,11 @@ struct ContentView: View {
     /// でもバックグラウンド再生・ロック画面操作が生きる）。
     @StateObject private var playerViewModel: PodcastViewModel
 
+    /// フィード・設定の残り回数が共有する、一覧・保留・確定の application。authenticated の間だけ生きる。
+    @StateObject private var curation: FeedCuration
+    /// Star 一覧の application。`ObservableObject` ではないので `@State` で最初の 1 つを保つ。
+    @State private var starred: StarredArticles
+
     /// 設定画面に渡す保存庫（App が作った 1 個）。
     private let library: OfflineLibrary
 
@@ -178,7 +183,11 @@ struct ContentView: View {
         library: OfflineLibrary
     ) {
         self.library = library
-        // `init` は再描画のたびに走るので、組み立ては `StateObject` の autoclosure の中（1 回だけ評価される）で行う。
+        // `init` は再描画のたびに走るが、`@StateObject`／`@State` が最初の 1 つだけを保つ。
+        let gateway = CurationGateway.live(client: { apiClient })
+        _curation = StateObject(wrappedValue: FeedCuration(gateway: gateway, undoGracePeriod: .seconds(4), currentSubject: currentSubjectKey))
+        _starred = State(wrappedValue: StarredArticles(gateway: gateway))
+        // 再生 ViewModel の組み立ては `StateObject` の autoclosure の中（1 回だけ評価される）で行う。
         _playerViewModel = StateObject(
             wrappedValue: Self.makePlayerViewModel(
                 apiClient: apiClient,
@@ -245,14 +254,14 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            apiTab("フィード", systemImage: "newspaper", tag: 0) { client in
-                FeedView(apiClient: client)
+            apiTab("フィード", systemImage: "newspaper", tag: 0) { _ in
+                FeedView(curation: curation)
             }
             apiTab("Podcast", systemImage: "headphones", tag: 1) { _ in
                 PodcastView(viewModel: playerViewModel)
             }
-            apiTab("スター", systemImage: "star", tag: 2) { client in
-                StarredView(apiClient: client)
+            apiTab("スター", systemImage: "star", tag: 2) { _ in
+                StarredView(starred: starred)
             }
             // 学習は第 3 タブ（iOS 慣習: 学習機能は追加タブ）。
             apiTab("学習", systemImage: "book.closed", tag: 3) { client in
@@ -260,7 +269,7 @@ struct ContentView: View {
             }
             // Settings は API 未設定の修正導線として常に表示する（第 4 タブ末尾）。
             // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
-            SettingsView(appState: appState, library: library, downloads: playerViewModel.downloads)
+            SettingsView(appState: appState, library: library, downloads: playerViewModel.downloads, curation: curation)
                 .withMiniPlayer(playerViewModel)
                 .tabItem { Label("設定", systemImage: "gearshape") }
                 .tag(4)

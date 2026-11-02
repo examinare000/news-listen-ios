@@ -15,7 +15,7 @@ struct StarredView: View {
     @EnvironmentObject private var preferencesStore: PreferencesStore
     /// 一覧取得を担う ViewModel。
     ///
-    /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
+    /// `StarredArticles` は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
     /// （`FeedView`/`PodcastView` と同様、プレースホルダ生成 + 後差し替えのアンチパターンを避ける）。
     @StateObject private var viewModel: StarredViewModel
     /// 外部 Safari で開くための環境アクション。
@@ -23,12 +23,12 @@ struct StarredView: View {
     /// アプリ内 Safari で提示中の URL（なければ `nil`）。
     @State private var safariURL: IdentifiableURL?
     /// un-star 確認ダイアログの対象記事（なければダイアログ非表示）。
-    @State private var pendingUnstar: Article?
+    @State private var pendingUnstar: ArticleCardModel?
 
     /// ビューを生成する。
-    /// - Parameter apiClient: ViewModel に注入する API クライアント。
-    init(apiClient: APIClient) {
-        _viewModel = StateObject(wrappedValue: StarredViewModel(apiClient: apiClient))
+    /// - Parameter starred: 一覧と Star 解除を持つ application。
+    init(starred: StarredArticles) {
+        _viewModel = StateObject(wrappedValue: StarredViewModel(starred: starred))
     }
 
     var body: some View {
@@ -45,7 +45,7 @@ struct StarredView: View {
             .navigationTitle("スター")
             .dsStreakToolbar(appState: appState)
             .alert("エラー", isPresented: errorBinding) {
-                Button("OK") { viewModel.errorMessage = nil }
+                Button("OK") { viewModel.clearError() }
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
@@ -141,7 +141,7 @@ struct StarredView: View {
 
     /// 記事を設定（``PreferencesStore/articleOpenMode``）に従って開く。
     /// - Parameter article: タップされた記事。URL が不正なら何もしない。
-    private func open(_ article: Article) {
+    private func open(_ article: ArticleCardModel) {
         guard let url = URL(string: article.url) else { return }
         if preferencesStore.articleOpenMode == .external {
             openURL(url)
@@ -156,20 +156,20 @@ struct StarredView: View {
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { viewModel.shouldPresentErrorAlert },
-            set: { if !$0 { viewModel.errorMessage = nil } }
+            set: { if !$0 { viewModel.clearError() } }
         )
     }
 }
 
 #if DEBUG
 #Preview("Starred / Light") {
-    StarredView(apiClient: PreviewSamples.apiClient())
+    StarredView(starred: PreviewSamples.starredArticles())
         .environmentObject(PreviewSamples.appState())
         .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("Starred / Dark") {
-    StarredView(apiClient: PreviewSamples.apiClient())
+    StarredView(starred: PreviewSamples.starredArticles())
         .environmentObject(PreviewSamples.appState())
         .environmentObject(PreviewSamples.preferencesStore())
         .preferredColorScheme(.dark)

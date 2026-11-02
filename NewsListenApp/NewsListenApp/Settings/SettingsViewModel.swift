@@ -25,7 +25,7 @@ final class SettingsViewModel: ObservableObject {
     /// 維持しつつ、設定画面のインライン警告・再試行導線にこのフラグを使う。
     @Published private(set) var featuredSitesLoadFailed = false
     /// Podcast 生成の本日残回数（issue #164 / ADR-061）。未取得・取得失敗時は `nil`。
-    @Published private(set) var generationQuota: GenerationQuota?
+    @Published private(set) var generationAllowance: GenerationAllowance?
     /// 直近の `loadGenerationQuota()` が失敗したか。
     @Published private(set) var generationQuotaLoadFailed = false
     /// ダウンロード音声キャッシュの合計サイズ（バイト・issue #52）。未取得時は `0`。
@@ -44,6 +44,8 @@ final class SettingsViewModel: ObservableObject {
     private let library: OfflineLibrary
     /// 「キャッシュ全削除」の窓口。範囲は `OfflineDownloads` の現在主体に従う。
     private let downloads: OfflineDownloads
+    /// 生成の残り回数を読む application。
+    private let curation: FeedCuration
 
     /// おすすめサイトをカテゴリでグループ化したもの（表示順で並ぶ）。0件のカテゴリは除外。
     var categorizedFeaturedSites: [(category: FeaturedCategory, sites: [FeaturedSite])] {
@@ -60,27 +62,32 @@ final class SettingsViewModel: ObservableObject {
     ///   - apiClient: API 通信に使うクライアント。未設定時は `nil`。
     ///   - library: 保存庫。合成 root が作った 1 個を渡す。
     ///   - downloads: ダウンロード use case。キャッシュの全削除に使う。
+    ///   - curation: 生成の残り回数を読む application。
     init(
         apiClient: APIClient?,
         library: OfflineLibrary,
-        downloads: OfflineDownloads
+        downloads: OfflineDownloads,
+        curation: FeedCuration
     ) {
         self.apiClientOverride = apiClient
         self.appState = nil
         self.library = library
         self.downloads = downloads
+        self.curation = curation
     }
 
     /// 共有 AppState を正本として使う本番用 initializer。
     init(
         appState: AppState,
         library: OfflineLibrary,
-        downloads: OfflineDownloads
+        downloads: OfflineDownloads,
+        curation: FeedCuration
     ) {
         self.apiClientOverride = nil
         self.appState = appState
         self.library = library
         self.downloads = downloads
+        self.curation = curation
     }
 
     /// RSS ソース一覧を取得して `sources` を更新する。失敗時は `errorMessage` に反映する。
@@ -165,19 +172,15 @@ final class SettingsViewModel: ObservableObject {
     }
 
     /// Podcast 生成の本日残回数を取得する（issue #164 / ADR-061）。
-    /// 失敗時は `generationQuota` を `nil` のまま `generationQuotaLoadFailed` を立てる。
-    /// 404 時は graceful degradation: セクション非表示（`generationQuotaLoadFailed = false`）。
+    /// 失敗時は `generationAllowance` を `nil` のまま `generationQuotaLoadFailed` を立てる。
+    /// 404 時は `FeedCuration` が nil で返すので graceful degradation: セクション非表示（`generationQuotaLoadFailed = false`）。
     func loadGenerationQuota() async {
-        guard let apiClient else { return }
+        guard apiClient != nil else { return }
         do {
-            generationQuota = try await apiClient.fetchGenerationQuota()
-            generationQuotaLoadFailed = false
-        } catch ApiFailure.notFound(subject: .quota) {
-            // 404 = 旧 backend への graceful degradation。セクション非表示（警告なし）
-            generationQuota = nil
+            generationAllowance = try await curation.generationAllowance()
             generationQuotaLoadFailed = false
         } catch {
-            generationQuota = nil
+            generationAllowance = nil
             generationQuotaLoadFailed = true
         }
     }

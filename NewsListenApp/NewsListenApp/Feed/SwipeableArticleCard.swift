@@ -15,7 +15,7 @@ import SwiftUI
 /// 記事 1 件のスワイプ操作対応カード。アクションは親（FeedView/FeedViewModel）へクロージャで委譲する。
 struct SwipeableArticleCard: View {
     /// 表示する記事。
-    let article: Article
+    let article: ArticleCardModel
     /// 全文展開中か。
     let isExpanded: Bool
     /// 単タップ（全文展開トグル）。
@@ -25,7 +25,7 @@ struct SwipeableArticleCard: View {
     /// 右スワイプ確定（Star）。
     let onStar: () -> Void
     /// 記事単位で難易度を指定して Star する（contextMenu からの選択・issue #163）。
-    let onStarWithDifficulty: (String) -> Void
+    let onStarWithDifficulty: (DifficultyLevel) -> Void
     /// 左スワイプ確定（Dismiss）。
     let onDismiss: () -> Void
 
@@ -123,11 +123,11 @@ struct SwipeableArticleCard: View {
         // 長押しで難易度を指定して Star する（issue #163）。通常のスワイプ/ボタン Star は
         // 従来どおり difficulty 指定なし（prefs のデフォルト難易度）のまま変えない。
         .contextMenu {
-            ForEach(DifficultyLabel.allCodes, id: \.self) { code in
+            ForEach(DifficultyLevel.allCases, id: \.code) { level in
                 Button {
-                    onStarWithDifficulty(code)
+                    onStarWithDifficulty(level)
                 } label: {
-                    Label(DifficultyLabel.text(for: code), systemImage: "star.fill")
+                    Label(DifficultyLabel.text(for: level.code), systemImage: "star.fill")
                 }
             }
         }

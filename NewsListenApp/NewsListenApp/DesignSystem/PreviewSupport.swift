@@ -14,8 +14,8 @@ import SwiftUI
 /// プレビュー用のサンプルモデルと、それらを返すモック群。
 enum PreviewSamples {
     /// Feed プレビュー用のサンプル記事。ソース・スコア・長さに変化を付ける。
-    static let articles: [Article] = [
-        Article(
+    static let articles: [ArticleCardModel] = [
+        ArticleCardModel(
             id: "a1",
             title: "Fed signals rate pause as inflation cools toward target",
             url: "https://example.com/1",
@@ -23,7 +23,7 @@ enum PreviewSamples {
             score: 0.92,
             publishedAt: "2026-06-29T06:30:00Z"
         ),
-        Article(
+        ArticleCardModel(
             id: "a2",
             title: "UK economy returns to growth in surprise first-quarter rebound",
             url: "https://example.com/2",
@@ -31,7 +31,7 @@ enum PreviewSamples {
             score: 0.74,
             publishedAt: "2026-06-29T03:10:00Z"
         ),
-        Article(
+        ArticleCardModel(
             id: "a3",
             title: "Chipmakers rally as demand for AI accelerators outpaces supply",
             url: "https://example.com/3",
@@ -39,7 +39,7 @@ enum PreviewSamples {
             score: 0.58,
             publishedAt: "2026-06-28T21:45:00Z"
         ),
-        Article(
+        ArticleCardModel(
             id: "a4",
             title: "Climate summit ends with new pledges on methane reduction",
             url: "https://example.com/4",
@@ -150,6 +150,27 @@ enum PreviewSamples {
             isCurrentSubject: { state.isCurrentSubject($0) },
             subjectStamp: { state.subjectStamp },
             isAuthenticated: { false }
+        )
+    }
+
+    /// 通信なしで `articles` を返す Feed プレビュー用の `FeedCuration`（書込みは何もしない）。
+    @MainActor static func feedCuration() -> FeedCuration {
+        FeedCuration(gateway: curationGateway(), undoGracePeriod: .seconds(4), currentSubject: { nil })
+    }
+
+    /// 通信なしで `articles` を返す Starred プレビュー用の `StarredArticles`。
+    @MainActor static func starredArticles() -> StarredArticles {
+        StarredArticles(gateway: curationGateway())
+    }
+
+    private static func curationGateway() -> CurationGateway {
+        CurationGateway(
+            fetchFeed: { articles },
+            star: { _, _ in },
+            dismiss: { _ in },
+            fetchStarred: { articles },
+            unstar: { _ in },
+            fetchAllowance: { nil }
         )
     }
 
