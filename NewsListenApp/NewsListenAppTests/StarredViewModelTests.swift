@@ -13,8 +13,8 @@ final class StarredViewModelTests: XCTestCase {
         return (client, session)
     }
 
-    private func makeArticle(id: String) -> Article {
-        Article(
+    private func makeArticle(id: String) -> ArticleCardModel {
+        ArticleCardModel(
             id: id,
             title: id,
             url: "https://example.com/\(id)",
@@ -31,7 +31,7 @@ final class StarredViewModelTests: XCTestCase {
             {"id":"a2","title":"Go","url":"https://example.com/go","source":"zenn","score":0.7,"published_at":"2026-05-31T05:00:00Z"}
         ]}
         """#
-        let vm = StarredViewModel(apiClient: makeClient(json: json).0)
+        let vm = try await makeStarredViewModel(client: makeClient(json: json).0)
 
         await vm.loadStarred()
 
@@ -44,7 +44,7 @@ final class StarredViewModelTests: XCTestCase {
     // 現行表示の固定。置換後も期待値を変えない。11 箇所の `ApiFailure` 節の付け忘れを検出する。
 
     func testLoadStarred500SetsHTTPErrorMessage() async throws {
-        let vm = StarredViewModel(apiClient: makeClient(json: "", statusCode: 500).0)
+        let vm = try await makeStarredViewModel(client: makeClient(json: "", statusCode: 500).0)
 
         await vm.loadStarred()
 
@@ -53,9 +53,8 @@ final class StarredViewModelTests: XCTestCase {
 
     func testUnstar500SetsHTTPErrorMessageAndRestoresArticle() async throws {
         let (client, _) = makeClient(json: "", statusCode: 500)
-        let vm = StarredViewModel(apiClient: client)
         let article = makeArticle(id: "a1")
-        vm.articles = [article]
+        let vm = try await makeStarredViewModel(articles: [article], client: client)
 
         await vm.unstar(article)
 
@@ -64,7 +63,7 @@ final class StarredViewModelTests: XCTestCase {
     }
 
     func testLoadStarredSetsErrorMessageOnFailure() async throws {
-        let vm = StarredViewModel(apiClient: makeClient(json: "", statusCode: 500).0)
+        let vm = try await makeStarredViewModel(client: makeClient(json: "", statusCode: 500).0)
 
         await vm.loadStarred()
 
@@ -75,7 +74,7 @@ final class StarredViewModelTests: XCTestCase {
     func testLoadStarredOfflineSetsOfflineMessageWithoutNetworkCall() async throws {
         let mock = MockURLSession(data: Data(), statusCode: 200)
         let client = APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", session: mock)
-        let vm = StarredViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: false))
+        let vm = try await makeStarredViewModel(client: client, online: false)
 
         await vm.loadStarred()
 
@@ -86,7 +85,7 @@ final class StarredViewModelTests: XCTestCase {
     }
 
     func testLoadStarredSwallowsURLErrorCancelled() async throws {
-        let vm = StarredViewModel(apiClient: APIClient(
+        let vm = try await makeStarredViewModel(client: APIClient(
             baseURL: URL(string: "https://api.example.com")!,
             apiKey: "key",
             session: AlwaysThrowingURLSession(error: URLError(.cancelled))
@@ -98,7 +97,7 @@ final class StarredViewModelTests: XCTestCase {
     }
 
     func testLoadStarredSwallowsRawCancellationError() async throws {
-        let vm = StarredViewModel(apiClient: APIClient(
+        let vm = try await makeStarredViewModel(client: APIClient(
             baseURL: URL(string: "https://api.example.com")!,
             apiKey: "key",
             session: AlwaysThrowingURLSession(error: CancellationError())
@@ -110,7 +109,7 @@ final class StarredViewModelTests: XCTestCase {
     }
 
     func testDisplayStateIsEmptyAfterSuccessfulEmptyLoad() async throws {
-        let vm = StarredViewModel(apiClient: makeClient(json: #"{"articles": []}"#).0)
+        let vm = try await makeStarredViewModel(client: makeClient(json: #"{"articles": []}"#).0)
 
         await vm.loadStarred()
 
@@ -120,7 +119,7 @@ final class StarredViewModelTests: XCTestCase {
     func testShouldPresentErrorAlertFalseWhenErrorShownInline() async throws {
         // 一覧が空でロード失敗＝インラインエラー表示中は、同じエラーのアラートを重ねて出さない
         // （FeedViewModel と同じ判定を ListDisplayState 経由で共有する）。
-        let vm = StarredViewModel(apiClient: makeClient(json: "", statusCode: 500).0)
+        let vm = try await makeStarredViewModel(client: makeClient(json: "", statusCode: 500).0)
 
         await vm.loadStarred()
 
@@ -132,9 +131,8 @@ final class StarredViewModelTests: XCTestCase {
 
     func testUnstarRemovesArticleAndSendsDelete() async throws {
         let (client, session) = makeClient(json: "")
-        let vm = StarredViewModel(apiClient: client)
         let article = makeArticle(id: "a1")
-        vm.articles = [article]
+        let vm = try await makeStarredViewModel(articles: [article], client: client)
 
         await vm.unstar(article)
 
@@ -146,11 +144,10 @@ final class StarredViewModelTests: XCTestCase {
 
     func testUnstarFailureRestoresArticleAtOriginalIndexAndSetsError() async throws {
         let (client, _) = makeClient(json: "", statusCode: 500)
-        let vm = StarredViewModel(apiClient: client)
         let a = makeArticle(id: "a1")
         let b = makeArticle(id: "b1")
         let c = makeArticle(id: "c1")
-        vm.articles = [a, b, c]
+        let vm = try await makeStarredViewModel(articles: [a, b, c], client: client)
 
         await vm.unstar(b)
 
@@ -161,9 +158,8 @@ final class StarredViewModelTests: XCTestCase {
     // T-T13-04（verifies: ios-contract-19, R-keep2）。
     func testUnstar404IsTreatedAsSuccess() async throws {
         let (client, _) = makeClient(json: "", statusCode: 404)
-        let vm = StarredViewModel(apiClient: client)
         let article = makeArticle(id: "a1")
-        vm.articles = [article]
+        let vm = try await makeStarredViewModel(articles: [article], client: client)
 
         await vm.unstar(article)
 
@@ -174,9 +170,8 @@ final class StarredViewModelTests: XCTestCase {
 
     func testUnstarOfflineSetsOfflineMessageWithoutNetworkCall() async throws {
         let (client, session) = makeClient(json: "")
-        let vm = StarredViewModel(apiClient: client, networkMonitor: StubNetworkMonitor(isOnline: false))
         let article = makeArticle(id: "a1")
-        vm.articles = [article]
+        let vm = try await makeStarredViewModel(articles: [article], client: client, online: false)
 
         await vm.unstar(article)
 
@@ -187,13 +182,12 @@ final class StarredViewModelTests: XCTestCase {
     }
 
     func testUnstarSwallowsURLErrorCancelled() async throws {
-        let vm = StarredViewModel(apiClient: APIClient(
+        let article = makeArticle(id: "a1")
+        let vm = try await makeStarredViewModel(articles: [article], client: APIClient(
             baseURL: URL(string: "https://api.example.com")!,
             apiKey: "key",
             session: AlwaysThrowingURLSession(error: URLError(.cancelled))
         ))
-        let article = makeArticle(id: "a1")
-        vm.articles = [article]
 
         await vm.unstar(article)
 
@@ -203,13 +197,12 @@ final class StarredViewModelTests: XCTestCase {
     }
 
     func testUnstarSwallowsRawCancellationError() async throws {
-        let vm = StarredViewModel(apiClient: APIClient(
+        let article = makeArticle(id: "a1")
+        let vm = try await makeStarredViewModel(articles: [article], client: APIClient(
             baseURL: URL(string: "https://api.example.com")!,
             apiKey: "key",
             session: AlwaysThrowingURLSession(error: CancellationError())
         ))
-        let article = makeArticle(id: "a1")
-        vm.articles = [article]
 
         await vm.unstar(article)
 
@@ -221,11 +214,10 @@ final class StarredViewModelTests: XCTestCase {
     /// 表示順の崩れは許容するが記事の重複・消失はしないことを固定する。順序はここでは検証しない。
     func testConcurrentUnstarFailuresLeaveAllArticlesPresentWithoutOrderGuarantee() async throws {
         let (client, _) = makeClient(json: "", statusCode: 500)
-        let vm = StarredViewModel(apiClient: client)
         let a = makeArticle(id: "a1")
         let b = makeArticle(id: "b1")
         let c = makeArticle(id: "c1")
-        vm.articles = [a, b, c]
+        let vm = try await makeStarredViewModel(articles: [a, b, c], client: client)
 
         async let first: Void = vm.unstar(a)
         async let second: Void = vm.unstar(c)
@@ -238,13 +230,24 @@ final class StarredViewModelTests: XCTestCase {
 
     func testUnstarLastArticleYieldsEmptyDisplayState() async throws {
         let (client, _) = makeClient(json: "")
-        let vm = StarredViewModel(apiClient: client)
         let article = makeArticle(id: "a1")
-        vm.articles = [article]
+        let vm = try await makeStarredViewModel(articles: [article], client: client)
 
         await vm.unstar(article)
 
         XCTAssertEqual(vm.displayState, .empty)
+    }
+
+    // MARK: - clearError
+
+    func testClearErrorResetsErrorMessage() async throws {
+        let vm = try await makeStarredViewModel(client: makeClient(json: "", statusCode: 500).0)
+        await vm.loadStarred()
+        XCTAssertNotNil(vm.errorMessage)
+
+        vm.clearError()
+
+        XCTAssertNil(vm.errorMessage)
     }
 }
 

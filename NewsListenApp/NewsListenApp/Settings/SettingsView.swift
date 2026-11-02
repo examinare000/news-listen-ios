@@ -49,10 +49,11 @@ struct SettingsView: View {
     ///   - appState: 共有の設定状態。
     ///   - library: 合成 root が作った保存庫（キャッシュの容量表示に使う）。
     ///   - downloads: ダウンロード use case（キャッシュの全削除に使う）。
+    ///   - curation: 生成の残り回数を読む application。
     @MainActor
-    init(appState: AppState, library: OfflineLibrary, downloads: OfflineDownloads) {
+    init(appState: AppState, library: OfflineLibrary, downloads: OfflineDownloads, curation: FeedCuration) {
         self.appState = appState
-        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState, library: library, downloads: downloads))
+        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState, library: library, downloads: downloads, curation: curation))
     }
 
     var body: some View {
@@ -285,19 +286,19 @@ struct SettingsView: View {
 
     /// Podcast 生成の本日残回数を表示するセクション（issue #164 / ADR-061）。
     ///
-    /// API クライアント未設定時は表示しない。`limit == 0` は無制限を表すため件数は出さない。
+    /// API クライアント未設定時は表示しない。無制限のときは件数を出さない。
     /// 取得失敗時はインライン警告 + 再試行を出す。
     @ViewBuilder
     private var generationQuotaSection: some View {
         if appState.apiClient != nil {
             Section("Podcast 生成") {
-                if let quota = viewModel.generationQuota {
-                    if quota.limit == 0 {
+                if let allowance = viewModel.generationAllowance {
+                    if allowance.isUnlimited {
                         Text("本日の生成回数: 無制限")
                             .font(DSFont.body)
                             .foregroundStyle(DSColor.ink)
                     } else {
-                        Text("本日の残り生成回数: \(quota.remaining ?? 0) / \(quota.limit)")
+                        Text("本日の残り生成回数: \(allowance.remaining ?? 0) / \(allowance.limit)")
                             .font(DSFont.body)
                             .foregroundStyle(DSColor.ink)
                     }

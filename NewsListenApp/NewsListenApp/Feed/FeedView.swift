@@ -15,7 +15,7 @@ struct FeedView: View {
     @EnvironmentObject private var preferencesStore: PreferencesStore
     /// 記事一覧と操作を担う ViewModel。
     ///
-    /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
+    /// `FeedCuration` は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
     /// （プレースホルダ生成 + 後差し替えのアンチパターンを避ける）。
     @StateObject private var viewModel: FeedViewModel
     /// 外部 Safari で開くための環境アクション。
@@ -26,9 +26,9 @@ struct FeedView: View {
     @State private var safariURL: IdentifiableURL?
 
     /// ビューを生成する。
-    /// - Parameter apiClient: ViewModel に注入する API クライアント。
-    init(apiClient: APIClient) {
-        _viewModel = StateObject(wrappedValue: FeedViewModel(apiClient: apiClient))
+    /// - Parameter curation: 一覧・保留・確定を持つ application。
+    init(curation: FeedCuration) {
+        _viewModel = StateObject(wrappedValue: FeedViewModel(curation: curation))
     }
 
     var body: some View {
@@ -71,10 +71,7 @@ struct FeedView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button {
-                        viewModel.isSelectionMode.toggle()
-                        if !viewModel.isSelectionMode {
-                            viewModel.selectedIds.removeAll()
-                        }
+                        viewModel.toggleSelectionMode()
                     } label: {
                         Image(systemName: viewModel.isSelectionMode ? "checkmark.circle.fill" : "checkmark.circle")
                     }
@@ -91,7 +88,7 @@ struct FeedView: View {
                 }
             }
             .alert("エラー", isPresented: errorBinding) {
-                Button("OK") { viewModel.errorMessage = nil }
+                Button("OK") { viewModel.clearError() }
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
@@ -143,7 +140,7 @@ struct FeedView: View {
 
     /// 1 行の表示。選択モードでは選択行、通常時はスワイプ対応カード。
     @ViewBuilder
-    private func row(for article: Article) -> some View {
+    private func row(for article: ArticleCardModel) -> some View {
         if viewModel.isSelectionMode {
             HStack(spacing: DSSpacing.m) {
                 Image(systemName: viewModel.selectedIds.contains(article.id) ? "checkmark.circle.fill" : "circle")
@@ -161,19 +158,20 @@ struct FeedView: View {
                 isExpanded: viewModel.expandedId == article.id,
                 onTap: { viewModel.toggleExpand(article.id) },
                 onDoubleTap: { open(article) },
-                onStar: { Task { await viewModel.star(article: article) } },
+                onStar: { Task { await viewModel.star(articleId: article.id, difficulty: nil) } },
                 onStarWithDifficulty: { difficulty in
-                    Task { await viewModel.star(article: article, difficulty: difficulty) }
+                    Task { await viewModel.star(articleId: article.id, difficulty: difficulty) }
                 },
-                onDismiss: { Task { await viewModel.dismiss(article: article) } }
+                onDismiss: { Task { await viewModel.dismiss(articleId: article.id) } }
             )
         }
     }
 
     /// 取り消しトースト。表示中に一定時間が経過したら自動で確定送信する。
-    private func undoToast(_ pending: PendingArticleAction) -> some View {
-        HStack(spacing: DSSpacing.m) {
-            Text(pending.message)
+    private func undoToast(_ pending: PendingCuration) -> some View {
+        let message = toastMessage(for: pending)
+        return HStack(spacing: DSSpacing.m) {
+            Text(message)
                 .font(DSFont.body)
                 .foregroundStyle(DSColor.onAccent)
             Spacer(minLength: 0)
@@ -188,10 +186,17 @@ struct FeedView: View {
         .padding(.horizontal, DSSpacing.l)   // 画面端からの外側マージン
         .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(pending.message)
+        .accessibilityLabel(message)
         .accessibilityHint("取り消すには取り消すボタンを押します")
-        // 自動確定タイマーは `FeedViewModel.autoCommitTask` が所有する（詳細はそちら参照）。
-        // トーストは表示専用。
+        // 自動確定タイマーは `FeedCuration` が所有する。トーストは表示専用。
+    }
+
+    /// 取り消しトーストに出す文言。
+    private func toastMessage(for pending: PendingCuration) -> String {
+        switch pending.kind {
+        case .star: return "スターしました"
+        case .dismiss: return "削除しました"
+        }
     }
 
     /// 選択中の記事を一括 Star するボタン。
@@ -213,7 +218,7 @@ struct FeedView: View {
 
     /// 記事を設定（``PreferencesStore/articleOpenMode``）に従って開く。
     /// - Parameter article: タップされた記事。URL が不正なら何もしない。
-    private func open(_ article: Article) {
+    private func open(_ article: ArticleCardModel) {
         guard let url = URL(string: article.url) else { return }
         if preferencesStore.articleOpenMode == .external {
             openURL(url)
@@ -228,20 +233,20 @@ struct FeedView: View {
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { viewModel.shouldPresentErrorAlert },
-            set: { if !$0 { viewModel.errorMessage = nil } }
+            set: { if !$0 { viewModel.clearError() } }
         )
     }
 }
 
 #if DEBUG
 #Preview("Feed / Light") {
-    FeedView(apiClient: PreviewSamples.apiClient())
+    FeedView(curation: PreviewSamples.feedCuration())
         .environmentObject(PreviewSamples.appState())
         .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("Feed / Dark") {
-    FeedView(apiClient: PreviewSamples.apiClient())
+    FeedView(curation: PreviewSamples.feedCuration())
         .environmentObject(PreviewSamples.appState())
         .environmentObject(PreviewSamples.preferencesStore())
         .preferredColorScheme(.dark)
