@@ -207,8 +207,8 @@ final class ArchitectureOracleTests: XCTestCase {
                          isCanonical: exact("Auth/Domain/PasswordPolicy.swift"), excludesPath: never,
                          controlPath: "Auth/Domain/PasswordPolicy.swift", controlFragment: "count >= 12"),
             LiteralGroup(key: "ios-rule-account-05", pattern: #""(admin|user)""#,
-                         isCanonical: exact("Auth/Domain/Subject.swift"), excludesPath: { $0 == "Passkey/PasskeyOptionsDecoder.swift" },
-                         controlPath: "Admin/AdminUsersViewModel.swift", controlFragment: #""user" : "admin""#),
+                         isCanonical: exact("Auth/Domain/Subject.swift"), excludesPath: { $0 == "Passkey/Platform/PasskeyOptionsDecoder.swift" },
+                         controlPath: "Auth/Domain/Subject.swift", controlFragment: #"Role(rawValue: "admin")"#),
             LiteralGroup(key: "ios-rule-account-06・ios-rule-curation-04・ios-rule-sources-02・ios-rule-learning-08", pattern: #"catch\s+ApiFailure\.(notFound\(subject|conflict\b)"#,
                          isCanonical: { path, layer in layer == .application || path.hasPrefix("Networking/") }, excludesPath: never,
                          controlPath: "AppState.swift", controlFragment: "catch ApiFailure.notFound(subject: .streak)"),
@@ -263,10 +263,10 @@ final class ArchitectureOracleTests: XCTestCase {
         XCTAssertEqual(ArchitectureManifest.matchedLayers(of: "Misc/Dummy.swift"), [])
         XCTAssertNil(ArchitectureManifest.layer(of: "Podcast/Playback/DummyView.swift"))
         XCTAssertNil(ArchitectureManifest.layer(of: "Misc/Dummy.swift"))
-        // 負の対照: 同じ規則の複数パターン（`*View.swift` と `*Sheet*.swift`）は 1 層に数える。規則に当たらない path は明示の行が層を与える。
+        // 負の対照: 同じ規則の複数パターン（`*View.swift` と `*Sheet*.swift`）は 1 層に数える。規則に当たらない path は層を持たない。
         XCTAssertEqual(ArchitectureManifest.matchedLayers(of: "Podcast/QuizSheetView.swift"), [.presentation])
         XCTAssertEqual(ArchitectureManifest.matchedLayers(of: "Passkey/Dummy.swift"), [])
-        XCTAssertEqual(ArchitectureManifest.layer(of: "Passkey/PasskeyModels.swift"), .adapter)
+        XCTAssertEqual(ArchitectureManifest.layer(of: "Passkey/Platform/PasskeyOptionsDecoder.swift"), .adapter)
 
         let all = production
         assertNonEmptyContents(all, "production")
@@ -503,6 +503,12 @@ final class ArchitectureOracleTests: XCTestCase {
         XCTAssertFalse(vocabularyLimitLineIsViolation("Text(String(item.registeredAt.prefix(10)))"))
         XCTAssertTrue(vocabularyLimitLineIsViolation("return String(article.publishedAt.prefix(10)) + Array(xs.prefix(10)).description"))
 
+        // 合成の対照（ios-rule-account-05）: ロールの literal は引用符つきの完全一致に当たり、語の一部には当たらない。
+        let roleLiteral = try matcher([literalGroups.first { $0.key == "ios-rule-account-05" }!.pattern])
+        XCTAssertTrue(roleLiteral(#"let role = "admin""#))
+        XCTAssertTrue(roleLiteral(#"Text("user").tag("user")"#))
+        XCTAssertFalse(roleLiteral(#"let label = "administrator""#))
+
         // 負の対照（ios-rule-playback-05）: 添字の丸めは「現在位置・総時間」の式に当たらない。
         let playbackClamp = try matcher([literalGroups.first { $0.key == "ios-rule-playback-05" }!.pattern])
         XCTAssertFalse(playbackClamp("let a = max(0, elapsed)"))
@@ -567,7 +573,7 @@ final class ArchitectureOracleTests: XCTestCase {
         )
         let viewHits = collectHits(in: views, where: viewMatcher)
         let viewModelHits = collectHits(in: viewModels, where: viewModelMatcher)
-        assertContainsHit(viewHits, path: "Settings/AccountSettingsView.swift", fragment: "APIClient", "ios-dep-04")
+        assertContainsHit(viewHits, path: "DesignSystem/PreviewSupport.swift", fragment: "APIClient", "ios-dep-04")
         XCTAssertFalse(viewHits.contains { $0.path == "Settings/SettingsView.swift" }, "SettingsView は @AppStorage・APIClient 等を書かない")
         assertAllowlistMatches(rule: "ios-dep-04", measured: viewHits)
         assertAllowlistMatches(rule: "ios-dep-06", measured: viewModelHits)
@@ -665,7 +671,7 @@ final class ArchitectureOracleTests: XCTestCase {
     private var applicationSources: [SourceFile] { sources(inLayer: .application) }
 
     private let applicationFileCounts: [(path: String, count: Int)] = [
-        ("AppState.swift", 28),
+        ("AppState.swift", 26),
         ("Settings/Application/SourceSubscriptions.swift", 22),
         ("Onboarding/Application/OnboardingProgress.swift", 4),
         ("Settings/Application/PreferencesStore.swift", 33),
@@ -674,7 +680,6 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Podcast/Playback/NowPlayingCenter.swift", 14),
         ("Podcast/Playback/PlaybackLifecycle.swift", 1),
         ("Podcast/Playback/PlayerPresentation.swift", 0),
-        ("Passkey/PasskeyAuthorizationProviding.swift", 2),
         ("Podcast/Playback/PlaybackSession.swift", 11),
         ("Podcast/Playback/PlaybackCoordinator.swift", 27),
         ("Podcast/Playback/PlaybackCoordinator+Preview.swift", 1),
@@ -684,7 +689,14 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Podcast/Playback/OfflineDownloads.swift", 7),
         ("Catalog/Application/EpisodeCatalog.swift", 6),
         ("Catalog/Application/EpisodeRow.swift", 7),
-        ("Auth/Application/AccountProfile.swift", 5),
+        ("Auth/Application/AccountProfile.swift", 19),
+        ("Auth/Application/Authentication.swift", 4),
+        ("Auth/Application/SessionStore.swift", 1),
+        ("Sessions/Application/DeviceSessions.swift", 9),
+        ("Passkey/Application/PasskeyEnrollment.swift", 7),
+        ("Passkey/Application/PasskeySignIn.swift", 2),
+        ("Passkey/Application/PasskeyAuthorization.swift", 20),
+        ("Admin/Application/UserAdministration.swift", 10),
         ("Feed/Application/ArticleCardModel.swift", 6),
         ("Feed/Application/FeedCuration.swift", 20),
         ("Starred/Application/StarredArticles.swift", 3),
@@ -757,7 +769,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 255)
+        XCTAssertEqual(result.declared.count, 318)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -768,12 +780,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 255)
-        XCTAssertEqual(ledger.count, 255)
+        XCTAssertEqual(declared.count, 318)
+        XCTAssertEqual(ledger.count, 318)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 60, "query": 46, "port": 43, "internal": 28, "readModel": 63, "factory": 15]
+            ["command": 69, "query": 49, "port": 58, "internal": 28, "readModel": 94, "factory": 20]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -800,7 +812,7 @@ final class ArchitectureOracleTests: XCTestCase {
             if case .query(let id) = row.kind { return id }
             return nil
         })
-        XCTAssertEqual(queryIDs.count, 17, "台帳の query ID は 17 個")
+        XCTAssertEqual(queryIDs.count, 18, "台帳の query ID は 18 個")
 
         let uncovered = ArchitectureScan.uncoveredQueryRows(
             ledger: ledger,

@@ -20,7 +20,7 @@ final class AccountProfileTests: XCTestCase {
         changeError: Error? = nil
     ) -> AccountProfile {
         let subject = alice2
-        return AccountProfile(gateway: AccountGateway(
+        return AccountProfile(gateway: AccountGateway.stub(
             updateProfile: { name in
                 recorder.updatedNames.append(name)
                 return try (updateResult ?? .success(subject)).get()

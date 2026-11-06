@@ -41,6 +41,11 @@ final class PasskeyLoginViewModelTests: XCTestCase {
         )
     }
 
+    private func makeSignIn(session: URLSessionProtocol, provider: MockPasskeyProvider) -> PasskeySignIn {
+        let client = makeClient(session: session)
+        return PasskeySignIn(gateway: .live(client: { client }), provider: provider)
+    }
+
     // MARK: - 正常系
 
     func testSuccessfulLoginCallsOnSuccessWithToken() async {
@@ -50,8 +55,7 @@ final class PasskeyLoginViewModelTests: XCTestCase {
         var captured: LoginReceipt?
 
         let vm = PasskeyLoginViewModel(
-            apiClient: makeClient(session: happyPathSession),
-            provider: provider,
+            signIn: makeSignIn(session: happyPathSession, provider: provider),
             onSuccess: { captured = $0 }
         )
 
@@ -70,8 +74,7 @@ final class PasskeyLoginViewModelTests: XCTestCase {
         provider.assertResult = .success(MockPasskeyProvider.makeAssertionCredential())
 
         let vm = PasskeyLoginViewModel(
-            apiClient: makeClient(session: happyPathSession),
-            provider: provider,
+            signIn: makeSignIn(session: happyPathSession, provider: provider),
             onSuccess: { _ in }
         )
 
@@ -97,8 +100,7 @@ final class PasskeyLoginViewModelTests: XCTestCase {
         var successCalled = false
 
         let vm = PasskeyLoginViewModel(
-            apiClient: makeClient(session: session),
-            provider: provider,
+            signIn: makeSignIn(session: session, provider: provider),
             onSuccess: { _ in successCalled = true }
         )
 
@@ -118,8 +120,7 @@ final class PasskeyLoginViewModelTests: XCTestCase {
         var successCalled = false
 
         let vm = PasskeyLoginViewModel(
-            apiClient: makeClient(session: happyPathSession),
-            provider: provider,
+            signIn: makeSignIn(session: happyPathSession, provider: provider),
             onSuccess: { _ in successCalled = true }
         )
 
@@ -140,8 +141,7 @@ final class PasskeyLoginViewModelTests: XCTestCase {
         var successCalled = false
 
         let vm = PasskeyLoginViewModel(
-            apiClient: makeClient(session: happyPathSession),
-            provider: provider,
+            signIn: makeSignIn(session: happyPathSession, provider: provider),
             onSuccess: { _ in successCalled = true }
         )
 
@@ -157,13 +157,44 @@ final class PasskeyLoginViewModelTests: XCTestCase {
         let session = SequentialMockSession([.init(data: Data(), statusCode: 500)])
         let provider = MockPasskeyProvider()
         let vm = PasskeyLoginViewModel(
-            apiClient: makeClient(session: session),
-            provider: provider,
+            signIn: makeSignIn(session: session, provider: provider),
             onSuccess: { _ in }
         )
 
         XCTAssertFalse(vm.isRunning, "開始前は isRunning = false")
         await vm.performLogin()
         XCTAssertFalse(vm.isRunning, "失敗後は isRunning = false に戻ること")
+    }
+
+    // MARK: - 再実行
+
+    // verifies: ios-cmd-account-01
+    func testRetryAfterFailureClearsMessageAndKeepsRunningOnSuccess() async {
+        // options → options → verify。1 回目は認証器が失敗し、2 回目は成功する。
+        let session = SequentialMockSession([
+            .init(data: optionsResponseData, statusCode: 200),
+            .init(data: optionsResponseData, statusCode: 200),
+            .init(data: loginResponseData, statusCode: 200),
+        ])
+        let provider = MockPasskeyProvider()
+        struct FakeError: Error {}
+        provider.assertResult = .failure(PasskeyError.failed(FakeError()))
+        var successCount = 0
+        let vm = PasskeyLoginViewModel(
+            signIn: makeSignIn(session: session, provider: provider),
+            onSuccess: { _ in successCount += 1 }
+        )
+
+        await vm.performLogin()
+
+        XCTAssertEqual(vm.errorMessage, "Passkey 認証に失敗しました")
+        XCTAssertFalse(vm.isRunning)
+
+        provider.assertResult = .success(MockPasskeyProvider.makeAssertionCredential())
+        await vm.performLogin()
+
+        XCTAssertNil(vm.errorMessage, "再実行の開始で前回の文言が消える")
+        XCTAssertEqual(successCount, 1)
+        XCTAssertTrue(vm.isRunning, "成功時は画面遷移までボタン無効を維持する")
     }
 }

@@ -54,6 +54,11 @@ final class PasskeyRegistrationViewModelTests: XCTestCase {
         )
     }
 
+    private func makeEnrollment(session: URLSessionProtocol, provider: MockPasskeyProvider) -> PasskeyEnrollment {
+        let client = makeClient(session: session)
+        return PasskeyEnrollment(gateway: .live(client: { client }), provider: provider)
+    }
+
     // MARK: - 正常系
 
     func testSuccessfulRegistrationCallsOnSuccess() async {
@@ -62,8 +67,7 @@ final class PasskeyRegistrationViewModelTests: XCTestCase {
         var successCalled = false
 
         let vm = PasskeyRegistrationViewModel(
-            apiClient: makeClient(session: happyPathSession),
-            provider: provider,
+            enrollment: makeEnrollment(session: happyPathSession, provider: provider),
             onSuccess: { successCalled = true }
         )
 
@@ -79,8 +83,7 @@ final class PasskeyRegistrationViewModelTests: XCTestCase {
         provider.createResult = .success(MockPasskeyProvider.makeRegistrationCredential())
 
         let vm = PasskeyRegistrationViewModel(
-            apiClient: makeClient(session: happyPathSession),
-            provider: provider,
+            enrollment: makeEnrollment(session: happyPathSession, provider: provider),
             onSuccess: {}
         )
 
@@ -113,8 +116,7 @@ final class PasskeyRegistrationViewModelTests: XCTestCase {
         ])
 
         let vm = PasskeyRegistrationViewModel(
-            apiClient: makeClient(session: conflictSession),
-            provider: provider,
+            enrollment: makeEnrollment(session: conflictSession, provider: provider),
             onSuccess: { successCalled = true }
         )
 
@@ -133,8 +135,7 @@ final class PasskeyRegistrationViewModelTests: XCTestCase {
         var successCalled = false
 
         let vm = PasskeyRegistrationViewModel(
-            apiClient: makeClient(session: session),
-            provider: provider,
+            enrollment: makeEnrollment(session: session, provider: provider),
             onSuccess: { successCalled = true }
         )
 
@@ -154,8 +155,7 @@ final class PasskeyRegistrationViewModelTests: XCTestCase {
         var successCalled = false
 
         let vm = PasskeyRegistrationViewModel(
-            apiClient: makeClient(session: happyPathSession),
-            provider: provider,
+            enrollment: makeEnrollment(session: happyPathSession, provider: provider),
             onSuccess: { successCalled = true }
         )
 
@@ -175,8 +175,7 @@ final class PasskeyRegistrationViewModelTests: XCTestCase {
         var successCalled = false
 
         let vm = PasskeyRegistrationViewModel(
-            apiClient: makeClient(session: happyPathSession),
-            provider: provider,
+            enrollment: makeEnrollment(session: happyPathSession, provider: provider),
             onSuccess: { successCalled = true }
         )
 
@@ -191,12 +190,85 @@ final class PasskeyRegistrationViewModelTests: XCTestCase {
     func testIsRunningIsFalseAfterFailure() async {
         let session = SequentialMockSession([.init(data: Data(), statusCode: 500)])
         let vm = PasskeyRegistrationViewModel(
-            apiClient: makeClient(session: session),
-            provider: MockPasskeyProvider(),
+            enrollment: makeEnrollment(session: session, provider: MockPasskeyProvider()),
             onSuccess: {}
         )
 
         await vm.register()
+
+        XCTAssertFalse(vm.isRunning)
+    }
+
+    // MARK: - 成功時の状態（シート終了の発火条件）
+
+    private struct SuccessSnapshot: Equatable {
+        let isRunning: Bool?
+        let errorMessage: String?
+    }
+
+    // verifies: ios-cmd-account-08
+    func testSuccessResetsRunningAndClearsMessageBeforeOnSuccess() async {
+        let provider = MockPasskeyProvider()
+        provider.createResult = .success(MockPasskeyProvider.makeRegistrationCredential())
+        var vm: PasskeyRegistrationViewModel?
+        var snapshots: [SuccessSnapshot] = []
+        vm = PasskeyRegistrationViewModel(
+            enrollment: makeEnrollment(session: happyPathSession, provider: provider),
+            onSuccess: { snapshots.append(SuccessSnapshot(isRunning: vm?.isRunning, errorMessage: vm?.errorMessage)) }
+        )
+
+        await vm?.register()
+
+        XCTAssertEqual(snapshots, [SuccessSnapshot(isRunning: false, errorMessage: nil)], "onSuccess の時点で isRunning は false")
+        XCTAssertEqual(vm?.isRunning, false)
+        XCTAssertNil(vm?.errorMessage)
+    }
+
+    // verifies: ios-cmd-account-08
+    func testRetryAfterFailureClearsMessageBeforeOnSuccess() async {
+        let provider = MockPasskeyProvider()
+        provider.createResult = .success(MockPasskeyProvider.makeRegistrationCredential())
+        let session = SequentialMockSession([
+            .init(data: optionsResponseData, statusCode: 200),
+            .init(data: Data(), statusCode: 500),
+            .init(data: optionsResponseData, statusCode: 200),
+            .init(data: verifySuccessData, statusCode: 200),
+        ])
+        var vm: PasskeyRegistrationViewModel?
+        var snapshots: [SuccessSnapshot] = []
+        vm = PasskeyRegistrationViewModel(
+            enrollment: makeEnrollment(session: session, provider: provider),
+            onSuccess: { snapshots.append(SuccessSnapshot(isRunning: vm?.isRunning, errorMessage: vm?.errorMessage)) }
+        )
+
+        await vm?.register()
+        XCTAssertEqual(vm?.errorMessage, "Passkey の登録に失敗しました")
+        XCTAssertTrue(snapshots.isEmpty)
+
+        await vm?.register()
+
+        XCTAssertEqual(snapshots, [SuccessSnapshot(isRunning: false, errorMessage: nil)], "再実行の開始で前回の文言が消える")
+        XCTAssertNil(vm?.errorMessage)
+    }
+
+    // verifies: ios-cmd-account-08
+    func testIsRunningIsTrueWhileOptionsRequestIsPending() async {
+        let scripted = ScriptedURLSession()
+        scripted.configurePending(method: "POST", path: "/auth/passkey/register/options")
+        let provider = MockPasskeyProvider()
+        provider.createResult = .success(MockPasskeyProvider.makeRegistrationCredential())
+        let vm = PasskeyRegistrationViewModel(
+            enrollment: makeEnrollment(session: scripted, provider: provider),
+            onSuccess: {}
+        )
+
+        let task = Task { await vm.register() }
+        await scripted.waitUntilRequested(method: "POST", path: "/auth/passkey/register/options")
+
+        XCTAssertTrue(vm.isRunning, "通信の保留中は実行中")
+
+        scripted.release(method: "POST", path: "/auth/passkey/register/options", status: 200, body: optionsResponseData)
+        await task.value
 
         XCTAssertFalse(vm.isRunning)
     }
