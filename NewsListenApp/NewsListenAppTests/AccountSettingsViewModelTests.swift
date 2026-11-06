@@ -41,7 +41,7 @@ final class AccountSettingsViewModelTests: XCTestCase {
         changeError: Error? = nil
     ) -> AccountProfile {
         let subject = alice2
-        return AccountProfile(gateway: AccountGateway(
+        return AccountProfile(gateway: AccountGateway.stub(
             updateProfile: { name in
                 recorder.updatedNames.append(name)
                 if let updateError { throw updateError }
@@ -95,7 +95,7 @@ final class AccountSettingsViewModelTests: XCTestCase {
     // verifies: ios-dec-81
     func testIosDec81_saveProfileDoesNotOverwriteSubjectWhoLoggedInDuringTheRequest() async throws {
         let pending = PendingUpdate()
-        let profile = AccountProfile(gateway: AccountGateway(
+        let profile = AccountProfile(gateway: AccountGateway.stub(
             updateProfile: { _ in try await pending.park() },
             changePassword: { _, _ in }
         ))

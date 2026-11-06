@@ -3,6 +3,7 @@
 //  NewsListenApp
 //
 //  管理者用ユーザー管理画面のロジック。一覧取得・作成・ロール変更・削除を担う。
+//  手順は UserAdministration（use case）に任せ、入力の下書きと文言だけを持つ。
 //
 
 import Combine
@@ -12,29 +13,27 @@ import Foundation
 @MainActor
 final class AdminUsersViewModel: ObservableObject {
     /// 取得済みユーザー一覧。
-    @Published private(set) var users: [AuthUser] = []
+    @Published private(set) var users: [ManagedUser] = []
     /// エラー文言。
-    @Published var errorMessage: String?
+    @Published private(set) var errorMessage: String?
 
     // 作成フォーム
     @Published var newUsername = ""
     @Published var newPassword = ""
     @Published var newDisplayName = ""
-    @Published var newRole = "user"
+    @Published var newRole = Role.user.rawValue
 
-    /// 管理 API 通信に使うクライアント（認証トークン付き）。未設定時は `nil`。
-    private let apiClient: APIClient?
+    private let administration: UserAdministration
 
-    /// - Parameter apiClient: 認証済みクライアント。
-    init(apiClient: APIClient?) {
-        self.apiClient = apiClient
+    /// - Parameter administration: ユーザー管理の手順。
+    init(administration: UserAdministration) {
+        self.administration = administration
     }
 
     /// ユーザー一覧を取得する。
     func load() async {
-        guard let apiClient else { return }
         do {
-            users = try await apiClient.listUsers().users
+            users = try await administration.users()
             errorMessage = nil
         } catch {
             errorMessage = "ユーザー一覧の取得に失敗しました"
@@ -43,23 +42,25 @@ final class AdminUsersViewModel: ObservableObject {
 
     /// 入力フォームの内容でユーザーを作成し、一覧を再取得する。
     func create() async {
-        guard let apiClient else { return }
-        guard !newUsername.isEmpty, case .success = PasswordPolicy.validate(newPassword) else {
-            errorMessage = "ユーザーIDと\(PasswordPolicy.minLength)〜\(PasswordPolicy.maxLength)文字のパスワードを入力してください"
+        let lengthMessage = "ユーザーIDと\(PasswordPolicy.minLength)〜\(PasswordPolicy.maxLength)文字のパスワードを入力してください"
+        guard !newUsername.isEmpty else {
+            errorMessage = lengthMessage
             return
         }
         do {
-            _ = try await apiClient.createUser(
+            try await administration.create(
                 username: newUsername,
                 password: newPassword,
-                displayName: newDisplayName.isEmpty ? nil : newDisplayName,
-                role: newRole
+                displayName: newDisplayName,
+                role: Role(rawValue: newRole)
             )
             newUsername = ""
             newPassword = ""
             newDisplayName = ""
-            newRole = "user"
+            newRole = Role.user.rawValue
             await load()
+        } catch UserAdministrationFailure.policyViolation {
+            errorMessage = lengthMessage
         } catch {
             errorMessage = "ユーザー作成に失敗しました（既に存在する可能性があります）"
         }
@@ -68,9 +69,8 @@ final class AdminUsersViewModel: ObservableObject {
     /// 指定ユーザーを削除し、一覧を再取得する。
     /// - Parameter username: 削除対象。
     func delete(username: String) async {
-        guard let apiClient else { return }
         do {
-            try await apiClient.deleteUser(username: username)
+            try await administration.delete(username: username)
             await load()
         } catch {
             errorMessage = "\(username) の削除に失敗しました"
@@ -79,11 +79,10 @@ final class AdminUsersViewModel: ObservableObject {
 
     /// 指定ユーザーの admin/user ロールを反転し、一覧を再取得する。
     /// - Parameter user: 対象ユーザー。
-    func toggleRole(_ user: AuthUser) async {
-        guard let apiClient else { return }
-        let nextRole = user.toSubject().role.isAdmin ? "user" : "admin"
+    func toggleRole(_ user: ManagedUser) async {
+        let nextRole = user.role.isAdmin ? Role.user : Role.admin
         do {
-            _ = try await apiClient.updateUser(username: user.username, role: nextRole)
+            try await administration.setRole(username: user.username, role: nextRole)
             await load()
         } catch {
             errorMessage = "\(user.username) のロール変更に失敗しました"

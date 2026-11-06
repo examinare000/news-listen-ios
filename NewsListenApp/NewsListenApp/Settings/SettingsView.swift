@@ -44,6 +44,12 @@ struct SettingsView: View {
         (.eikenP1, "英検準1級以上"),
     ]
 
+    /// アカウント欄へ渡す手順（合成 root が作る）。
+    private let profile: AccountProfile
+    private let deviceSessions: DeviceSessions
+    private let enrollment: PasskeyEnrollment
+    private let administration: UserAdministration
+
     /// ビューを生成する。
     /// - Parameters:
     ///   - appState: 共有の設定状態。
@@ -51,16 +57,34 @@ struct SettingsView: View {
     ///   - downloads: ダウンロード use case（キャッシュの全削除に使う）。
     ///   - curation: 生成の残り回数を読む application。
     ///   - sources: RSS ソースの操作とおすすめの取得を担う application。
+    ///   - profile: 表示名の更新とパスワード変更の手順。
+    ///   - deviceSessions: 端末のセッションの手順。
+    ///   - enrollment: Passkey の登録・一覧・削除の手順。
+    ///   - administration: ユーザー管理の手順。
     @MainActor
-    init(appState: AppState, library: OfflineLibrary, downloads: OfflineDownloads, curation: FeedCuration, sources: SourceSubscriptions) {
+    init(
+        appState: AppState,
+        library: OfflineLibrary,
+        downloads: OfflineDownloads,
+        curation: FeedCuration,
+        sources: SourceSubscriptions,
+        profile: AccountProfile,
+        deviceSessions: DeviceSessions,
+        enrollment: PasskeyEnrollment,
+        administration: UserAdministration
+    ) {
         self.appState = appState
+        self.profile = profile
+        self.deviceSessions = deviceSessions
+        self.enrollment = enrollment
+        self.administration = administration
         _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState, library: library, downloads: downloads, curation: curation, sources: sources))
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                AccountSettingsView(apiClient: appState.apiClient)
+                AccountSettingsView(profile: profile, deviceSessions: deviceSessions, enrollment: enrollment, administration: administration)
                 feedSection
                 rssSourcesSection
                 featuredSitesSection

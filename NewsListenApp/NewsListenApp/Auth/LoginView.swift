@@ -7,10 +7,6 @@
 
 import SwiftUI
 
-// ASAuthorizationPasskeyProvider は Passkey モジュール内で AuthenticationServices を内部に閉じるため、
-// LoginView は Passkey モジュールのシンボルのみを参照。
-// 直接 AuthenticationServices を import しない（参照は ASAuthorizationPasskeyProvider に限定）。
-
 /// ログイン画面。ユーザー ID とパスワード、または Passkey でログインする。
 struct LoginView: View {
     /// ユーザーID・パスワードログインを担う ViewModel。
@@ -19,15 +15,12 @@ struct LoginView: View {
     @StateObject private var passkeyViewModel: PasskeyLoginViewModel
 
     /// - Parameters:
-    ///   - apiClient: ログイン通信に使うクライアント。
+    ///   - authentication: パスワードログインの手順。
+    ///   - passkeySignIn: Passkey ログインの手順。
     ///   - onSuccess: ログイン成功時のコールバック（通常 `AppState.completeLogin`）。
-    init(apiClient: APIClient, onSuccess: @escaping (LoginReceipt) -> Void) {
-        _viewModel = StateObject(wrappedValue: LoginViewModel(apiClient: apiClient, onSuccess: onSuccess))
-        _passkeyViewModel = StateObject(wrappedValue: PasskeyLoginViewModel(
-            apiClient: apiClient,
-            provider: ASAuthorizationPasskeyProvider(),
-            onSuccess: onSuccess
-        ))
+    init(authentication: Authentication, passkeySignIn: PasskeySignIn, onSuccess: @escaping (LoginReceipt) -> Void) {
+        _viewModel = StateObject(wrappedValue: LoginViewModel(authentication: authentication, onSuccess: onSuccess))
+        _passkeyViewModel = StateObject(wrappedValue: PasskeyLoginViewModel(signIn: passkeySignIn, onSuccess: onSuccess))
     }
 
     var body: some View {
@@ -98,11 +91,11 @@ struct LoginView: View {
 
 #if DEBUG
 #Preview("Login / Light") {
-    LoginView(apiClient: PreviewSamples.apiClient(), onSuccess: { _ in })
+    LoginView(authentication: PreviewSamples.authentication(), passkeySignIn: PreviewSamples.passkeySignIn(), onSuccess: { _ in })
 }
 
 #Preview("Login / Dark") {
-    LoginView(apiClient: PreviewSamples.apiClient(), onSuccess: { _ in })
+    LoginView(authentication: PreviewSamples.authentication(), passkeySignIn: PreviewSamples.passkeySignIn(), onSuccess: { _ in })
         .preferredColorScheme(.dark)
 }
 #endif

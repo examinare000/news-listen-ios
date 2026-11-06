@@ -44,3 +44,9 @@ struct RevokeSessionsAPIResponse: Codable {
         case revokedCount = "revoked_count"
     }
 }
+
+extension SessionItem {
+    func toDeviceSession() -> DeviceSession {
+        DeviceSession(id: sessionID, deviceLabel: deviceLabel, createdAt: createdAt, lastUsedAt: lastUsedAt, isCurrent: current)
+    }
+}

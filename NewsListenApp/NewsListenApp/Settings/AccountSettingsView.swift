@@ -33,20 +33,21 @@ struct AccountSettingsView: View {
     /// 「他のデバイスからログアウト」確認ダイアログの表示状態（issue #84）。
     @State private var showRevokeOthersConfirm = false
 
+    /// ユーザー管理画面へ渡す手順。
+    private let administration: UserAdministration
+
     /// ビューを生成する。
-    /// - Parameter apiClient: Passkey 操作に使うクライアント。未設定時は `nil`。
-    init(apiClient: APIClient?) {
-        // ViewModel は Optional な apiClient を受け取り、内部で guard で保護する。
-        _registrationViewModel = StateObject(wrappedValue: PasskeyRegistrationViewModel(
-            apiClient: apiClient,
-            provider: ASAuthorizationPasskeyProvider()
-        ))
-        _credentialsViewModel = StateObject(wrappedValue: PasskeyCredentialsViewModel(apiClient: apiClient))
-        _sessionsViewModel = StateObject(wrappedValue: SessionsViewModel(apiClient: apiClient))
-        // 表示名・パスワードの操作は、この時点のクライアントで組んだ手順を View の寿命の間使う。
-        _accountViewModel = StateObject(wrappedValue: AccountSettingsViewModel(
-            profile: apiClient.map { AccountProfile(gateway: .live(apiClient: $0)) }
-        ))
+    /// - Parameters:
+    ///   - profile: 表示名の更新とパスワード変更の手順。
+    ///   - deviceSessions: 端末のセッションの手順。
+    ///   - enrollment: Passkey の登録・一覧・削除の手順。
+    ///   - administration: ユーザー管理の手順（管理者のみ画面へ渡す）。
+    init(profile: AccountProfile, deviceSessions: DeviceSessions, enrollment: PasskeyEnrollment, administration: UserAdministration) {
+        self.administration = administration
+        _registrationViewModel = StateObject(wrappedValue: PasskeyRegistrationViewModel(enrollment: enrollment))
+        _credentialsViewModel = StateObject(wrappedValue: PasskeyCredentialsViewModel(enrollment: enrollment))
+        _sessionsViewModel = StateObject(wrappedValue: SessionsViewModel(deviceSessions: deviceSessions))
+        _accountViewModel = StateObject(wrappedValue: AccountSettingsViewModel(profile: profile))
     }
 
     var body: some View {
@@ -86,7 +87,7 @@ struct AccountSettingsView: View {
             // 管理者のみ: ユーザー管理画面
             if appState.currentSubject?.role.isAdmin == true {
                 NavigationLink("ユーザー管理") {
-                    AdminUsersView(apiClient: appState.apiClient)
+                    AdminUsersView(administration: administration)
                 }
             }
 
@@ -131,7 +132,7 @@ struct AccountSettingsView: View {
                             Spacer()
                             Button(role: .destructive) {
                                 Task {
-                                    await credentialsViewModel.deleteCredential(id: credential.credentialID)
+                                    await credentialsViewModel.deleteCredential(id: credential.id)
                                 }
                             } label: {
                                 Image(systemName: "trash")
@@ -174,7 +175,7 @@ struct AccountSettingsView: View {
             Button("他のデバイスからログアウト", role: .destructive) {
                 showRevokeOthersConfirm = true
             }
-            .disabled(sessionsViewModel.sessions.filter { !$0.current }.isEmpty)
+            .disabled(sessionsViewModel.sessions.filter { !$0.isCurrent }.isEmpty)
 
             if sessionsViewModel.sessions.isEmpty {
                 if sessionsViewModel.isLoading {
@@ -195,7 +196,7 @@ struct AccountSettingsView: View {
                                 Text(session.deviceLabel ?? "不明なデバイス")
                                     .font(DSFont.body)
                                     .foregroundStyle(DSColor.ink)
-                                if session.current {
+                                if session.isCurrent {
                                     Text("現在のデバイス")
                                         .font(DSFont.caption)
                                         .foregroundStyle(DSColor.inkSecondary)
@@ -207,7 +208,7 @@ struct AccountSettingsView: View {
                         }
                         Spacer()
                         // 現在のデバイスはこの画面から失効しない（＝ログアウト操作）。
-                        if !session.current {
+                        if !session.isCurrent {
                             Button(role: .destructive) {
                                 Task { await sessionsViewModel.revokeSession(id: session.id) }
                             } label: {
@@ -308,7 +309,7 @@ struct AccountSettingsView: View {
     }
 
     /// セッション行の日付表記（ログイン日 + 最終利用日があれば併記・issue #84 review）。
-    private func sessionDateLine(_ session: SessionItem) -> String {
+    private func sessionDateLine(_ session: DeviceSession) -> String {
         var line = "ログイン: \(extractDate(session.createdAt))"
         if let lastUsed = session.lastUsedAt {
             line += "　最終利用: \(extractDate(lastUsed))"
