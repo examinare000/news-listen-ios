@@ -87,6 +87,12 @@ final class SettingsViewModelTests: XCTestCase {
         FeedCuration(gateway: .live(client: { client }), undoGracePeriod: .seconds(4), currentSubject: { nil })
     }
 
+    /// ソースの操作を担う `SourceSubscriptions`。`client` は `apiClient:` に渡すものと同じ client を渡す（nil は API 未設定）。
+    private func makeSources(client: APIClient?) -> SourceSubscriptions {
+        SourceSubscriptions(gateway: .live(client: { client }))
+    }
+
+    // verifies: ios-check-12
     func testLoadSourcesFetchesFromAPI() async throws {
         let json = #"""
         {"sources": [
@@ -95,7 +101,7 @@ final class SettingsViewModelTests: XCTestCase {
         ]}
         """#
         let client = makeClient(json: json)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadSources()
 
@@ -105,13 +111,14 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertNil(vm.errorMessage)
     }
 
+    // verifies: ios-check-12
     func testAddSourceAppendsToList() async throws {
         let initialJSON = #"{"sources": []}"#.data(using: .utf8)!
         let afterAddJSON = #"{"sources": [{"name":"TechCrunch","url":"https://techcrunch.com/feed/"}]}"#.data(using: .utf8)!
 
         // 1回目（load）→空、2回目（add）→追加後のリスト。
         let client = makeClient(session: SequentialSession([initialJSON, afterAddJSON]))
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
         await vm.loadSources()
         await vm.addSource(name: "TechCrunch", url: "https://techcrunch.com/feed/")
 
@@ -119,9 +126,10 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(vm.sources[0].name, "TechCrunch")
     }
 
+    // verifies: ios-check-12
     func testLoadSourcesSetsErrorMessageOnFailure() async throws {
         let client = makeClient(json: "", statusCode: 500)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadSources()
 
@@ -132,9 +140,10 @@ final class SettingsViewModelTests: XCTestCase {
     // MARK: - T-T12c-02（verifies: CI-T12c, R4-S1c）
     // 現行文言の固定。SG-S1-2 = (b) により置換後も期待値を変えない。
 
+    // verifies: ios-check-12
     func testLoadSources500SetsHTTPErrorMessage() async throws {
         let client = makeClient(json: "", statusCode: 500)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadSources()
 
@@ -152,45 +161,50 @@ final class SettingsViewModelTests: XCTestCase {
         )
     }
 
+    // verifies: ios-check-12
     func testLoadSourcesCancelledURLErrorKeepsCurrentDisplay() async throws {
         let client = makeTransportErrorClient(URLError(.cancelled))
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadSources()
 
         XCTAssertEqual(vm.errorMessage, URLError(.cancelled).localizedDescription)
     }
 
+    // verifies: ios-check-12
     func testLoadSourcesRawCancellationErrorKeepsCurrentDisplay() async throws {
         let client = makeTransportErrorClient(CancellationError())
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadSources()
 
         XCTAssertEqual(vm.errorMessage, CancellationError().localizedDescription)
     }
 
+    // verifies: ios-check-12
     func testAddSourceCancelledURLErrorKeepsCurrentDisplay() async throws {
         let client = makeTransportErrorClient(URLError(.cancelled))
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.addSource(name: "n", url: "https://example.com/feed")
 
         XCTAssertEqual(vm.errorMessage, URLError(.cancelled).localizedDescription)
     }
 
+    // verifies: ios-check-12
     func testUpdateSourceCancelledURLErrorKeepsCurrentDisplay() async throws {
         let client = makeTransportErrorClient(URLError(.cancelled))
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.updateSource(oldURL: "https://example.com/old", name: "n", url: "https://example.com/new")
 
         XCTAssertEqual(vm.errorMessage, URLError(.cancelled).localizedDescription)
     }
 
+    // verifies: ios-check-12
     func testRemoveSourceCancelledURLErrorKeepsCurrentDisplay() async throws {
         let client = makeTransportErrorClient(URLError(.cancelled))
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.removeSource(url: "https://example.com/feed")
 
@@ -200,42 +214,47 @@ final class SettingsViewModelTests: XCTestCase {
     // MARK: - T-T12c-05（verifies: CI-T12c, R4-S1c）
     // 現行表示の固定。置換後も期待値を変えない。11 箇所の `ApiFailure` 節の付け忘れを検出する。
 
+    // verifies: ios-check-12
     func testAddSource500SetsHTTPErrorMessage() async throws {
         let client = makeClient(json: "", statusCode: 500)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.addSource(name: "n", url: "https://example.com/feed")
 
         XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
     }
 
+    // verifies: ios-check-12
     func testUpdateSource500SetsHTTPErrorMessage() async throws {
         let client = makeClient(json: "", statusCode: 500)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.updateSource(oldURL: "https://example.com/old", name: "n", url: "https://example.com/new")
 
         XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
     }
 
+    // verifies: ios-check-12
     func testRemoveSource500SetsHTTPErrorMessage() async throws {
         let client = makeClient(json: "", statusCode: 500)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.removeSource(url: "https://example.com/feed")
 
         XCTAssertEqual(vm.errorMessage, "HTTP Error 500")
     }
 
+    // verifies: ios-check-12
     func testLoadSourcesTransportFailureSetsURLErrorMessage() async throws {
         let client = makeTransportErrorClient(URLError(.notConnectedToInternet))
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadSources()
 
         XCTAssertEqual(vm.errorMessage, URLError(.notConnectedToInternet).localizedDescription)
     }
 
+    // verifies: ios-check-12
     func testLoadFeaturedSitesFetchesFromAPI() async throws {
         let json = #"""
         {"sites": [
@@ -244,20 +263,21 @@ final class SettingsViewModelTests: XCTestCase {
         ]}
         """#
         let client = makeClient(json: json)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadFeaturedSites()
 
-        XCTAssertEqual(vm.featuredSites.count, 2)
-        XCTAssertEqual(vm.featuredSites[0].id, "the-verge")
+        XCTAssertEqual(vm.categorizedFeaturedSites.flatMap(\.sites).count, 2)
+        XCTAssertEqual(vm.categorizedFeaturedSites.flatMap(\.sites)[0].id, "the-verge")
         XCTAssertNil(vm.errorMessage)
     }
 
+    // verifies: ios-check-12
     func testSubscribeFeaturedUpdatesSourcesViaAddSource() async throws {
         // おすすめ購読は既存 addSource を再利用し、サーバが返す最新一覧で sources を更新する。
         let afterAddJSON = #"{"sources": [{"name":"TechCrunch","url":"https://techcrunch.com/feed/"}]}"#.data(using: .utf8)!
         let client = makeClient(session: SequentialSession([afterAddJSON]))
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.addSource(name: "TechCrunch", url: "https://techcrunch.com/feed/")
 
@@ -267,6 +287,7 @@ final class SettingsViewModelTests: XCTestCase {
 
     // MARK: - RSS ソース編集 (issue #112)
 
+    // verifies: ios-check-12
     func testUpdateSourceReplacesSourcesWithServerResponse() async throws {
         let initialJSON = #"""
         {"sources": [
@@ -282,7 +303,7 @@ final class SettingsViewModelTests: XCTestCase {
         ]}
         """#.data(using: .utf8)!
         let client = makeClient(session: SequentialSession([initialJSON, afterUpdateJSON]))
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
         await vm.loadSources()
 
         await vm.updateSource(
@@ -298,6 +319,7 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertNil(vm.errorMessage)
     }
 
+    // verifies: ios-check-12
     func testUpdateSourceSetsErrorMessageOnFailure() async throws {
         // 読み込み済みの一覧を持った状態で更新を失敗させ、「失敗時 sources 不変」を実証する
         // （空のまま失敗させると空→空の確認にしかならないため）。
@@ -306,7 +328,7 @@ final class SettingsViewModelTests: XCTestCase {
         """#.data(using: .utf8)!
         let session = SequentialSession(results: [(initialJSON, 200), (Data(), 500)])
         let client = makeClient(session: session)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
         await vm.loadSources()
 
         await vm.updateSource(
@@ -321,32 +343,35 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(vm.sources[0].url, "https://hnrss.org/frontpage")
     }
 
+    // verifies: ios-check-12
     func testLoadFeaturedSitesSilentOnFailure() async throws {
-        // 取得失敗時は featuredSites を空にし、errorMessage は汚さない（おすすめ欄は非表示になるだけ）。
+        // 取得失敗時は categorizedFeaturedSites を空にし、errorMessage は汚さない（おすすめ欄は非表示になるだけ）。
         let client = makeClient(json: "", statusCode: 500)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadFeaturedSites()
 
-        XCTAssertTrue(vm.featuredSites.isEmpty)
+        XCTAssertTrue(vm.categorizedFeaturedSites.isEmpty)
         XCTAssertNil(vm.errorMessage)
     }
 
     // MARK: - おすすめサイト取得失敗の可視化 (issue #164)
 
+    // verifies: ios-check-12
     func testLoadFeaturedSitesSetsLoadFailedFlagOnFailure() async throws {
         let client = makeClient(json: "", statusCode: 500)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadFeaturedSites()
 
         XCTAssertTrue(vm.featuredSitesLoadFailed)
     }
 
+    // verifies: ios-check-12
     func testLoadFeaturedSitesClearsLoadFailedFlagOnSuccess() async throws {
         let json = #"{"sites": []}"#
         let client = makeClient(json: json)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadFeaturedSites()
 
@@ -355,12 +380,13 @@ final class SettingsViewModelTests: XCTestCase {
 
     // MARK: - 生成残回数の取得 (issue #164 / ADR-061)
 
+    // verifies: ios-check-12
     func testLoadGenerationQuotaFetchesFromAPI() async throws {
         let json = #"""
         {"limit":5,"used":2,"remaining":3,"reset_at":"2026-07-07T00:00:00Z"}
         """#
         let client = makeClient(json: json)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadGenerationQuota()
 
@@ -369,9 +395,10 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertFalse(vm.generationQuotaLoadFailed)
     }
 
+    // verifies: ios-check-12
     func testLoadGenerationQuotaSetsFailedFlagOnFailure() async throws {
         let client = makeClient(json: "", statusCode: 500)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadGenerationQuota()
 
@@ -380,10 +407,11 @@ final class SettingsViewModelTests: XCTestCase {
     }
 
     // T-T13-04（verifies: ios-contract-19, R-keep2）。
+    // verifies: ios-check-12
     func testLoadGenerationQuota404GracefulDegradation() async throws {
         // 404 時は graceful degradation: 生成残回数セクションを非表示（failed=false）
         let client = makeClient(json: "", statusCode: 404)
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.loadGenerationQuota()
 
@@ -391,21 +419,21 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertFalse(vm.generationQuotaLoadFailed, "404時はgraceful degradation。セクション非表示")
     }
 
-    // verifies: ios-query-curation-03
+    // verifies: ios-query-curation-03, ios-check-12
     func testLoadGenerationQuotaWithoutApiClientDoesNotCommunicate() async throws {
         // API 未設定なら読み込まない。残り回数の取得は GET なので、全要求を数える session で確かめ、
         // 同じ client を渡した VM が実際に通信することを正の対照にする。
         let session = CallRecordingSession()
         let client = makeClient(session: session)
 
-        let unset = SettingsViewModel(apiClient: nil, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let unset = SettingsViewModel(apiClient: nil, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: nil))
         await unset.loadGenerationQuota()
 
         XCTAssertEqual(session.callCount, 0)
         XCTAssertNil(unset.generationAllowance)
         XCTAssertFalse(unset.generationQuotaLoadFailed)
 
-        let configured = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let configured = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
         await configured.loadGenerationQuota()
 
         XCTAssertEqual(session.callCount, 1)
@@ -422,26 +450,28 @@ final class SettingsViewModelTests: XCTestCase {
         return AudioCacheManager(fileManager: mock)
     }
 
+    // verifies: ios-check-12
     func testLoadCacheSizeReflectsCacheManagerTotal() async throws {
         let cacheManager = makeCacheManager()
         try cacheManager.cache("audio1".data(using: .utf8)!, for: "podcast-1", subject: subjectA)
         try cacheManager.cache("audio2".data(using: .utf8)!, for: "podcast-2", subject: subjectA)
         let cacheLibrary = OfflineLibrary(store: .live(cacheManager: cacheManager))
         cacheLibrary.bind(subject: subjectA)
-        let vm = SettingsViewModel(apiClient: nil, library: cacheLibrary, downloads: makeDownloads(for: cacheLibrary), curation: makeCuration(client: nil))
+        let vm = SettingsViewModel(apiClient: nil, library: cacheLibrary, downloads: makeDownloads(for: cacheLibrary), curation: makeCuration(client: nil), sources: makeSources(client: nil))
 
         await vm.loadCacheSize()
 
         XCTAssertEqual(vm.cacheSizeBytes, 12)
     }
 
+    // verifies: ios-check-12
     func testClearCacheResetsCacheSizeToZeroAndRemovesFiles() async throws {
         let cacheManager = makeCacheManager()
         try cacheManager.cache("audio1".data(using: .utf8)!, for: "podcast-1", subject: subjectA)
         try cacheManager.cache("audio-b".data(using: .utf8)!, for: "podcast-b", subject: subjectB)
         let cacheLibrary = OfflineLibrary(store: .live(cacheManager: cacheManager))
         cacheLibrary.bind(subject: subjectA)
-        let vm = SettingsViewModel(apiClient: nil, library: cacheLibrary, downloads: makeDownloads(for: cacheLibrary), curation: makeCuration(client: nil))
+        let vm = SettingsViewModel(apiClient: nil, library: cacheLibrary, downloads: makeDownloads(for: cacheLibrary), curation: makeCuration(client: nil), sources: makeSources(client: nil))
         await vm.loadCacheSize()
         XCTAssertEqual(vm.cacheSizeBytes, 6)
 
@@ -454,9 +484,10 @@ final class SettingsViewModelTests: XCTestCase {
 
     // MARK: - savePreference（View が errorMessage へ直接書かないための窓口）
 
+    // verifies: ios-check-12
     func testSavePreferenceClearsErrorMessageOnSuccess() async {
         let client = makeClient(json: "{}")
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
         await vm.savePreference(failureMessage: "x") { throw ApiFailure.server(status: 500) }
         XCTAssertEqual(vm.errorMessage, "x", "前提: 直前の失敗で表示が出ている")
 
@@ -465,10 +496,11 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertNil(vm.errorMessage)
     }
 
+    // verifies: ios-check-12
     func testSavePreferenceSetsFailureMessageForAnyError() async {
         struct Other: Error {}
         let client = makeClient(json: "{}")
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.savePreference(failureMessage: "設定の保存に失敗しました") { throw ApiFailure.server(status: 500) }
         XCTAssertEqual(vm.errorMessage, "設定の保存に失敗しました")
@@ -480,9 +512,10 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(vm.errorMessage, "キャンセル")
     }
 
+    // verifies: ios-check-12
     func testSavePreferenceShowsTheGivenFailureMessageSeparately() async {
         let client = makeClient(json: "{}")
-        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client))
+        let vm = SettingsViewModel(apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client), sources: makeSources(client: client))
 
         await vm.savePreference(failureMessage: "設定の保存に失敗しました") { throw ApiFailure.server(status: 500) }
         let preference = vm.errorMessage
@@ -492,5 +525,74 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(preference, "設定の保存に失敗しました")
         XCTAssertEqual(goal, "学習目標の保存に失敗しました")
         XCTAssertNotEqual(preference, goal)
+    }
+
+    // MARK: - SourceSubscriptions との接続
+
+    private enum SourceCall: Equatable { case list, add, update, remove, featured }
+
+    private final class SourceCalls {
+        var log: [SourceCall] = []
+    }
+
+    /// 呼出の列を記録する gateway。`add` は `afterAdd` を返し、`list` は `listed` を返す。
+    private func recordingSources(calls: SourceCalls, afterAdd: [SourceEntry] = [], listed: [SourceEntry] = []) -> SourceSubscriptions {
+        SourceSubscriptions(gateway: SourcesGateway(
+            list: { @MainActor in calls.log.append(.list); return listed },
+            add: { @MainActor _, _ in calls.log.append(.add); return afterAdd },
+            update: { @MainActor _, _, _ in calls.log.append(.update); return afterAdd },
+            remove: { @MainActor _ in calls.log.append(.remove) },
+            featured: { @MainActor in calls.log.append(.featured); return [] }
+        ))
+    }
+
+    // verifies: ios-dec-102
+    func testAddThenRemoveCallsGatewayAddRemoveAndDropsRemovedURLLocally() async throws {
+        let first = SourceEntry(name: "A", url: "https://a.com/feed")
+        let second = SourceEntry(name: "B", url: "https://b.com/feed")
+        let calls = SourceCalls()
+        let client = makeClient(json: "{}")
+        let vm = SettingsViewModel(
+            apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client),
+            sources: recordingSources(calls: calls, afterAdd: [first, second])
+        )
+
+        await vm.addSource(name: "A", url: first.url)
+        XCTAssertEqual(vm.sources, [first, second], "追加の応答の一覧が表示される")
+        await vm.removeSource(url: first.url)
+
+        XCTAssertEqual(calls.log, [.add, .remove], "削除の後に list を呼ばず、追加の後の list は持ち越しで通信しない")
+        XCTAssertEqual(vm.sources, [second])
+    }
+
+    // verifies: ios-rule-sources-04
+    func testCanEditForwardsRoleToSources() {
+        let client = makeClient(json: "{}")
+        let vm = SettingsViewModel(
+            apiClient: client, library: library, downloads: downloads, curation: makeCuration(client: client),
+            sources: makeSources(client: client)
+        )
+
+        XCTAssertTrue(vm.canEdit(role: .admin))
+        XCTAssertFalse(vm.canEdit(role: .user))
+    }
+
+    // verifies: ios-dec-103
+    func testSourceOperationsWithoutApiClientDoNothing() async throws {
+        let calls = SourceCalls()
+        let vm = SettingsViewModel(
+            apiClient: nil, library: library, downloads: downloads, curation: makeCuration(client: nil),
+            sources: recordingSources(calls: calls)
+        )
+
+        await vm.loadSources()
+        await vm.loadFeaturedSites()
+        await vm.addSource(name: "n", url: "u")
+        await vm.updateSource(oldURL: "o", name: "n", url: "u")
+        await vm.removeSource(url: "u")
+
+        XCTAssertEqual(calls.log, [], "API 未設定なら gateway を呼ばない")
+        XCTAssertFalse(vm.isLoading)
+        XCTAssertTrue(vm.sources.isEmpty)
     }
 }

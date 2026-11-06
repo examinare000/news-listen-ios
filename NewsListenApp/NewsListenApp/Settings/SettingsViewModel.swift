@@ -12,16 +12,16 @@ import Combine
 @MainActor
 final class SettingsViewModel: ObservableObject {
     /// 登録済みの RSS ソース一覧。
-    @Published var sources: [RssSource] = []
-    /// システム提供のおすすめサイト一覧。
-    @Published var featuredSites: [FeaturedSite] = []
+    @Published private(set) var sources: [SourceEntry] = []
+    /// システム提供のおすすめサイトをカテゴリでグループ化したもの（表示順で並ぶ）。0件のカテゴリは除外。
+    @Published private(set) var categorizedFeaturedSites: [(category: FeaturedCategory, sites: [FeaturedSiteCard])] = []
     /// 読み込み中かどうか。
-    @Published var isLoading = false
+    @Published private(set) var isLoading = false
     /// 直近のエラーメッセージ（なければ `nil`）。アラート表示に使う。
     @Published var errorMessage: String?
     /// 直近の `loadFeaturedSites()` が失敗したか（issue #164）。
     ///
-    /// `featuredSites` は失敗時も空のまま既存仕様（`errorMessage` は汚さずセクション非表示）を
+    /// `categorizedFeaturedSites` は失敗時も空のまま既存仕様（`errorMessage` は汚さずセクション非表示）を
     /// 維持しつつ、設定画面のインライン警告・再試行導線にこのフラグを使う。
     @Published private(set) var featuredSitesLoadFailed = false
     /// Podcast 生成の本日残回数（issue #164 / ADR-061）。未取得・取得失敗時は `nil`。
@@ -46,16 +46,8 @@ final class SettingsViewModel: ObservableObject {
     private let downloads: OfflineDownloads
     /// 生成の残り回数を読む application。
     private let curation: FeedCuration
-
-    /// おすすめサイトをカテゴリでグループ化したもの（表示順で並ぶ）。0件のカテゴリは除外。
-    var categorizedFeaturedSites: [(category: FeaturedCategory, sites: [FeaturedSite])] {
-        let grouped = FeaturedCategory.groupByCategoryInOrder(featuredSites)
-        return FeaturedCategory.allCases
-            .compactMap { category in
-                let sites = grouped[category] ?? []
-                return sites.isEmpty ? nil : (category: category, sites: sites)
-            }
-    }
+    /// RSS ソースの操作とおすすめの取得を担う application。
+    private let subscriptions: SourceSubscriptions
 
     /// ViewModel を生成する。
     /// - Parameters:
@@ -63,17 +55,20 @@ final class SettingsViewModel: ObservableObject {
     ///   - library: 保存庫。合成 root が作った 1 個を渡す。
     ///   - downloads: ダウンロード use case。キャッシュの全削除に使う。
     ///   - curation: 生成の残り回数を読む application。
+    ///   - sources: RSS ソースの操作とおすすめの取得を担う application。
     init(
         apiClient: APIClient?,
         library: OfflineLibrary,
         downloads: OfflineDownloads,
-        curation: FeedCuration
+        curation: FeedCuration,
+        sources: SourceSubscriptions
     ) {
         self.apiClientOverride = apiClient
         self.appState = nil
         self.library = library
         self.downloads = downloads
         self.curation = curation
+        self.subscriptions = sources
     }
 
     /// 共有 AppState を正本として使う本番用 initializer。
@@ -81,23 +76,24 @@ final class SettingsViewModel: ObservableObject {
         appState: AppState,
         library: OfflineLibrary,
         downloads: OfflineDownloads,
-        curation: FeedCuration
+        curation: FeedCuration,
+        sources: SourceSubscriptions
     ) {
         self.apiClientOverride = nil
         self.appState = appState
         self.library = library
         self.downloads = downloads
         self.curation = curation
+        self.subscriptions = sources
     }
 
     /// RSS ソース一覧を取得して `sources` を更新する。失敗時は `errorMessage` に反映する。
     func loadSources() async {
-        guard let apiClient else { return }
+        guard apiClient != nil else { return }
         isLoading = true
         errorMessage = nil
         do {
-            let response = try await apiClient.fetchSources()
-            sources = response.sources
+            sources = try await subscriptions.list()
         } catch let f as ApiFailure {
             errorMessage = FailureMessages.message(for: f, context: .settings)
         } catch {
@@ -106,19 +102,18 @@ final class SettingsViewModel: ObservableObject {
         isLoading = false
     }
 
-    /// おすすめサイト一覧を取得して `featuredSites` を更新する。
+    /// おすすめサイト一覧を取得して `categorizedFeaturedSites` を更新する。
     ///
     /// 失敗してもおすすめ欄が出ないだけで RSS ソース管理は妨げないため、`errorMessage`（アラート）
     /// には反映しない。代わりに `featuredSitesLoadFailed` を立て、インライン表示 + 再試行に使う
     /// （issue #164・完全サイレントの解消）。
     func loadFeaturedSites() async {
-        guard let apiClient else { return }
+        guard apiClient != nil else { return }
         do {
-            let response = try await apiClient.fetchFeaturedSites()
-            featuredSites = response.sites
+            categorizedFeaturedSites = try await subscriptions.featured()
             featuredSitesLoadFailed = false
         } catch {
-            featuredSites = []
+            categorizedFeaturedSites = []
             featuredSitesLoadFailed = true
         }
     }
@@ -128,10 +123,10 @@ final class SettingsViewModel: ObservableObject {
     ///   - name: ソースの表示名。
     ///   - url: RSS フィードの URL。
     func addSource(name: String, url: String) async {
-        guard let apiClient else { return }
+        guard apiClient != nil else { return }
         do {
-            let response = try await apiClient.addSource(name: name, url: url)
-            sources = response.sources
+            try await subscriptions.add(name: name, url: url)
+            sources = try await subscriptions.list()
         } catch let f as ApiFailure {
             errorMessage = FailureMessages.message(for: f, context: .settings)
         } catch {
@@ -146,10 +141,10 @@ final class SettingsViewModel: ObservableObject {
     ///   - name: 新しい表示名。
     ///   - url: 新しい RSS フィード URL（変更しない場合は `oldURL` と同値）。
     func updateSource(oldURL: String, name: String, url: String) async {
-        guard let apiClient else { return }
+        guard apiClient != nil else { return }
         do {
-            let response = try await apiClient.updateSource(oldURL: oldURL, name: name, url: url)
-            sources = response.sources
+            try await subscriptions.update(oldURL: oldURL, name: name, url: url)
+            sources = try await subscriptions.list()
         } catch let f as ApiFailure {
             errorMessage = FailureMessages.message(for: f, context: .settings)
         } catch {
@@ -160,15 +155,21 @@ final class SettingsViewModel: ObservableObject {
     /// 指定 URL の RSS ソースを削除し、一覧から取り除く。失敗時は `errorMessage` に反映する。
     /// - Parameter url: 削除対象ソースの URL。
     func removeSource(url: String) async {
-        guard let apiClient else { return }
+        guard apiClient != nil else { return }
         do {
-            try await apiClient.removeSource(url: url)
+            try await subscriptions.remove(url: url)
             sources.removeAll { $0.url == url }
         } catch let f as ApiFailure {
             errorMessage = FailureMessages.message(for: f, context: .settings)
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// ソースを編集できる role か。
+    /// - Parameter role: 判定する role。
+    func canEdit(role: Role) -> Bool {
+        subscriptions.canEdit(role: role)
     }
 
     /// Podcast 生成の本日残回数を取得する（issue #164 / ADR-061）。

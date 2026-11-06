@@ -59,13 +59,6 @@ final class AppState: ObservableObject {
         return true
     }
 
-    /// 初回オンボーディング（おすすめ追加ステップ）の完了状態。
-    ///
-    /// サーバ側（`UserPrefs.onboarding_completed`）が正であり、起動ごとに取得する。
-    /// `nil`=未取得（判定保留）。`false` のときのみ追加ステップを提示する。
-    /// launch 時のブロッキングを避けるため、ルーティングは `ContentView` 上の fullScreenCover で行う。
-    @Published var onboardingCompleted: Bool?
-
     /// アプリ全体で共有する聴取ストリーク。未取得・未提供時は `nil`。
     @Published var listeningStreak: ListeningStreak?
 
@@ -391,36 +384,6 @@ final class AppState: ObservableObject {
     /// - Parameter downloads: 実行中のダウンロードを持つ use case。
     func registerDownloads(_ downloads: OfflineDownloads) {
         offlineDownloads = downloads
-    }
-
-    /// サーバから初回オンボーディング状態を取得し `onboardingCompleted` を更新する（G6）。
-    ///
-    /// 取得失敗時は `true` 扱いとし、追加ステップを挟まずフィードへ進ませる（行き止まりを防ぐ）。
-    func refreshOnboardingStatus() async {
-        let t0 = sessionStore.token
-        guard let apiClient else { return }
-        do {
-            let status = try await apiClient.fetchOnboardingStatus()
-            guard sessionStore.token == t0 else { return }
-            onboardingCompleted = status.onboardingCompleted
-        } catch {
-            guard sessionStore.token == t0 else { return }
-            onboardingCompleted = true
-        }
-    }
-
-    /// 初回オンボーディング完了をサーバに記録し、ローカル状態も完了にする（G7）。
-    ///
-    /// 保存に失敗しても UI 上は完了として扱い、追加ステップを閉じる（次回起動時に再取得される）。
-    func completeOnboarding() async {
-        let t0 = sessionStore.token
-        guard let apiClient else {
-            onboardingCompleted = true
-            return
-        }
-        _ = try? await apiClient.completeOnboarding()
-        guard sessionStore.token == t0 else { return }
-        onboardingCompleted = true
     }
 
     /// ビルド時に Secrets.xcconfig → Info.plist 経由で注入された既定値を読む。

@@ -13,42 +13,35 @@ import Foundation
 /// おすすめサイト追加ステップの状態と操作を担う ViewModel。
 @MainActor
 final class OnboardingSourcesViewModel: ObservableObject {
-    /// おすすめサイト一覧。
-    @Published private(set) var featuredSites: [FeaturedSite] = []
+    /// おすすめサイトをカテゴリでグループ化したもの（表示順で並ぶ）。0件のカテゴリは除外。
+    @Published private(set) var categorizedSites: [(category: FeaturedCategory, sites: [FeaturedSiteCard])] = []
     /// 既に購読済みのサイト id（ボタン表示の切り替えに使う）。
     @Published private(set) var addedIDs: Set<String> = []
     /// おすすめサイト取得の直近のエラーメッセージ（なければ `nil`）。
-    @Published var loadErrorMessage: String?
+    @Published private(set) var loadErrorMessage: String?
     /// 購読操作の直近のエラーメッセージ（なければ `nil`）。
-    @Published var subscribeErrorMessage: String?
+    @Published private(set) var subscribeErrorMessage: String?
     /// おすすめサイト取得中かどうか。
     @Published private(set) var isLoading = false
 
-    private let apiClient: APIClient?
-
-    /// おすすめサイトをカテゴリでグループ化したもの（表示順で並ぶ）。0件のカテゴリは除外。
-    var categorizedSites: [(category: FeaturedCategory, sites: [FeaturedSite])] {
-        let grouped = FeaturedCategory.groupByCategoryInOrder(featuredSites)
-        return FeaturedCategory.allCases
-            .compactMap { category in
-                let sites = grouped[category] ?? []
-                return sites.isEmpty ? nil : (category: category, sites: sites)
-            }
-    }
+    private let subscriptions: SourceSubscriptions
+    private let onboarding: OnboardingProgress
 
     /// ViewModel を生成する。
-    /// - Parameter apiClient: API 通信に使うクライアント。未設定時は `nil`。
-    init(apiClient: APIClient?) {
-        self.apiClient = apiClient
+    /// - Parameters:
+    ///   - sources: おすすめサイトの取得・購読を担う application。
+    ///   - onboarding: 完了の記録を担う application。
+    init(sources: SourceSubscriptions, onboarding: OnboardingProgress) {
+        self.subscriptions = sources
+        self.onboarding = onboarding
     }
 
     /// おすすめサイト一覧を取得する。失敗時は `loadErrorMessage` に反映する。
     func loadFeaturedSites() async {
-        guard let apiClient else { return }
         isLoading = true
         loadErrorMessage = nil
         do {
-            featuredSites = try await apiClient.fetchFeaturedSites().sites
+            categorizedSites = try await subscriptions.featured()
         } catch {
             loadErrorMessage = "おすすめサイトの取得に失敗しました"
         }
@@ -57,17 +50,18 @@ final class OnboardingSourcesViewModel: ObservableObject {
 
     /// おすすめサイトを即購読する。成功（および既存重複の 409）で購読済みにマークする。
     /// - Parameter site: 購読対象のおすすめサイト。
-    func subscribe(_ site: FeaturedSite) async {
-        guard let apiClient else { return }
+    func subscribe(_ site: FeaturedSiteCard) async {
         subscribeErrorMessage = nil
         do {
-            _ = try await apiClient.addSource(name: site.name, url: site.url)
-            addedIDs.insert(site.id)
-        } catch ApiFailure.conflict {
-            // 既に登録済みなら購読済み扱い（ユーザーからは成功と見分けがつかない）。
+            try await subscriptions.subscribe(site)
             addedIDs.insert(site.id)
         } catch {
             subscribeErrorMessage = "購読に失敗しました。もう一度お試しください。"
         }
+    }
+
+    /// 完了・スキップ。完了を記録し、cover を閉じる状態にする。
+    func finish() async {
+        await onboarding.complete()
     }
 }

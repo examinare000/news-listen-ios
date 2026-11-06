@@ -26,7 +26,7 @@ struct SettingsView: View {
     /// RSS ソース追加シートの表示状態。
     @State private var showAddSource = false
     /// 編集シートで開いている編集対象の RSS ソース（`nil` なら非表示・issue #112）。
-    @State private var editingSource: RssSource?
+    @State private var editingSource: SourceEntry?
     /// キャッシュ全削除の確認ダイアログの表示状態（issue #52）。
     @State private var showClearCacheConfirm = false
     /// 追加シートで入力中のソース名。
@@ -50,10 +50,11 @@ struct SettingsView: View {
     ///   - library: 合成 root が作った保存庫（キャッシュの容量表示に使う）。
     ///   - downloads: ダウンロード use case（キャッシュの全削除に使う）。
     ///   - curation: 生成の残り回数を読む application。
+    ///   - sources: RSS ソースの操作とおすすめの取得を担う application。
     @MainActor
-    init(appState: AppState, library: OfflineLibrary, downloads: OfflineDownloads, curation: FeedCuration) {
+    init(appState: AppState, library: OfflineLibrary, downloads: OfflineDownloads, curation: FeedCuration, sources: SourceSubscriptions) {
         self.appState = appState
-        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState, library: library, downloads: downloads, curation: curation))
+        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState, library: library, downloads: downloads, curation: curation, sources: sources))
     }
 
     var body: some View {
@@ -201,7 +202,7 @@ struct SettingsView: View {
                     }
                 } else {
                     ForEach(viewModel.sources) { source in
-                        if appState.currentSubject?.role.isAdmin == true {
+                        if appState.currentSubject.map({ viewModel.canEdit(role: $0.role) }) == true {
                             Button {
                                 editingSource = source
                             } label: {
@@ -227,7 +228,7 @@ struct SettingsView: View {
     }
 
     /// 購読中ソース行の表示部。編集可否（admin 判定）に依らず共通で使う。
-    private func sourceRowLabel(_ source: RssSource) -> some View {
+    private func sourceRowLabel(_ source: SourceEntry) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(source.name).font(DSFont.headline).foregroundStyle(DSColor.ink)
             Text(source.url).font(DSFont.caption).foregroundStyle(DSColor.inkTertiary)
@@ -237,7 +238,7 @@ struct SettingsView: View {
     /// システム提供のおすすめサイトを一覧し、タップで即購読するセクション。
     ///
     /// API クライアント未設定時は表示しない。取得失敗時（issue #164）はインライン警告 +
-    /// 再試行を出すため、`featuredSites` が空でも `featuredSitesLoadFailed` なら表示する。
+    /// 再試行を出すため、`categorizedFeaturedSites` が空でも `featuredSitesLoadFailed` なら表示する。
     @ViewBuilder
     private var featuredSitesSection: some View {
         if appState.apiClient != nil, !viewModel.categorizedFeaturedSites.isEmpty || viewModel.featuredSitesLoadFailed {
@@ -502,7 +503,7 @@ private struct EditSourceSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     /// 編集対象の元ソース。更新 API の `oldURL`（対象特定キー）に使う。
-    let source: RssSource
+    let source: SourceEntry
     /// 保存処理（`updateSource`）を委譲する ViewModel。親の `SettingsView` が所有する。
     ///
     /// body は `@Published` プロパティを読まない（表示は `source` と自前の `@State` のみ）ため、
@@ -518,7 +519,7 @@ private struct EditSourceSheet: View {
     /// - Parameters:
     ///   - source: 編集対象の RSS ソース。入力欄の初期値になる。
     ///   - viewModel: 保存処理を委譲する ViewModel。
-    init(source: RssSource, viewModel: SettingsViewModel) {
+    init(source: SourceEntry, viewModel: SettingsViewModel) {
         self.source = source
         self.viewModel = viewModel
         _name = State(initialValue: source.name)

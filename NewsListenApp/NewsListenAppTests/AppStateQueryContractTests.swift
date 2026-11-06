@@ -90,10 +90,6 @@ final class AppStateQueryContractTests: XCTestCase {
     func testWritesThroughTheComposedAppStateAreCounted() async {
         appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         XCTAssertGreaterThanOrEqual(ports.sessionStore.writeCount, 1, "正の対照: Keychain 相当の保存が数えられる")
-
-        ports.resetCounts()
-        await appState.completeOnboarding()
-        XCTAssertEqual(ports.urlSession.writeCount, 1, "正の対照: オンボーディング完了の POST が数えられる")
     }
 
     // verifies: ios-check-07

@@ -560,50 +560,6 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertEqual(store.token, "tB")
     }
 
-    // verifies: ios-contract-20.16
-    func testTT14_19b_refreshOnboardingStatusGuardedBySubject() async {
-        let store = InMemorySessionStore(token: "tA")
-        let scripted = ScriptedURLSession()
-        scripted.configurePending(method: "GET", path: "/settings/onboarding")
-        scripted.configure(method: "POST", path: "/auth/logout", status: 200)
-        let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
-        XCTAssertNil(appState.onboardingCompleted)
-
-        let task = Task { await appState.refreshOnboardingStatus() }
-        await scripted.waitUntilRequested(method: "GET", path: "/settings/onboarding")
-        await appState.logout()
-        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
-        scripted.release(method: "GET", path: "/settings/onboarding", status: 200, body: Data(#"{"onboarding_completed":false}"#.utf8))
-        await task.value
-
-        XCTAssertNil(appState.onboardingCompleted, "前の主体の応答は B の状態を書き換えないべき")
-        guard case .authenticated(let user) = appState.session, user.username == "bob" else { return XCTFail("B のまま") }
-        XCTAssertEqual(store.token, "tB")
-    }
-
-    // verifies: ios-contract-20.16
-    func testTT14_19c_completeOnboardingGuardedBySubject() async {
-        let store = InMemorySessionStore(token: "tA")
-        let scripted = ScriptedURLSession()
-        scripted.configurePending(method: "POST", path: "/settings/onboarding/complete")
-        scripted.configure(method: "POST", path: "/auth/logout", status: 200)
-        let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
-        XCTAssertNil(appState.onboardingCompleted)
-
-        let task = Task { await appState.completeOnboarding() }
-        await scripted.waitUntilRequested(method: "POST", path: "/settings/onboarding/complete")
-        await appState.logout()
-        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
-        scripted.release(method: "POST", path: "/settings/onboarding/complete", status: 200, body: Data(#"{"onboarding_completed":true}"#.utf8))
-        await task.value
-
-        XCTAssertNil(appState.onboardingCompleted, "前の主体の応答は B の状態を書き換えないべき")
-        guard case .authenticated(let user) = appState.session, user.username == "bob" else { return XCTFail("B のまま") }
-        XCTAssertEqual(store.token, "tB")
-    }
-
     // MARK: - T-T14-20（ios-contract-20.12, A10）
 
     // verifies: ios-contract-20.12

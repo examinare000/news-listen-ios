@@ -41,13 +41,11 @@ final class GrepOracleTests: XCTestCase {
         for match in o8Matches { o8Counts[match, default: 0] += 1 }
         let expectedO8: [String: Int] = [
             "appState.completeLogin(": 1,
-            "appState.completeOnboarding(": 1,
             "appState.didRegisterDeviceToken(": 2,
             "appState.handleNotificationPodcastId(": 2,
             "appState.logout(": 1,
             "appState.refreshAuth(": 1,
             "appState.refreshListeningStreak(": 5,
-            "appState.refreshOnboardingStatus(": 1,
             "appState.registerDownloads(": 1,
             "appState.registerPlaybackLifecycle(": 1,
             "appState.retryResolve(": 1,

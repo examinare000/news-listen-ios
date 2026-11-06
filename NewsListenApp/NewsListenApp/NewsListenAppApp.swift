@@ -25,6 +25,9 @@ struct NewsListenAppApp: App {
         weak var state: AppState?
     }
 
+    /// `body` が `ContentView` へ渡す closure の解決先。`init()` で結んだ箱を保持する。
+    private let box: AppStateBox
+
     /// MetricKit クラッシュ診断の購読者（issue #83）。購読を維持するため保持する。
     private static let crashReporter = CrashReporter()
 
@@ -62,6 +65,7 @@ struct NewsListenAppApp: App {
         box.state = state
         _appState = StateObject(wrappedValue: state)
         _preferencesStore = StateObject(wrappedValue: store)
+        self.box = box
         DSFeedback.shared.isSoundEnabled = { store.soundEnabled }
         DSFeedback.shared.isHapticsEnabled = { store.hapticsEnabled }
     }
@@ -106,7 +110,10 @@ struct NewsListenAppApp: App {
                                 currentSubjectKey: { appState.currentSubject?.key },
                                 audioEngine: Self.audioEngine,
                                 nowPlayingCenter: Self.nowPlayingCenter,
-                                library: Self.offlineLibrary
+                                library: Self.offlineLibrary,
+                                currentClient: { box.state?.apiClient },
+                                subjectStamp: { box.state!.subjectStamp },
+                                isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false }
                             )
                         } else {
                             ContentUnavailableView(
@@ -157,6 +164,10 @@ struct ContentView: View {
     @StateObject private var curation: FeedCuration
     /// Star 一覧の application。`ObservableObject` ではないので `@State` で最初の 1 つを保つ。
     @State private var starred: StarredArticles
+    /// RSS ソースの操作とおすすめの application。authenticated の間だけ生きる。
+    @State private var sources: SourceSubscriptions
+    /// 初回 Onboarding の完了の状態。logout で `ContentView` ごと外れ、次の主体は nil から始まる。
+    @StateObject private var onboarding: OnboardingProgress
 
     /// 設定画面に渡す保存庫（App が作った 1 個）。
     private let library: OfflineLibrary
@@ -170,6 +181,9 @@ struct ContentView: View {
     ///   - audioEngine: 再生エンジン（App がプロセスで 1 個作ったもの）。
     ///   - nowPlayingCenter: ロック画面 port（同上）。
     ///   - library: 保存庫（同上）。
+    ///   - currentClient: 呼出のたびに現在の API クライアントを返す（トークンは呼出の時点のもの）。
+    ///   - subjectStamp: 現在の主体の照合値を捕捉する。
+    ///   - isCurrentSubject: 捕捉した照合値が今も現在の主体か。
     /// - Note: `@MainActor` 化した `NetworkMonitor` の生成を分離文脈で行うため、
     ///   ビューの init も `@MainActor` にする（旧 PodcastView.init と同じ理由）。
     @MainActor
@@ -180,13 +194,18 @@ struct ContentView: View {
         currentSubjectKey: @escaping () -> SubjectKey?,
         audioEngine: any AudioEngine,
         nowPlayingCenter: NowPlayingCenter,
-        library: OfflineLibrary
+        library: OfflineLibrary,
+        currentClient: @escaping @MainActor () -> APIClient?,
+        subjectStamp: @escaping () -> SubjectStamp,
+        isCurrentSubject: @escaping (SubjectStamp) -> Bool
     ) {
         self.library = library
         // `init` は再描画のたびに走るが、`@StateObject`／`@State` が最初の 1 つだけを保つ。
         let gateway = CurationGateway.live(client: { apiClient })
         _curation = StateObject(wrappedValue: FeedCuration(gateway: gateway, undoGracePeriod: .seconds(4), currentSubject: currentSubjectKey))
         _starred = State(wrappedValue: StarredArticles(gateway: gateway))
+        _sources = State(wrappedValue: SourceSubscriptions(gateway: SourcesGateway.live(client: currentClient)))
+        _onboarding = StateObject(wrappedValue: OnboardingProgress.live(client: currentClient, subjectStamp: subjectStamp, isCurrentSubject: isCurrentSubject))
         // 再生 ViewModel の組み立ては `StateObject` の autoclosure の中（1 回だけ評価される）で行う。
         _playerViewModel = StateObject(
             wrappedValue: Self.makePlayerViewModel(
@@ -269,7 +288,7 @@ struct ContentView: View {
             }
             // Settings は API 未設定の修正導線として常に表示する（第 4 タブ末尾）。
             // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
-            SettingsView(appState: appState, library: library, downloads: playerViewModel.downloads, curation: curation)
+            SettingsView(appState: appState, library: library, downloads: playerViewModel.downloads, curation: curation, sources: sources)
                 .withMiniPlayer(playerViewModel)
                 .tabItem { Label("設定", systemImage: "gearshape") }
                 .tag(4)
@@ -287,7 +306,7 @@ struct ContentView: View {
         // 起動ごとに onboarding 状態を取得し、未完了なら追加ステップを被せる。
         // 3分岐ルーティングではなく cover にすることで launch をブロックしない。
         .task {
-            await appState.refreshOnboardingStatus()
+            await onboarding.refresh()
             await appState.refreshListeningStreak()
         }
         // 主体離脱時の再生停止 port を登録する（ios-slice-auth-01 / ios-contract-21.9。実体は `PlaybackCoordinator`）。
@@ -308,8 +327,7 @@ struct ContentView: View {
             }
         }
         .fullScreenCover(isPresented: onboardingBinding) {
-            OnboardingSourcesView(apiClient: appState.apiClient)
-                .environmentObject(appState)
+            OnboardingSourcesView(sources: sources, onboarding: onboarding)
         }
     }
 
@@ -356,11 +374,11 @@ struct ContentView: View {
         )
     }
 
-    /// `onboardingCompleted == false`（明示的に未完了）のときだけ追加ステップを提示する Binding。
-    /// 取得前(`nil`) は提示しない。閉じる操作は `OnboardingSourcesView` 側の completeOnboarding に委ねる。
+    /// `isCompleted == false`（明示的に未完了）のときだけ追加ステップを提示する Binding。
+    /// 取得前(`nil`) は提示しない。閉じる操作は `OnboardingSourcesView` 側の完了の記録に委ねる。
     private var onboardingBinding: Binding<Bool> {
         Binding(
-            get: { appState.onboardingCompleted == false },
+            get: { onboarding.isCompleted == false },
             set: { _ in }
         )
     }
