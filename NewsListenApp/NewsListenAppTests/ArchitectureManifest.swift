@@ -49,8 +49,6 @@ enum ArchitectureManifest {
     /// 明示の行（完全一致の path → 層）。layerRules の結果を上書きする。
     /// 混在ファイルと、規則に当たらないファイルを割り当てる。目標の path へ移した slice でその行を消す。
     static let explicitLayers: [String: ArchitectureLayer] = [
-        // domain
-        "Models/FeaturedCategory.swift": .domain,
         // application
         "Passkey/PasskeyAuthorizationProviding.swift": .application,
         // adapter（5 規則のどれにも当たらないもの）
@@ -79,6 +77,7 @@ enum ArchitectureManifest {
         "Auth/Application/AccountProfile.swift",
         "Settings/Application/PreferencesStore.swift",
         "Feed/Application/FeedCuration.swift",
+        "Settings/Application/SourceSubscriptions.swift",
     ]
 
     /// domain の型だけを対象にするテストファイル（ios-check-08 の対象。`NewsListenAppTests/` からの相対）。
@@ -95,6 +94,7 @@ enum ArchitectureManifest {
         "PasswordPolicyTests.swift",
         "PreferencesDomainTests.swift",
         "CurationDomainTests.swift",
+        "FeaturedCategoryTests.swift",
     ]
 
     /// application の層の公開宣言の台帳（ios-check-15 (a)）。実コードと双方向に照合する。
@@ -107,7 +107,6 @@ enum ArchitectureManifest {
         (file: "AppState.swift", type: "AppState", name: "currentSubject", kind: .query("ios-query-account-01")),
         (file: "AppState.swift", type: "AppState", name: "subjectStamp", kind: .query("ios-query-account-01")),
         (file: "AppState.swift", type: "AppState", name: "isCurrentSubject(_:)", kind: .query("ios-query-account-01")),
-        (file: "AppState.swift", type: "AppState", name: "onboardingCompleted", kind: .query("ios-query-sources-02")),
         (file: "AppState.swift", type: "AppState", name: "listeningStreak", kind: .query("ios-query-learning-03")),
         (file: "AppState.swift", type: "AppState", name: "listeningStreakLoadFailed", kind: .query("ios-query-learning-03")),
         (file: "AppState.swift", type: "AppState", name: "selectedPodcastId", kind: .query("ios-query-notify-01")),
@@ -127,8 +126,6 @@ enum ArchitectureManifest {
         (file: "AppState.swift", type: "AppState", name: "logout()", kind: .command("ios-cmd-account-04")),
         (file: "AppState.swift", type: "AppState", name: "registerPlaybackLifecycle(_:)", kind: .command("ios-cmd-account-11")),
         (file: "AppState.swift", type: "AppState", name: "registerDownloads(_:)", kind: .command("ios-cmd-account-11")),
-        (file: "AppState.swift", type: "AppState", name: "refreshOnboardingStatus()", kind: .query("ios-query-sources-02")),
-        (file: "AppState.swift", type: "AppState", name: "completeOnboarding()", kind: .command("ios-cmd-sources-03")),
         (file: "AppState.swift", type: "AppState", name: "init(sessionStore:apiClientOverride:apiClientFactory:refreshPreferences:clearSubjectPreferences:nowPlayingCenter:clearOfflineLibrary:bindOfflineSubject:reclaimOfflineLibrary:)", kind: .factory),
         (file: "Settings/Application/PreferencesStore.swift", type: "PreferencesStore", name: "defaultDifficulty", kind: .query("ios-query-prefs-01")),
         (file: "Settings/Application/PreferencesStore.swift", type: "PreferencesStore", name: "defaultPlaybackSpeed", kind: .query("ios-query-prefs-01")),
@@ -331,6 +328,32 @@ enum ArchitectureManifest {
         (file: "Starred/Application/StarredArticles.swift", type: "StarredArticles", name: "init(gateway:)", kind: .factory),
         (file: "Starred/Application/StarredArticles.swift", type: "StarredArticles", name: "list()", kind: .query("ios-query-curation-02")),
         (file: "Starred/Application/StarredArticles.swift", type: "StarredArticles", name: "unstar(articleId:)", kind: .command("ios-cmd-curation-04")),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceEntry", name: "name", kind: .readModel),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceEntry", name: "url", kind: .readModel),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceEntry", name: "id", kind: .readModel),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "FeaturedSiteCard", name: "id", kind: .readModel),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "FeaturedSiteCard", name: "name", kind: .readModel),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "FeaturedSiteCard", name: "url", kind: .readModel),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "FeaturedSiteCard", name: "thumbnailURL", kind: .readModel),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "FeaturedSiteCard", name: "description", kind: .readModel),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "FeaturedSiteCard", name: "category", kind: .readModel),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourcesGateway", name: "list", kind: .port),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourcesGateway", name: "add", kind: .port),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourcesGateway", name: "update", kind: .port),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourcesGateway", name: "remove", kind: .port),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourcesGateway", name: "featured", kind: .port),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceSubscriptions", name: "init(gateway:)", kind: .factory),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceSubscriptions", name: "list()", kind: .query("ios-query-sources-01")),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceSubscriptions", name: "featured()", kind: .query("ios-query-sources-01")),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceSubscriptions", name: "canEdit(role:)", kind: .query("ios-query-sources-01")),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceSubscriptions", name: "add(name:url:)", kind: .command("ios-cmd-sources-01")),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceSubscriptions", name: "update(oldURL:name:url:)", kind: .command("ios-cmd-sources-01")),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceSubscriptions", name: "remove(url:)", kind: .command("ios-cmd-sources-01")),
+        (file: "Settings/Application/SourceSubscriptions.swift", type: "SourceSubscriptions", name: "subscribe(_:)", kind: .command("ios-cmd-sources-02")),
+        (file: "Onboarding/Application/OnboardingProgress.swift", type: "OnboardingProgress", name: "isCompleted", kind: .query("ios-query-sources-02")),
+        (file: "Onboarding/Application/OnboardingProgress.swift", type: "OnboardingProgress", name: "refresh()", kind: .query("ios-query-sources-02")),
+        (file: "Onboarding/Application/OnboardingProgress.swift", type: "OnboardingProgress", name: "init(fetchStatus:recordCompleted:subjectStamp:isCurrentSubject:)", kind: .factory),
+        (file: "Onboarding/Application/OnboardingProgress.swift", type: "OnboardingProgress", name: "complete()", kind: .command("ios-cmd-sources-03")),
     ]
 
     /// TA Spec §5 の `ios-cmd-*`・`ios-query-*` の ID の全集合。
@@ -429,7 +452,6 @@ enum ArchitectureManifest {
     /// 読み書きが混ざった操作（TA Spec §6）。実コードの公開宣言に今もある数を追跡する。
     static let readWriteMixedOperations: [(file: String, type: String, name: String)] = [
         (file: "AppState.swift", type: "AppState", name: "refreshListeningStreak()"),
-        (file: "AppState.swift", type: "AppState", name: "refreshOnboardingStatus()"),
     ]
 
     /// ios-dep-12 の恒久の許可リスト（入力の下書き 6 個）。
@@ -452,26 +474,21 @@ enum ArchitectureManifest {
         ("ios-dep-13", "Observability/CrashReporter.swift", 1),
         ("ios-dep-13", "Settings/AccountSettingsView.swift", 1),
         ("ios-dep-13", "Starred/StarredViewModel.swift", 1),
-        ("ios-dep-02", "Models/FeaturedCategory.swift", 2),
         ("ios-dep-04/DTO", "DesignSystem/Components/DSStreakToolbar.swift", 1),
         ("ios-dep-04/DTO", "Learning/LearningView.swift", 5),
-        ("ios-dep-04/DTO", "Onboarding/OnboardingSourcesView.swift", 1),
         ("ios-dep-04/DTO", "Podcast/AudioPlayerView.swift", 1),
         ("ios-dep-04/DTO", "Podcast/PodcastRowView.swift", 2),
         ("ios-dep-04/DTO", "Podcast/PodcastView.swift", 4),
         ("ios-dep-04/DTO", "Podcast/QuizSheetView.swift", 7),
         ("ios-dep-04/DTO", "Settings/AccountSettingsView.swift", 1),
-        ("ios-dep-04/DTO", "Settings/SettingsView.swift", 5),
+        ("ios-dep-04/DTO", "Settings/SettingsView.swift", 1),
         ("ios-dep-06/DTO", "Admin/AdminUsersViewModel.swift", 2),
         ("ios-dep-06/DTO", "Learning/LearningViewModel.swift", 3),
-        ("ios-dep-06/DTO", "Onboarding/OnboardingSourcesViewModel.swift", 3),
         ("ios-dep-06/DTO", "Passkey/PasskeyCredentialsViewModel.swift", 1),
         ("ios-dep-06/DTO", "Podcast/PodcastViewModel.swift", 3),
         ("ios-dep-06/DTO", "Sessions/SessionsViewModel.swift", 1),
-        ("ios-dep-06/DTO", "Settings/SettingsViewModel.swift", 3),
         ("ios-rule-account-05", "Admin/AdminUsersView.swift", 2),
         ("ios-rule-account-05", "Admin/AdminUsersViewModel.swift", 3),
-        ("ios-rule-account-06・ios-rule-curation-04・ios-rule-sources-02・ios-rule-learning-08", "Onboarding/OnboardingSourcesViewModel.swift", 1),
         ("ios-rule-account-06・ios-rule-curation-04・ios-rule-sources-02・ios-rule-learning-08", "Passkey/PasskeyCredentialsViewModel.swift", 1),
         ("ios-rule-account-06・ios-rule-curation-04・ios-rule-sources-02・ios-rule-learning-08", "Passkey/PasskeyRegistrationViewModel.swift", 1),
         ("ios-rule-account-06・ios-rule-curation-04・ios-rule-sources-02・ios-rule-learning-08", "Podcast/QuizSheetView.swift", 1),
@@ -485,7 +502,6 @@ enum ArchitectureManifest {
         ("ios-dep-04", "DesignSystem/PreviewSupport.swift", 2),
         ("ios-dep-04", "Learning/LearningView.swift", 3),
         ("ios-dep-04", "Learning/VocabularyTestView.swift", 3),
-        ("ios-dep-04", "Onboarding/OnboardingSourcesView.swift", 1),
         ("ios-dep-04", "Podcast/QuizSheetView.swift", 1),
         ("ios-dep-04", "Settings/AccountSettingsView.swift", 1),
         ("ios-dep-06", "Admin/AdminUsersViewModel.swift", 2),
@@ -493,7 +509,6 @@ enum ArchitectureManifest {
         ("ios-dep-06", "Feed/FeedViewModel.swift", 1),
         ("ios-dep-06", "Learning/LearningViewModel.swift", 3),
         ("ios-dep-06", "Learning/VocabularyTestViewModel.swift", 6),
-        ("ios-dep-06", "Onboarding/OnboardingSourcesViewModel.swift", 2),
         ("ios-dep-06", "Passkey/PasskeyCredentialsViewModel.swift", 2),
         ("ios-dep-06", "Passkey/PasskeyLoginViewModel.swift", 2),
         ("ios-dep-06", "Passkey/PasskeyRegistrationViewModel.swift", 2),
@@ -502,23 +517,19 @@ enum ArchitectureManifest {
         ("ios-dep-06", "Settings/SettingsViewModel.swift", 3),
         ("ios-dep-06", "Starred/StarredViewModel.swift", 1),
         ("ios-dep-12", "Admin/AdminUsersViewModel.swift", 1),
-        ("ios-dep-12", "AppState.swift", 4),
+        ("ios-dep-12", "AppState.swift", 3),
         ("ios-dep-12", "Auth/LoginViewModel.swift", 1),
-        ("ios-dep-12", "Onboarding/OnboardingSourcesViewModel.swift", 2),
         ("ios-dep-12", "Passkey/PasskeyCredentialsViewModel.swift", 1),
         ("ios-dep-12", "Passkey/PasskeyLoginViewModel.swift", 1),
         ("ios-dep-12", "Passkey/PasskeyRegistrationViewModel.swift", 1),
         ("ios-dep-12", "Sessions/SessionsViewModel.swift", 2),
-        ("ios-dep-12", "Settings/SettingsViewModel.swift", 4),
-        // ios-check-16: 生成の入口が検査つきでない型（owner: ios-slice-periphery-02）。
-        ("ios-check-16", "Models/FeaturedCategory.swift", 1),
-        // ios-check-15 (b): query の契約テストがまだ無い ID（owner: ios-slice-closure-01・ios-slice-periphery-02・ios-slice-learning-03）。
+        ("ios-dep-12", "Settings/SettingsViewModel.swift", 1),
+        // ios-check-15 (b): query の契約テストがまだ無い ID（owner: ios-slice-closure-01・ios-slice-learning-03）。
         ("ios-check-15/verifies/ios-query-account-03", "AppState.swift", 3),
-        ("ios-check-15/verifies/ios-query-sources-02", "AppState.swift", 2),
         ("ios-check-15/verifies/ios-query-learning-03", "AppState.swift", 2),
         ("ios-check-15/verifies/ios-query-notify-01", "AppState.swift", 1),
-        // ios-check-15: 読み書きが混ざった操作（owner: ios-slice-learning-03・ios-slice-periphery-02）。
-        ("ios-check-15/read-write", "AppState.swift", 2),
+        // ios-check-15: 読み書きが混ざった操作（owner: ios-slice-learning-03）。
+        ("ios-check-15/read-write", "AppState.swift", 1),
     ]
 
     /// `@AppStorage` は属性として照合する（`@AppStorage\b`）。ほかは単語境界の型名。
