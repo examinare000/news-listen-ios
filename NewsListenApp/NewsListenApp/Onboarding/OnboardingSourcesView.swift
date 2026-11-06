@@ -11,10 +11,8 @@ import SwiftUI
 /// 初回オンボーディングのおすすめサイト追加ステップ。
 ///
 /// おすすめサイトをワンクリックで即購読でき、「完了」/「スキップ」で
-/// ``AppState/completeOnboarding()`` を呼んでフィードへ進む。
+/// ``OnboardingProgress/complete()`` を呼んでフィードへ進む。
 struct OnboardingSourcesView: View {
-    /// アプリ全体で共有する設定状態。
-    @EnvironmentObject private var appState: AppState
     /// おすすめサイト取得・購読を担う ViewModel（issue #164・SettingsView と同様の流儀）。
     @StateObject private var viewModel: OnboardingSourcesViewModel
 
@@ -22,9 +20,11 @@ struct OnboardingSourcesView: View {
     @State private var finishing = false
 
     /// ビューを生成する。
-    /// - Parameter apiClient: ViewModel に注入する API クライアント。未設定時は `nil`。
-    init(apiClient: APIClient?) {
-        _viewModel = StateObject(wrappedValue: OnboardingSourcesViewModel(apiClient: apiClient))
+    /// - Parameters:
+    ///   - sources: おすすめサイトの取得・購読を担う application。
+    ///   - onboarding: 完了の記録を担う application。
+    init(sources: SourceSubscriptions, onboarding: OnboardingProgress) {
+        _viewModel = StateObject(wrappedValue: OnboardingSourcesViewModel(sources: sources, onboarding: onboarding))
     }
 
     var body: some View {
@@ -90,7 +90,7 @@ struct OnboardingSourcesView: View {
 
     /// おすすめサイト1行。サムネイル + 名前/説明 + 購読ボタン。
     @ViewBuilder
-    private func row(for site: FeaturedSite) -> some View {
+    private func row(for site: FeaturedSiteCard) -> some View {
         HStack(spacing: 10) {
             AsyncImage(url: site.thumbnailURL.flatMap(URL.init(string:))) { image in
                 image.resizable().scaledToFill()
@@ -119,6 +119,6 @@ struct OnboardingSourcesView: View {
     /// 完了/スキップ。オンボーディング完了を記録し cover を閉じる。
     private func finish() async {
         finishing = true
-        await appState.completeOnboarding()
+        await viewModel.finish()
     }
 }
