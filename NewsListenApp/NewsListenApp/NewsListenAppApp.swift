@@ -27,6 +27,11 @@ struct NewsListenAppApp: App {
 
     /// `body` が `ContentView` へ渡す closure の解決先。`init()` で結んだ箱を保持する。
     private let box: AppStateBox
+    /// ログインの手順（状態を持たないので App が持ち続けて害は無い）。
+    private let authentication: Authentication
+    private let passkeySignIn: PasskeySignIn
+    /// Passkey の認証器。ログインと登録で同じ 1 個を使う（同時には使わない）。
+    private let passkeyProvider: PasskeyAuthorizationProviding
 
     /// MetricKit クラッシュ診断の購読者（issue #83）。購読を維持するため保持する。
     private static let crashReporter = CrashReporter()
@@ -66,6 +71,11 @@ struct NewsListenAppApp: App {
         _appState = StateObject(wrappedValue: state)
         _preferencesStore = StateObject(wrappedValue: store)
         self.box = box
+        let accountGateway = AccountGateway.live(client: { box.state?.apiClient })
+        let passkeyProvider = ASAuthorizationPasskeyProvider()
+        self.authentication = Authentication(gateway: accountGateway)
+        self.passkeySignIn = PasskeySignIn(gateway: accountGateway, provider: passkeyProvider)
+        self.passkeyProvider = passkeyProvider
         DSFeedback.shared.isSoundEnabled = { store.soundEnabled }
         DSFeedback.shared.isHapticsEnabled = { store.hapticsEnabled }
     }
@@ -92,8 +102,8 @@ struct NewsListenAppApp: App {
                         ProgressView("認証を確認中…")
                             .task { await appState.refreshAuth() }
                     case .anonymous:
-                        if let client = appState.apiClient {
-                            LoginView(apiClient: client) { appState.completeLogin($0) }
+                        if appState.apiClient != nil {
+                            LoginView(authentication: authentication, passkeySignIn: passkeySignIn) { appState.completeLogin($0) }
                         } else {
                             ContentUnavailableView(
                                 "API 設定を確認してください",
@@ -111,6 +121,8 @@ struct NewsListenAppApp: App {
                                 audioEngine: Self.audioEngine,
                                 nowPlayingCenter: Self.nowPlayingCenter,
                                 library: Self.offlineLibrary,
+                                passkeyProvider: passkeyProvider,
+                                currentUsername: { box.state?.currentSubject?.username },
                                 currentClient: { box.state?.apiClient },
                                 subjectStamp: { box.state!.subjectStamp },
                                 isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false }
@@ -171,6 +183,11 @@ struct ContentView: View {
 
     /// 設定画面に渡す保存庫（App が作った 1 個）。
     private let library: OfflineLibrary
+    /// アカウント欄の手順。authenticated の間だけ生きる（logout で `ContentView` ごと外れる）。
+    @State private var accountProfile: AccountProfile
+    @State private var deviceSessions: DeviceSessions
+    @State private var passkeyEnrollment: PasskeyEnrollment
+    @State private var userAdministration: UserAdministration
 
     /// ビューを生成する。
     /// - Parameters:
@@ -181,6 +198,8 @@ struct ContentView: View {
     ///   - audioEngine: 再生エンジン（App がプロセスで 1 個作ったもの）。
     ///   - nowPlayingCenter: ロック画面 port（同上）。
     ///   - library: 保存庫（同上）。
+    ///   - passkeyProvider: Passkey の認証器（App が作った 1 個。登録の手順に渡す）。
+    ///   - currentUsername: 現在の主体のユーザー名（管理画面で自分の行を判定する。呼ぶたびに読む）。
     ///   - currentClient: 呼出のたびに現在の API クライアントを返す（トークンは呼出の時点のもの）。
     ///   - subjectStamp: 現在の主体の照合値を捕捉する。
     ///   - isCurrentSubject: 捕捉した照合値が今も現在の主体か。
@@ -195,6 +214,8 @@ struct ContentView: View {
         audioEngine: any AudioEngine,
         nowPlayingCenter: NowPlayingCenter,
         library: OfflineLibrary,
+        passkeyProvider: PasskeyAuthorizationProviding,
+        currentUsername: @escaping () -> String?,
         currentClient: @escaping @MainActor () -> APIClient?,
         subjectStamp: @escaping () -> SubjectStamp,
         isCurrentSubject: @escaping (SubjectStamp) -> Bool
@@ -205,6 +226,11 @@ struct ContentView: View {
         _curation = StateObject(wrappedValue: FeedCuration(gateway: gateway, undoGracePeriod: .seconds(4), currentSubject: currentSubjectKey))
         _starred = State(wrappedValue: StarredArticles(gateway: gateway))
         _sources = State(wrappedValue: SourceSubscriptions(gateway: SourcesGateway.live(client: currentClient)))
+        let accountGateway = AccountGateway.live(client: currentClient)
+        _accountProfile = State(wrappedValue: AccountProfile(gateway: accountGateway))
+        _deviceSessions = State(wrappedValue: DeviceSessions(gateway: accountGateway))
+        _passkeyEnrollment = State(wrappedValue: PasskeyEnrollment(gateway: accountGateway, provider: passkeyProvider))
+        _userAdministration = State(wrappedValue: UserAdministration(gateway: accountGateway, currentUsername: currentUsername))
         _onboarding = StateObject(wrappedValue: OnboardingProgress.live(client: currentClient, subjectStamp: subjectStamp, isCurrentSubject: isCurrentSubject))
         // 再生 ViewModel の組み立ては `StateObject` の autoclosure の中（1 回だけ評価される）で行う。
         _playerViewModel = StateObject(
@@ -288,7 +314,17 @@ struct ContentView: View {
             }
             // Settings は API 未設定の修正導線として常に表示する（第 4 タブ末尾）。
             // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
-            SettingsView(appState: appState, library: library, downloads: playerViewModel.downloads, curation: curation, sources: sources)
+            SettingsView(
+                appState: appState,
+                library: library,
+                downloads: playerViewModel.downloads,
+                curation: curation,
+                sources: sources,
+                profile: accountProfile,
+                deviceSessions: deviceSessions,
+                enrollment: passkeyEnrollment,
+                administration: userAdministration
+            )
                 .withMiniPlayer(playerViewModel)
                 .tabItem { Label("設定", systemImage: "gearshape") }
                 .tag(4)

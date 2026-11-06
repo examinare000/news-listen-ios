@@ -9,14 +9,12 @@ import SwiftUI
 
 /// 管理者によるユーザー管理画面。設定画面からプッシュ遷移する。
 struct AdminUsersView: View {
-    /// アプリ全体で共有する状態（自分自身の削除抑止に使う）。
-    @EnvironmentObject private var appState: AppState
     /// ユーザー管理ロジック。
     @StateObject private var viewModel: AdminUsersViewModel
 
-    /// - Parameter apiClient: 認証済みクライアント（管理 API 用）。
-    init(apiClient: APIClient?) {
-        _viewModel = StateObject(wrappedValue: AdminUsersViewModel(apiClient: apiClient))
+    /// - Parameter administration: ユーザー管理の手順。
+    init(administration: UserAdministration) {
+        _viewModel = StateObject(wrappedValue: AdminUsersViewModel(administration: administration))
     }
 
     var body: some View {
@@ -28,8 +26,8 @@ struct AdminUsersView: View {
                 SecureField("パスワード（\(PasswordPolicy.minLength)〜\(PasswordPolicy.maxLength)文字）", text: $viewModel.newPassword)
                 TextField("表示名（任意）", text: $viewModel.newDisplayName)
                 Picker("ロール", selection: $viewModel.newRole) {
-                    Text("user").tag("user")
-                    Text("admin").tag("admin")
+                    Text(Role.user.rawValue).tag(Role.user.rawValue)
+                    Text(Role.admin.rawValue).tag(Role.admin.rawValue)
                 }
                 Button("追加") { Task { await viewModel.create() } }
             }
@@ -42,15 +40,15 @@ struct AdminUsersView: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(user.displayName).foregroundStyle(DSColor.ink)
-                            Text("\(user.username) / \(user.role)")
+                            Text("\(user.username) / \(user.role.rawValue)")
                                 .font(DSFont.caption)
                                 .foregroundStyle(DSColor.inkTertiary)
                         }
                         Spacer()
                         // 自分自身のロール変更・削除はさせない（自己ロックアウト防止。
                         // サーバー側でも最後の admin は 409 で保護される）。
-                        if user.username != appState.currentSubject?.username {
-                            Button(user.toSubject().role.isAdmin ? "user へ" : "admin へ") {
+                        if user.canChangeRoleOrDelete {
+                            Button(user.role.isAdmin ? "user へ" : "admin へ") {
                                 Task { await viewModel.toggleRole(user) }
                             }
                             .buttonStyle(.borderless)

@@ -10,12 +10,6 @@
 import Foundation
 import Combine
 
-/// ログイン成功の結果（ios-cmd-account-01 の receipt）。ログイン VM が応答から作り、`completeLogin` へ渡す。
-struct LoginReceipt: Equatable {
-    let token: String
-    let subject: Subject
-}
-
 /// 主体の照合値（ios-slice-auth-01）。`AppState` の外で await をまたいで状態を書く呼出元が、await の前に
 /// 捕捉し、await の後に `isCurrentSubject(_:)` で照合してから書き込む。
 ///

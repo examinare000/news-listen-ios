@@ -184,6 +184,26 @@ enum PreviewSamples {
         )
     }
 
+    /// サンプル JSON を返すモックセッションで組んだ、ログインのプレビュー用 `Authentication`。
+    @MainActor static func authentication() -> Authentication {
+        Authentication(gateway: .live(apiClient: apiClient()))
+    }
+
+    /// ログインのプレビュー用 `PasskeySignIn`。認証器は常に未対応を返す。
+    @MainActor static func passkeySignIn() -> PasskeySignIn {
+        PasskeySignIn(gateway: .live(apiClient: apiClient()), provider: PreviewPasskeyProvider())
+    }
+
+    private struct PreviewPasskeyProvider: PasskeyAuthorizationProviding {
+        func createCredential(_ options: PasskeyRegistrationOptions) async throws -> PasskeyRegistrationCredential {
+            throw PasskeyError.notSupported
+        }
+
+        func assertCredential(_ options: PasskeyAssertionOptions) async throws -> PasskeyAssertionCredential {
+            throw PasskeyError.notSupported
+        }
+    }
+
     /// 再生中状態を仕込んだ `PodcastViewModel`（プレイヤー UI 確認用）。
     @MainActor static func playerViewModel() -> PodcastViewModel {
         let episode = previewPlayable()

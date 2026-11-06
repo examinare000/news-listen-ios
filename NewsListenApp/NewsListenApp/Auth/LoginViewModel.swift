@@ -2,7 +2,7 @@
 //  LoginViewModel.swift
 //  NewsListenApp
 //
-//  ログイン画面のロジック。APIClient.login を呼び、成功時は onSuccess へ結果を渡す。
+//  ログイン画面のロジック。Authentication.login を呼び、成功時は onSuccess へ結果を渡す。
 //  失敗時はユーザー存在を露出しない汎用文言を表示する（agent-rules/12 準拠）。
 //
 
@@ -17,20 +17,20 @@ final class LoginViewModel: ObservableObject {
     /// 入力中のパスワード。
     @Published var password = ""
     /// 直近のエラー文言（なければ `nil`）。
-    @Published var errorMessage: String?
+    @Published private(set) var errorMessage: String?
     /// 送信中フラグ（多重送信・ボタン無効化に使う）。
     @Published private(set) var isSubmitting = false
 
-    /// 認証通信に使うクライアント（未ログインのためトークンは未設定）。
-    private let apiClient: APIClient
+    /// ログインの手順。
+    private let authentication: Authentication
     /// ログイン成功時に呼ぶコールバック（トークン保存・状態更新は呼び出し側が担う）。
     private let onSuccess: (LoginReceipt) -> Void
 
     /// - Parameters:
-    ///   - apiClient: ログイン通信に使うクライアント。
+    ///   - authentication: ログインの手順。
     ///   - onSuccess: 成功時に結果を渡すコールバック。
-    init(apiClient: APIClient, onSuccess: @escaping (LoginReceipt) -> Void) {
-        self.apiClient = apiClient
+    init(authentication: Authentication, onSuccess: @escaping (LoginReceipt) -> Void) {
+        self.authentication = authentication
         self.onSuccess = onSuccess
     }
 
@@ -50,11 +50,11 @@ final class LoginViewModel: ObservableObject {
         isSubmitting = true
         errorMessage = nil
         do {
-            let response = try await apiClient.login(
+            let receipt = try await authentication.login(
                 username: username.trimmingCharacters(in: .whitespacesAndNewlines),
                 password: password
             )
-            onSuccess(LoginReceipt(token: response.token, subject: response.user.toSubject()))
+            onSuccess(receipt)
             // 成功時は画面遷移するため isSubmitting は false に戻さない（遷移までボタン無効を維持）。
         } catch ApiFailure.unauthorized {
             errorMessage = "ユーザーIDまたはパスワードが正しくありません"

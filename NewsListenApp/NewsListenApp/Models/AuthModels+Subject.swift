@@ -13,3 +13,9 @@ extension AuthUser {
         Subject(username: username, displayName: displayName, role: Role(rawValue: role), key: SubjectKey(userId))
     }
 }
+
+extension LoginResponse {
+    func toReceipt() -> LoginReceipt {
+        LoginReceipt(token: token, subject: user.toSubject())
+    }
+}

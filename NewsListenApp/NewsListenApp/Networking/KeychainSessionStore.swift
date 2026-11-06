@@ -1,19 +1,13 @@
 //
-//  SessionStore.swift
+//  KeychainSessionStore.swift
 //  NewsListenApp
 //
-//  セッショントークンの保管抽象。本番は Keychain（機密情報は UserDefaults に置かない、
+//  セッショントークンの保管の実装（adapter）。本番は Keychain（機密情報は UserDefaults に置かない、
 //  agent-rules/12 準拠）。テストは差し替え可能なインメモリ実装を注入する。
 //
 
 import Foundation
 import Security
-
-/// セッショントークンの読み書きを抽象化する。
-protocol SessionStore: AnyObject {
-    /// 保存中のセッショントークン。`nil` 代入で削除する。
-    var token: String? { get set }
-}
 
 /// テスト用のインメモリ実装。Keychain に触れずに状態遷移を検証できる。
 final class InMemorySessionStore: SessionStore {
