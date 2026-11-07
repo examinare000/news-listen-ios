@@ -74,6 +74,8 @@ final class RecordingLearningGateway: @unchecked Sendable {
     var fetchVocabularyImpl: () async throws -> (terms: [SavedTerm], count: Int) = { (terms: [], count: 0) }
     var saveVocabularyImpl: (String, String) async throws -> Void = { _, _ in }
     var fetchTestSessionImpl: () async throws -> [VocabularyTestWord] = { [] }
+    var fetchDashboardImpl: () async throws -> LearningDashboardSummary = { throw CancellationError() }
+    var fetchStreakImpl: () async throws -> ListeningStreakStatus = { throw CancellationError() }
     var submitTestResultImpl: (VocabularyTest) async throws -> Void = { _ in }
     var submitQuizImpl: (String, [Int]) async throws -> QuizGrade = { _, _ in
         QuizGrade(correctCount: 0, total: 0, perQuestion: [], isPositive: false)
@@ -102,7 +104,9 @@ final class RecordingLearningGateway: @unchecked Sendable {
                 counter.increment()
                 lock.withLock { $0.quizSubmissions.append((episodeId, answers)) }
                 return try await submitQuizImpl(episodeId, answers)
-            }
+            },
+            fetchDashboard: { [self] in try await fetchDashboardImpl() },
+            fetchStreak: { [self] in try await fetchStreakImpl() }
         )
     }
 
@@ -153,8 +157,11 @@ final class VocabularyBookTests: XCTestCase {
         book = VocabularyBook(gateway: double.gateway)
     }
 
-    private nonisolated func saved(_ episodeId: String, _ term: String) -> SavedTerm {
-        SavedTerm(episodeId: episodeId, term: term)
+    private nonisolated func saved(
+        _ episodeId: String, _ term: String,
+        meaning: String = "意味", registeredAt: String = "2026-11-07T00:00:00Z"
+    ) -> SavedTerm {
+        SavedTerm(episodeId: episodeId, term: term, meaning: meaning, registeredAt: registeredAt)
     }
 
     /// `registered` を `{episodeId, normalized(terms)}` にする。
@@ -365,6 +372,25 @@ final class VocabularyBookTests: XCTestCase {
         XCTAssertTrue(book.savingTerms.isEmpty)
         XCTAssertFalse(book.lastSaveFailed)
         XCTAssertEqual(double.writeCount, 0)
+    }
+
+    // ios-dec-124（T-B1）: `firstEntries` は先頭 5 件の語・意味・登録日。`firstTerms` と `count` は不変。
+    func testBookFirstEntriesCarryTermMeaningAndRegisteredAtOfTheFirstFive() async throws {
+        let all = (0..<7).map { saved("e1", "term\($0)", meaning: "意味\($0)", registeredAt: "2026-11-0\($0 + 1)T00:00:00Z") }
+        double.fetchVocabularyImpl = { (terms: all, count: 9) }
+
+        let view = try await book.book()
+
+        XCTAssertEqual(view.firstEntries, Array(all.prefix(5)))
+        XCTAssertEqual(view.firstEntries.map(\.meaning), ["意味0", "意味1", "意味2", "意味3", "意味4"])
+        XCTAssertEqual(view.firstEntries.map(\.registeredAt).first, "2026-11-01T00:00:00Z")
+        XCTAssertEqual(view.firstTerms, ["term0", "term1", "term2", "term3", "term4"], "firstTerms は同じ 5 語")
+        XCTAssertEqual(view.count, 9, "count は応答の値")
+
+        double.fetchVocabularyImpl = { (terms: [], count: 0) }
+        let empty = try await book.book()
+        XCTAssertEqual(empty.firstEntries, [], "0 件では空")
+        XCTAssertEqual(empty.firstTerms, [])
     }
 
     func testBookWithFewerThanFiveTermsReturnsAllAndRethrowsFailure() async throws {

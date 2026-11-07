@@ -531,34 +531,7 @@ final class AppStateAuthTests: XCTestCase {
         XCTAssertFalse(prefs.syncFailed)
     }
 
-    // MARK: - T-T14-19a〜c（ios-contract-20.16, G5〜G7）
-
-    // verifies: ios-contract-20.16
-    func testTT14_19a_refreshListeningStreakGuardedBySubject() async {
-        let store = InMemorySessionStore(token: "tA")
-        let scripted = ScriptedURLSession()
-        scripted.configurePending(method: "GET", path: "/users/me/listening-streak")
-        scripted.configure(method: "POST", path: "/auth/logout", status: 200)
-        let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
-        XCTAssertNil(appState.listeningStreak)
-        XCTAssertFalse(appState.listeningStreakLoadFailed)
-
-        let task = Task { await appState.refreshListeningStreak() }
-        await scripted.waitUntilRequested(method: "GET", path: "/users/me/listening-streak")
-        await appState.logout()
-        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
-        scripted.release(
-            method: "GET", path: "/users/me/listening-streak", status: 200,
-            body: Data(#"{"current_streak_days":5,"today_listened":true,"last_listened_day":"2026-07-29"}"#.utf8)
-        )
-        await task.value
-
-        XCTAssertNil(appState.listeningStreak, "前の主体の応答は B の状態を書き換えないべき")
-        XCTAssertFalse(appState.listeningStreakLoadFailed)
-        guard case .authenticated(let user) = appState.session, user.username == "bob" else { return XCTFail("B のまま") }
-        XCTAssertEqual(store.token, "tB")
-    }
+    // T-T14-19a（ios-contract-20.16）は EngagementStoreTests へ移設した。
 
     // MARK: - T-T14-20（ios-contract-20.12, A10）
 

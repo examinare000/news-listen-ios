@@ -55,6 +55,7 @@ enum ArchitectureManifest {
         "Podcast/Playback/NowPlaying.swift",
         "Catalog/Application/EpisodeRow.swift",
         "Feed/Application/ArticleCardModel.swift",
+        "Learning/Application/LearningDashboardSummary.swift",
     ]
 
     /// port を定義するファイル（ios-dep-11 の対象）。
@@ -100,8 +101,6 @@ enum ArchitectureManifest {
         (file: "AppState.swift", type: "AppState", name: "currentSubject", kind: .query("ios-query-account-01")),
         (file: "AppState.swift", type: "AppState", name: "subjectStamp", kind: .query("ios-query-account-01")),
         (file: "AppState.swift", type: "AppState", name: "isCurrentSubject(_:)", kind: .query("ios-query-account-01")),
-        (file: "AppState.swift", type: "AppState", name: "listeningStreak", kind: .query("ios-query-learning-03")),
-        (file: "AppState.swift", type: "AppState", name: "listeningStreakLoadFailed", kind: .query("ios-query-learning-03")),
         (file: "AppState.swift", type: "AppState", name: "selectedPodcastId", kind: .query("ios-query-notify-01")),
         (file: "AppState.swift", type: "AppState", name: "lastCleanupIncomplete", kind: .query("ios-query-account-01")),
         (file: "AppState.swift", type: "AppState", name: "apnsDeviceToken", kind: .internal),
@@ -115,7 +114,6 @@ enum ArchitectureManifest {
         (file: "AppState.swift", type: "AppState", name: "registerDeviceTokenIfPossible()", kind: .command("ios-cmd-notify-01")),
         (file: "AppState.swift", type: "AppState", name: "handleNotificationPodcastId(_:)", kind: .command("ios-cmd-notify-02")),
         (file: "AppState.swift", type: "AppState", name: "refreshAuth()", kind: .command("ios-cmd-account-03")),
-        (file: "AppState.swift", type: "AppState", name: "refreshListeningStreak()", kind: .command("ios-cmd-learning-05")),
         (file: "AppState.swift", type: "AppState", name: "logout()", kind: .command("ios-cmd-account-04")),
         (file: "AppState.swift", type: "AppState", name: "registerPlaybackLifecycle(_:)", kind: .command("ios-cmd-account-11")),
         (file: "AppState.swift", type: "AppState", name: "registerDownloads(_:)", kind: .command("ios-cmd-account-11")),
@@ -417,10 +415,15 @@ enum ArchitectureManifest {
         (file: "Learning/Application/VocabularyBook.swift", type: "LearningGateway", name: "fetchTestSession", kind: .port),
         (file: "Learning/Application/VocabularyBook.swift", type: "LearningGateway", name: "submitTestResult", kind: .port),
         (file: "Learning/Application/VocabularyBook.swift", type: "LearningGateway", name: "submitQuiz", kind: .port),
+        (file: "Learning/Application/VocabularyBook.swift", type: "LearningGateway", name: "fetchDashboard", kind: .port),
+        (file: "Learning/Application/VocabularyBook.swift", type: "LearningGateway", name: "fetchStreak", kind: .port),
         (file: "Learning/Application/VocabularyBook.swift", type: "SavedTerm", name: "episodeId", kind: .readModel),
         (file: "Learning/Application/VocabularyBook.swift", type: "SavedTerm", name: "term", kind: .readModel),
+        (file: "Learning/Application/VocabularyBook.swift", type: "SavedTerm", name: "meaning", kind: .readModel),
+        (file: "Learning/Application/VocabularyBook.swift", type: "SavedTerm", name: "registeredAt", kind: .readModel),
         (file: "Learning/Application/VocabularyBook.swift", type: "VocabularyBookView", name: "count", kind: .readModel),
         (file: "Learning/Application/VocabularyBook.swift", type: "VocabularyBookView", name: "firstTerms", kind: .readModel),
+        (file: "Learning/Application/VocabularyBook.swift", type: "VocabularyBookView", name: "firstEntries", kind: .readModel),
         (file: "Learning/Application/VocabularyBook.swift", type: "RegisteredTerms", name: "episodeId", kind: .readModel),
         (file: "Learning/Application/VocabularyBook.swift", type: "RegisteredTerms", name: "terms", kind: .readModel),
         (file: "Learning/Application/VocabularyBook.swift", type: "VocabularyBook", name: "savingTerms", kind: .query("ios-query-learning-04")),
@@ -444,6 +447,31 @@ enum ArchitectureManifest {
         (file: "Learning/Application/QuizGrading.swift", type: "QuizGrade", name: "isPositive", kind: .readModel),
         (file: "Learning/Application/QuizGrading.swift", type: "QuizGrading", name: "init(gateway:)", kind: .factory),
         (file: "Learning/Application/QuizGrading.swift", type: "QuizGrading", name: "submit(episodeId:answers:)", kind: .command("ios-cmd-learning-04")),
+        (file: "Learning/Application/EngagementStore.swift", type: "StreakRefreshReceipt", name: "increased", kind: .readModel),
+        (file: "Learning/Application/EngagementStore.swift", type: "EngagementStore", name: "streak", kind: .query("ios-query-learning-03")),
+        (file: "Learning/Application/EngagementStore.swift", type: "EngagementStore", name: "streakLoadFailed", kind: .query("ios-query-learning-03")),
+        (file: "Learning/Application/EngagementStore.swift", type: "EngagementStore", name: "init(gateway:seenStore:subjectStamp:isCurrentSubject:)", kind: .factory),
+        (file: "Learning/Application/EngagementStore.swift", type: "EngagementStore", name: "dashboard()", kind: .query("ios-query-learning-01")),
+        (file: "Learning/Application/EngagementStore.swift", type: "EngagementStore", name: "unseenAchievements(in:)", kind: .query("ios-query-learning-02")),
+        (file: "Learning/Application/EngagementStore.swift", type: "EngagementStore", name: "markAchievementsSeen(_:)", kind: .command("ios-cmd-learning-01")),
+        (file: "Learning/Application/EngagementStore.swift", type: "EngagementStore", name: "refreshStreak()", kind: .command("ios-cmd-learning-05")),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "streak", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "weekly", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "weeklyHistory", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "achievements", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "monthlyListeningDays", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "completedCount", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "masteredVocabularyCount", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "currentLevel", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "quizzedEpisodeCount", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "averageCorrectRate", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "LearningDashboardSummary", name: "quizTrend", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "WeeklyHistoryEntry", name: "week", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "WeeklyHistoryEntry", name: "progress", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "MonthlyListening", name: "month", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "MonthlyListening", name: "days", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "QuizTrendEntry", name: "date", kind: .readModel),
+        (file: "Learning/Application/LearningDashboardSummary.swift", type: "QuizTrendEntry", name: "rate", kind: .readModel),
     ]
 
     /// TA Spec §5 の `ios-cmd-*`・`ios-query-*` の ID の全集合。
@@ -538,9 +566,7 @@ enum ArchitectureManifest {
     ]
 
     /// 読み書きが混ざった操作（TA Spec §6）。実コードの公開宣言に今もある数を追跡する。
-    static let readWriteMixedOperations: [(file: String, type: String, name: String)] = [
-        (file: "AppState.swift", type: "AppState", name: "refreshListeningStreak()"),
-    ]
+    static let readWriteMixedOperations: [(file: String, type: String, name: String)] = []
 
     /// ios-dep-12 の恒久の許可リスト（入力の下書き 6 個）。
     static let publishedDraftAllowlist: [(file: String, name: String)] = [
@@ -555,34 +581,26 @@ enum ArchitectureManifest {
     /// 一時経路 ios-temp-10: 現状の違反の許可リスト `(規則 ID, path, 行数)`。実測と一致することを要求する。
     /// 行番号は書かない（後の slice で動く）。減らした slice が同じ PR で一覧を減らす。
     static let allowlist: [(rule: String, path: String, lines: Int)] = [
-        ("ios-dep-03", "AppState.swift", 11),
+        ("ios-dep-03", "AppState.swift", 9),
         ("ios-dep-13", "AppState.swift", 4),
         ("ios-dep-13", "Feed/FeedViewModel.swift", 1),
         ("ios-dep-13", "Observability/CrashReporter.swift", 1),
         ("ios-dep-13", "Starred/StarredViewModel.swift", 1),
-        ("ios-dep-04/DTO", "DesignSystem/Components/DSStreakToolbar.swift", 1),
-        ("ios-dep-04/DTO", "Learning/LearningView.swift", 5),
         ("ios-dep-04/DTO", "Podcast/AudioPlayerView.swift", 1),
         ("ios-dep-04/DTO", "Podcast/PodcastRowView.swift", 2),
         ("ios-dep-04/DTO", "Podcast/PodcastView.swift", 4),
         ("ios-dep-04/DTO", "Settings/SettingsView.swift", 1),
-        ("ios-dep-06/DTO", "Learning/LearningViewModel.swift", 2),
         ("ios-dep-05", "NewsListenAppApp.swift", 1),
         ("ios-dep-05", "Settings/SettingsView.swift", 2),
         ("ios-dep-04", "DesignSystem/PreviewSupport.swift", 2),
-        ("ios-dep-04", "Learning/LearningView.swift", 3),
         ("ios-dep-06", "Feed/FeedViewModel.swift", 1),
-        ("ios-dep-06", "Learning/LearningViewModel.swift", 3),
         ("ios-dep-06", "Settings/SettingsViewModel.swift", 3),
         ("ios-dep-06", "Starred/StarredViewModel.swift", 1),
-        ("ios-dep-12", "AppState.swift", 3),
+        ("ios-dep-12", "AppState.swift", 1),
         ("ios-dep-12", "Settings/SettingsViewModel.swift", 1),
-        // ios-check-15 (b): query の契約テストがまだ無い ID（owner: ios-slice-closure-01・ios-slice-learning-03）。
+        // ios-check-15 (b): query の契約テストがまだ無い ID（owner: ios-slice-closure-01）。
         ("ios-check-15/verifies/ios-query-account-03", "AppState.swift", 3),
-        ("ios-check-15/verifies/ios-query-learning-03", "AppState.swift", 2),
         ("ios-check-15/verifies/ios-query-notify-01", "AppState.swift", 1),
-        // ios-check-15: 読み書きが混ざった操作（owner: ios-slice-learning-03）。
-        ("ios-check-15/read-write", "AppState.swift", 1),
     ]
 
     /// `@AppStorage` は属性として照合する（`@AppStorage\b`）。ほかは単語境界の型名。

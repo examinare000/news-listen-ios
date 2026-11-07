@@ -153,26 +153,6 @@ final class LearningEngagementModelTests: XCTestCase {
         XCTAssertEqual(goal.toProgress().fraction, 1)
     }
 
-    func testAchievementTrackerReturnsOnlyUnseenUnlocksIncludingFirstLoad() throws {
-        let suiteName = "LearningEngagementModelTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let tracker = AchievementCelebrationTracker(userDefaults: defaults)
-
-        let first = tracker.consumeNewlyUnlocked([
-            Achievement(id: "first_episode_completed", unlockedAt: "2026-07-29"),
-            Achievement(id: "streak_7", unlockedAt: "2026-07-29"),
-        ])
-        let second = tracker.consumeNewlyUnlocked([
-            Achievement(id: "first_episode_completed", unlockedAt: "2026-07-29"),
-            Achievement(id: "streak_7", unlockedAt: "2026-07-29"),
-            Achievement(id: "completed_10", unlockedAt: "2026-07-30"),
-        ])
-
-        XCTAssertEqual(first.map(\.id), ["first_episode_completed", "streak_7"])
-        XCTAssertEqual(second.map(\.id), ["completed_10"])
-    }
-
     func testAchievementCatalogMatchesWebLabelsExactly() {
         XCTAssertEqual(
             AchievementCatalog.all,

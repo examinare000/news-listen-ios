@@ -222,7 +222,8 @@ final class AppStateOfflineSubjectTests: XCTestCase {
         let appState = makeState(log: log, session: MockURLSession(data: Data(), statusCode: 401), store: InMemorySessionStore(token: "tA"))
         appState.completeLogin(receipt("tA", subject("alice", key: subjectA)))
 
-        await appState.refreshListeningStreak()
+        appState.didRegisterDeviceToken("devicetokenhex")
+        await appState.registerDeviceTokenIfPossible() // 保存トークン付きの任意 API が 401（離脱の契機）
 
         guard case .anonymous = appState.session else { return XCTFail("anonymous になるべき") }
         XCTAssertEqual(log.clearCalls, [subjectA])

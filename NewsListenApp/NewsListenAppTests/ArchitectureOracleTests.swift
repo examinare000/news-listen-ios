@@ -211,7 +211,7 @@ final class ArchitectureOracleTests: XCTestCase {
                          controlPath: "Auth/Domain/Subject.swift", controlFragment: #"Role(rawValue: "admin")"#),
             LiteralGroup(key: "ios-rule-account-06・ios-rule-curation-04・ios-rule-sources-02・ios-rule-learning-08", pattern: #"catch\s+ApiFailure\.(notFound\(subject|conflict\b)"#,
                          isCanonical: { path, layer in layer == .application || path.hasPrefix("Networking/") }, excludesPath: never,
-                         controlPath: "AppState.swift", controlFragment: "catch ApiFailure.notFound(subject: .streak)"),
+                         controlPath: "Learning/Application/EngagementStore.swift", controlFragment: "catch ApiFailure.notFound(subject: .streak)"),
             LiteralGroup(key: "ios-rule-prefs-01", pattern: #""(toeic_600|toeic_900|ielts_55|ielts_7|eiken_2|eiken_p1)""#,
                          isCanonical: exact("Shared/Domain/DifficultyLevel.swift"), excludesPath: never,
                          controlPath: "Shared/Domain/DifficultyLevel.swift", controlFragment: #""toeic_600""#),
@@ -398,11 +398,11 @@ final class ArchitectureOracleTests: XCTestCase {
         XCTAssertFalse(inventory.concrete.isEmpty, "導出した具象型が空では生成を検出できない")
         let hits = ArchitectureScan.adapterConstructionHits(sources, inventory: inventory)
 
-        // 実ファイルの対照: 除外の前の集合に LearningView の Preview の行がある。
+        // 実ファイルの対照: 除外の前の集合に PreviewSupport（#if DEBUG の中。ios-dep-13 の許可リストに無い）の行がある。
         let isConstruction = try matcher([constructionPattern(inventory.concrete)])
         let targets = production.filter { ArchitectureManifest.layer(of: SourceGrep.relativePath($0)) != .compositionRoot }
         let beforeExclusion = collectHits(in: targets, where: isConstruction)
-        XCTAssertTrue(beforeExclusion.contains { $0.path == "Learning/LearningView.swift" }, "LearningView の Preview の行が除外の前の集合に無い")
+        XCTAssertTrue(beforeExclusion.contains { $0.path == "DesignSystem/PreviewSupport.swift" }, "PreviewSupport の行が除外の前の集合に無い")
         // 負の対照: コメント除外の前の集合に `///` で始まり生成の形を含む行があり、除外の後には同じファイルの `///` の行が無い。
         let withComments = collectHits(in: targets, excludeComments: false, where: isConstruction)
         XCTAssertTrue(
@@ -626,7 +626,10 @@ final class ArchitectureOracleTests: XCTestCase {
     func testIosTest066_readModelFilesMatchNowPlayingAndEpisodeRow() {
         XCTAssertEqual(
             ArchitectureManifest.readModelFiles,
-            ["Podcast/Playback/NowPlaying.swift", "Catalog/Application/EpisodeRow.swift", "Feed/Application/ArticleCardModel.swift"])
+            [
+                "Podcast/Playback/NowPlaying.swift", "Catalog/Application/EpisodeRow.swift", "Feed/Application/ArticleCardModel.swift",
+                "Learning/Application/LearningDashboardSummary.swift",
+            ])
     }
 
     // MARK: - ios-check-08
@@ -672,7 +675,7 @@ final class ArchitectureOracleTests: XCTestCase {
     private var applicationSources: [SourceFile] { sources(inLayer: .application) }
 
     private let applicationFileCounts: [(path: String, count: Int)] = [
-        ("AppState.swift", 26),
+        ("AppState.swift", 23),
         ("Settings/Application/SourceSubscriptions.swift", 22),
         ("Onboarding/Application/OnboardingProgress.swift", 4),
         ("Settings/Application/PreferencesStore.swift", 33),
@@ -701,7 +704,9 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Feed/Application/ArticleCardModel.swift", 6),
         ("Feed/Application/FeedCuration.swift", 20),
         ("Starred/Application/StarredArticles.swift", 3),
-        ("Learning/Application/VocabularyBook.swift", 19),
+        ("Learning/Application/VocabularyBook.swift", 24),
+        ("Learning/Application/EngagementStore.swift", 8),
+        ("Learning/Application/LearningDashboardSummary.swift", 17),
         ("Learning/Application/VocabularyTesting.swift", 3),
         ("Learning/Application/QuizGrading.swift", 10),
     ]
@@ -773,7 +778,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 350)
+        XCTAssertEqual(result.declared.count, 377)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -784,12 +789,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 350)
-        XCTAssertEqual(ledger.count, 350)
+        XCTAssertEqual(declared.count, 377)
+        XCTAssertEqual(ledger.count, 377)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 73, "query": 55, "port": 63, "internal": 28, "readModel": 108, "factory": 23]
+            ["command": 74, "query": 57, "port": 65, "internal": 28, "readModel": 129, "factory": 24]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -816,7 +821,7 @@ final class ArchitectureOracleTests: XCTestCase {
             if case .query(let id) = row.kind { return id }
             return nil
         })
-        XCTAssertEqual(queryIDs.count, 20, "台帳の query ID は 20 個")
+        XCTAssertEqual(queryIDs.count, 22, "台帳の query ID は 22 個")
 
         let uncovered = ArchitectureScan.uncoveredQueryRows(
             ledger: ledger,
@@ -824,7 +829,7 @@ final class ArchitectureOracleTests: XCTestCase {
             doubleTypeNames: RecordingPorts.doubleTypeNames
         )
 
-        XCTAssertEqual(Set(uncovered.keys), ["ios-query-account-03", "ios-query-learning-03", "ios-query-notify-01"], "受けられていない query ID")
+        XCTAssertEqual(Set(uncovered.keys), ["ios-query-account-03", "ios-query-notify-01"], "受けられていない query ID")
         XCTAssertNil(uncovered["ios-query-account-01"], "本 slice で契約テストを書く query は受けられている")
         let prefix = "ios-check-15/verifies/"
         let allowedIDs = Set(ArchitectureManifest.allowlist.filter { $0.rule.hasPrefix(prefix) }.map { String($0.rule.dropFirst(prefix.count)) })
@@ -839,12 +844,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let hits = ArchitectureScan.readWriteMixedHits(declared: declared, operations: ArchitectureManifest.readWriteMixedOperations)
 
-        XCTAssertEqual(hits.count, 1)
+        XCTAssertEqual(hits.count, 0)
         assertAllowlistMatches(rule: "ios-check-15/read-write", measured: hits)
         func ledgerKind(of name: String) -> OperationKind? {
             ArchitectureManifest.operationLedger.first { $0.name == name }?.kind
         }
-        XCTAssertEqual(ledgerKind(of: "refreshListeningStreak()"), .command("ios-cmd-learning-05"))
+        XCTAssertEqual(ledgerKind(of: "refreshStreak()"), .command("ios-cmd-learning-05"))
     }
 
     // verifies: ios-check-16
