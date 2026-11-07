@@ -88,6 +88,7 @@ enum ArchitectureManifest {
         "CurationDomainTests.swift",
         "FeaturedCategoryTests.swift",
         "LearningDomainTests.swift",
+        "PlaybackTransitionTests.swift",
     ]
 
     /// application の層の公開宣言の台帳（ios-check-15 (a)）。実コードと双方向に照合する。
