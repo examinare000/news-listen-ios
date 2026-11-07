@@ -226,7 +226,7 @@ final class ArchitectureOracleTests: XCTestCase {
                          controlPath: "Feed/Domain/GenerationAllowance.swift", controlFragment: "limit == 0"),
             LiteralGroup(key: "ios-rule-learning-07", pattern: #">=\s*0\.5\b"#,
                          isCanonical: exact("Learning/Domain/QuizAttempt.swift"), excludesPath: never,
-                         controlPath: "Podcast/QuizSheetView.swift", controlFragment: "correctRate >= 0.5"),
+                         controlPath: "Learning/Domain/QuizAttempt.swift", controlFragment: "Double(correct) / Double(total) >= 0.5"),
         ]
     }
 
@@ -432,7 +432,7 @@ final class ArchitectureOracleTests: XCTestCase {
     // verifies: ios-check-03（ios-dep-04・ios-dep-06 の DTO の分）
     func testIosTest059_presentationNamesNoDTO() throws {
         let names = dtoNames
-        XCTAssertEqual(names.count, 39, "DTO は 39 個（ios-slice-foundation-01 で葉の値型 4 つが domain へ）")
+        XCTAssertEqual(names.count, 38, "DTO は 38 個（ios-slice-foundation-01 で葉の値型 4 つが domain へ）")
         let isDTO = try matcher([wordPattern(names)])
         // 負の対照: 単語境界で照合する（`Podcast` が `PodcastViewModel` に当たらない）。
         let podcastOnly = try matcher([wordPattern(["Podcast"])])
@@ -530,9 +530,10 @@ final class ArchitectureOracleTests: XCTestCase {
         let isPrefix = try matcher([#"\.prefix\(10\)"#])
         let beforeExclusion = collectHits(in: all, where: isPrefix)
         XCTAssertTrue(beforeExclusion.contains { $0.path == "Settings/AccountSettingsView.swift" }, "日付の切り出しの行が除外の前の集合に無い")
-        let violations = collectHits(in: all, excludeConditional: true, where: vocabularyLimitLineIsViolation)
+        let beforeCanonicalExclusion = collectHits(in: all, excludeConditional: true, where: vocabularyLimitLineIsViolation)
+        XCTAssertTrue(beforeCanonicalExclusion.contains { $0.path == vocabularyCanonicalPath && $0.text.contains("Array(items.prefix(10))") }, "出題の上限の式が正本の側に無い")
+        let violations = beforeCanonicalExclusion
             .filter { $0.path != vocabularyCanonicalPath }
-        XCTAssertTrue(violations.contains { $0.path == "Models/VocabularyModels.swift" && $0.text.contains("Array(items.prefix(10))") }, "出題の上限の式が集合に無い")
         XCTAssertFalse(violations.contains { $0.path == "Settings/AccountSettingsView.swift" }, "日付の切り出しが数えられている")
         assertAllowlistMatches(rule: vocabularyKey, measured: violations)
     }
@@ -732,7 +733,7 @@ final class ArchitectureOracleTests: XCTestCase {
         XCTAssertTrue(inventory.concrete.isSuperset(of: known.union(["InMemorySessionStore", "StubNetworkMonitor"])), summary)
         XCTAssertTrue(inventory.excludedPrivate.isSuperset(of: ["PasskeyRegistrationDelegate", "PasskeyAssertionDelegate"]), summary)
         XCTAssertEqual(inventory.dto, dtoNames, summary)
-        XCTAssertEqual(inventory.dto.count, 39, summary)
+        XCTAssertEqual(inventory.dto.count, 38, summary)
         XCTAssertTrue(inventory.aliases.isEmpty, summary)
         XCTAssertTrue(inventory.factories.isEmpty, summary)
         XCTAssertTrue(inventory.concrete.intersection(inventory.dto).isEmpty, "concrete と dto は重ならない")
@@ -845,7 +846,7 @@ final class ArchitectureOracleTests: XCTestCase {
 
     // verifies: ios-check-16
     func testIosCheck16_validatedDomainTypesAreSkippedOrRedWithAllowlist() {
-        XCTAssertEqual(ArchitectureManifest.validatedDomainTypes.count, 10)
+        XCTAssertEqual(ArchitectureManifest.validatedDomainTypes.count, 8)
 
         let verdicts = ArchitectureScan.validatedTypeVerdicts(productionSources, types: ArchitectureManifest.validatedDomainTypes)
 
@@ -853,9 +854,9 @@ final class ArchitectureOracleTests: XCTestCase {
         let skipped = verdicts.filter { $0.value.outcome == .skip }
         let green = verdicts.filter { $0.value.outcome == .green }
         XCTAssertEqual(Set(red.keys), [])
-        XCTAssertEqual(skipped.count, 2, "skip: \(skipped.keys.sorted())")
+        XCTAssertEqual(skipped.count, 0, "skip: \(skipped.keys.sorted())")
         XCTAssertEqual(Set(green.keys), ["PlayableEpisode", "SubjectKey", "DifficultyLevel", "WeeklyGoalTarget", "TimeFormat", "ArticleOpenMode", "GenerationAllowance", "FeaturedCategory"])
-        XCTAssertEqual(verdicts.count, 10)
+        XCTAssertEqual(verdicts.count, 8)
         XCTAssertNil(red["PlayableEpisode"])
         XCTAssertEqual(green["PlayableEpisode"]?.initDeclarationCount, 1)
         for name in ["DifficultyLevel", "WeeklyGoalTarget", "TimeFormat", "ArticleOpenMode"] {
@@ -873,6 +874,6 @@ final class ArchitectureOracleTests: XCTestCase {
         let domainOnly = ArchitectureScan.unregisteredDomainTests(production: production, tests: tests, registered: [])
 
         XCTAssertEqual(unregistered, [], "登録漏れ")
-        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift", "SubjectTests.swift", "TestSubjectKeys.swift", "PasswordPolicyTests.swift", "PreferencesDomainTests.swift", "CurationDomainTests.swift", "FeaturedCategoryTests.swift"], "domain だけを参照するテストファイル")
+        XCTAssertEqual(Set(domainOnly), ["TranscriptTimingTests.swift", "EpisodeContentTests.swift", "PlayableEpisodeTests.swift", "PlaybackRulesTests.swift", "SubjectTests.swift", "TestSubjectKeys.swift", "PasswordPolicyTests.swift", "PreferencesDomainTests.swift", "CurationDomainTests.swift", "FeaturedCategoryTests.swift", "LearningDomainTests.swift"], "domain だけを参照するテストファイル")
     }
 }

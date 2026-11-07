@@ -150,7 +150,7 @@ final class LearningEngagementModelTests: XCTestCase {
         )
 
         XCTAssertEqual(goal.progressText, "今週 7/目標 5 本")
-        XCTAssertEqual(goal.progressFraction, 1)
+        XCTAssertEqual(goal.toProgress().fraction, 1)
     }
 
     func testAchievementTrackerReturnsOnlyUnseenUnlocksIncludingFirstLoad() throws {
@@ -175,7 +175,7 @@ final class LearningEngagementModelTests: XCTestCase {
 
     func testAchievementCatalogMatchesWebLabelsExactly() {
         XCTAssertEqual(
-            AchievementCatalogItem.all,
+            AchievementCatalog.all,
             [
                 .init(
                     id: "first_episode_completed",
@@ -200,6 +200,77 @@ final class LearningEngagementModelTests: XCTestCase {
                     name: "累計 50 本完聴",
                     description: "エピソードを累計 50 本聴き終える"
                 ),
+            ]
+        )
+    }
+
+    func testAchievementKeepsWireKeysOnDecodeAndEncode() throws {
+        let decoded = try JSONDecoder().decode(
+            Achievement.self,
+            from: Data(#"{"id":"streak_7","unlocked_at":"2026-07-29"}"#.utf8)
+        )
+        XCTAssertEqual(decoded, Achievement(id: "streak_7", unlockedAt: "2026-07-29"))
+
+        let encoded = try JSONEncoder().encode(decoded)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: String])
+        XCTAssertEqual(object, ["id": "streak_7", "unlocked_at": "2026-07-29"])
+
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(Achievement.self, from: Data(#"{"id":"streak_7"}"#.utf8))
+        )
+    }
+
+    func testAdaptersMapWireModelsToDomainValues() {
+        XCTAssertEqual(
+            ListeningStreak(currentStreakDays: 4, todayListened: true, lastListenedDay: "2026-07-29").toStatus(),
+            ListeningStreakStatus(days: 4, listenedToday: true, lastListenedDay: "2026-07-29")
+        )
+        XCTAssertEqual(
+            ListeningStreak(currentStreakDays: 1, todayListened: false, lastListenedDay: nil).toStatus(),
+            ListeningStreakStatus(days: 1, listenedToday: false, lastListenedDay: nil)
+        )
+        XCTAssertEqual(
+            WeeklyGoal(goalEpisodes: 5, week: "2026-W31", completedThisWeek: 3, history: []).toProgress(),
+            WeeklyProgress(completed: 3, goal: 5)
+        )
+        XCTAssertEqual(
+            WeeklyGoalRecord(week: "2026-W30", goal: 7, completed: 2).toProgress(),
+            WeeklyProgress(completed: 2, goal: 7)
+        )
+        XCTAssertEqual(
+            VocabularyTestItem(
+                vocabularyId: "vocab-1",
+                term: "resilient",
+                meaning: "回復力のある",
+                example: "The system is resilient.",
+                distractors: ["壊れやすい"]
+            ).toWord(),
+            VocabularyTestWord(
+                id: "vocab-1",
+                term: "resilient",
+                meaning: "回復力のある",
+                example: "The system is resilient.",
+                distractors: ["壊れやすい"]
+            )
+        )
+
+        var test = VocabularyTest()
+        test.start(items: ["a", "b", "c"].map {
+            VocabularyTestWord(id: $0, term: "t\($0)", meaning: "M\($0)", example: "e", distractors: ["x", "y", "z"])
+        })
+        _ = test.recordSelfAssessment(known: true)
+        _ = test.recordSelfAssessment(known: false)
+        _ = test.recordSelfAssessment(known: false)
+        _ = test.recordRetestChoice("Mb")
+        _ = test.finishRetestFeedback()
+        _ = test.recordRetestChoice("x")
+        _ = test.finishRetestFeedback()
+        XCTAssertEqual(
+            test.resultPayload,
+            [
+                VocabularyTestResultItem(vocabularyId: "a", selfKnown: true, retestCorrect: nil),
+                VocabularyTestResultItem(vocabularyId: "b", selfKnown: false, retestCorrect: true),
+                VocabularyTestResultItem(vocabularyId: "c", selfKnown: false, retestCorrect: false),
             ]
         )
     }

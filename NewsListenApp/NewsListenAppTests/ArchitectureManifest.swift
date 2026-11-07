@@ -87,6 +87,7 @@ enum ArchitectureManifest {
         "PreferencesDomainTests.swift",
         "CurationDomainTests.swift",
         "FeaturedCategoryTests.swift",
+        "LearningDomainTests.swift",
     ]
 
     /// application の層の公開宣言の台帳（ios-check-15 (a)）。実コードと双方向に照合する。
@@ -500,8 +501,6 @@ enum ArchitectureManifest {
         "WeeklyGoalTarget",
         "TimeFormat",
         "GenerationAllowance",
-        "VocabularyTest",
-        "QuizAttempt",
     ]
 
     /// 読み書きが混ざった操作（TA Spec §6）。実コードの公開宣言に今もある数を追跡する。
@@ -534,11 +533,9 @@ enum ArchitectureManifest {
         ("ios-dep-04/DTO", "Podcast/PodcastView.swift", 4),
         ("ios-dep-04/DTO", "Podcast/QuizSheetView.swift", 7),
         ("ios-dep-04/DTO", "Settings/SettingsView.swift", 1),
-        ("ios-dep-06/DTO", "Learning/LearningViewModel.swift", 3),
+        ("ios-dep-06/DTO", "Learning/LearningViewModel.swift", 2),
         ("ios-dep-06/DTO", "Podcast/PodcastViewModel.swift", 3),
         ("ios-rule-account-06・ios-rule-curation-04・ios-rule-sources-02・ios-rule-learning-08", "Podcast/QuizSheetView.swift", 1),
-        ("ios-rule-learning-07", "Podcast/QuizSheetView.swift", 1),
-        ("ios-rule-learning-05", "Models/VocabularyModels.swift", 1),
         ("ios-dep-05", "NewsListenAppApp.swift", 1),
         ("ios-dep-05", "Settings/SettingsView.swift", 2),
         ("ios-dep-04", "DesignSystem/PreviewSupport.swift", 2),
