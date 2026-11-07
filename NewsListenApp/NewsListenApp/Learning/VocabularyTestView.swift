@@ -301,7 +301,9 @@ private func vocabularyTestPreviewTesting() -> VocabularyTesting {
                 distractors: ["削除する", "翻訳する", "保存する"])]
         },
         submitTestResult: { _ in },
-        submitQuiz: { _, _ in QuizGrade(correctCount: 0, total: 0, perQuestion: [], isPositive: false) }
+        submitQuiz: { _, _ in QuizGrade(correctCount: 0, total: 0, perQuestion: [], isPositive: false) },
+        fetchDashboard: { throw CancellationError() },
+        fetchStreak: { throw CancellationError() }
     ))
 }
 

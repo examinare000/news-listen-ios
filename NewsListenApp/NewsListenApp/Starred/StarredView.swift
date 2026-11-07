@@ -9,8 +9,8 @@ import SwiftUI
 
 /// スタータブのルートビュー。Star 済み記事の一覧表示と、スワイプによる un-star 導線を担う。
 struct StarredView: View {
-    /// アプリ全体で共有する認証状態（ストリーク表示のツールバーに使う）。
-    @EnvironmentObject private var appState: AppState
+    /// 聴取ストリークの保持者（ツールバーの表示に使う）。
+    @EnvironmentObject private var engagement: EngagementStore
     /// 設定の現在値（記事の開き方〈アプリ内/外部ブラウザ〉の判定に使う）。
     @EnvironmentObject private var preferencesStore: PreferencesStore
     /// 一覧取得を担う ViewModel。
@@ -43,7 +43,7 @@ struct StarredView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .dsScreenBackground()
             .navigationTitle("スター")
-            .dsStreakToolbar(appState: appState)
+            .dsStreakToolbar(engagement: engagement)
             .alert("エラー", isPresented: errorBinding) {
                 Button("OK") { viewModel.clearError() }
             } message: {
@@ -164,13 +164,13 @@ struct StarredView: View {
 #if DEBUG
 #Preview("Starred / Light") {
     StarredView(starred: PreviewSamples.starredArticles())
-        .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.engagement())
         .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("Starred / Dark") {
     StarredView(starred: PreviewSamples.starredArticles())
-        .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.engagement())
         .environmentObject(PreviewSamples.preferencesStore())
         .preferredColorScheme(.dark)
 }

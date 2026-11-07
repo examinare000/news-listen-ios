@@ -53,12 +53,6 @@ final class AppState: ObservableObject {
         return true
     }
 
-    /// アプリ全体で共有する聴取ストリーク。未取得・未提供時は `nil`。
-    @Published var listeningStreak: ListeningStreak?
-
-    /// 直近のストリーク取得が 404 以外で失敗したか。
-    @Published var listeningStreakLoadFailed = false
-
     /// プッシュ通知タップで開く対象 Podcast ID（ディープリンク・issue #80）。
     /// 設定されると Podcast タブへ遷移して再生する。遷移後は受け手が nil に戻す。
     @Published var selectedPodcastId: String?
@@ -283,36 +277,6 @@ final class AppState: ObservableObject {
             session = .unavailable(failure)
         } catch {
             // ApiFailure 以外（キャンセル）は制御信号のため、状態・token とも変えない（A11）。
-        }
-    }
-
-    /// サーバーから聴取ストリークを取得して共有状態を更新する（G5）。
-    ///
-    /// 404 は旧 backend または未提供機能として非表示へ graceful degradation する。
-    /// 旧値→新値で currentStreakDays が増加していれば streakUp フィードバックを発火。
-    /// 開始時に捕捉した保存トークンと await の後で一致するときだけ結果を書く。
-    func refreshListeningStreak() async {
-        let t0 = sessionStore.token
-        guard let apiClient else { return }
-        let previousStatus = listeningStreak?.toStatus()
-        do {
-            let newStreak = try await apiClient.fetchListeningStreak()
-            guard sessionStore.token == t0 else { return }
-            listeningStreak = newStreak
-            listeningStreakLoadFailed = false
-            // 初回ロード（previousStatus == nil）では発火させない。
-            // 既存値から増加した場合のみ streakUp フィードバック。
-            if ListeningStreakStatus.didIncrease(from: previousStatus, to: newStreak.toStatus()) {
-                DSFeedback.shared.play(.streakUp)
-            }
-        } catch ApiFailure.notFound(subject: .streak) {
-            guard sessionStore.token == t0 else { return }
-            listeningStreak = nil
-            listeningStreakLoadFailed = false
-        } catch {
-            guard sessionStore.token == t0 else { return }
-            listeningStreak = nil
-            listeningStreakLoadFailed = true
         }
     }
 

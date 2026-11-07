@@ -9,8 +9,8 @@ import SwiftUI
 
 /// Feed タブのルートビュー。記事一覧・スワイプ操作（Star/Dismiss）・記事タップでの遷移を担う。
 struct FeedView: View {
-    /// アプリ全体で共有する設定状態。
-    @EnvironmentObject private var appState: AppState
+    /// 聴取ストリークの保持者（ツールバーの表示に使う）。
+    @EnvironmentObject private var engagement: EngagementStore
     /// 設定の現在値（記事の開き方の判定に使う）。
     @EnvironmentObject private var preferencesStore: PreferencesStore
     /// 記事一覧と操作を担う ViewModel。
@@ -67,7 +67,7 @@ struct FeedView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .dsScreenBackground()
             .navigationTitle("フィード")
-            .dsStreakToolbar(appState: appState)
+            .dsStreakToolbar(engagement: engagement)
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button {
@@ -241,13 +241,13 @@ struct FeedView: View {
 #if DEBUG
 #Preview("Feed / Light") {
     FeedView(curation: PreviewSamples.feedCuration())
-        .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.engagement())
         .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("Feed / Dark") {
     FeedView(curation: PreviewSamples.feedCuration())
-        .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.engagement())
         .environmentObject(PreviewSamples.preferencesStore())
         .preferredColorScheme(.dark)
 }

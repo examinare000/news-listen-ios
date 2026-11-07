@@ -2,15 +2,16 @@ import SwiftUI
 
 /// 継続状況・実績・登録語彙・活動履歴を一つの紙面にまとめる第 5 タブ。
 struct LearningView: View {
-    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var engagement: EngagementStore
     @StateObject private var viewModel: LearningViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let vocabularyTesting: VocabularyTesting
 
     @MainActor
-    init(apiClient: APIClient) {
-        _viewModel = StateObject(wrappedValue: LearningViewModel(apiClient: apiClient))
-        vocabularyTesting = VocabularyTesting(gateway: LearningGateway.live(apiClient: apiClient))
+    init(engagement: EngagementStore, vocabularyBook: VocabularyBook, vocabularyTesting: VocabularyTesting) {
+        _viewModel = StateObject(wrappedValue: LearningViewModel(
+            engagement: engagement, vocabularyBook: vocabularyBook, vocabularyTesting: vocabularyTesting))
+        self.vocabularyTesting = vocabularyTesting
     }
 
     var body: some View {
@@ -60,13 +61,19 @@ struct LearningView: View {
                 )
                 .padding(DSSpacing.l)
             }
+            // 実績の解錠音は、新しい値が空でないときだけ鳴らす（閉じて `[]` になったときは鳴らさない）。
+            .onChange(of: viewModel.newlyUnlocked) { _, newValue in
+                if !newValue.isEmpty {
+                    DSFeedback.shared.play(.achievement)
+                }
+            }
             .scrollContentBackground(.hidden)
             .dsScreenBackground()
             .refreshable {
                 await viewModel.load()
             }
             .navigationTitle("学習")
-            .dsStreakToolbar(appState: appState)
+            .dsStreakToolbar(engagement: engagement)
             .toolbar {
                 if viewModel.dashboard != nil || viewModel.loadFailed {
                     ToolbarItem(placement: .navigationBarTrailing) {
@@ -105,34 +112,34 @@ struct LearningView: View {
         )
     }
 
-    private func progressSection(_ dashboard: LearningDashboard) -> some View {
+    private func progressSection(_ dashboard: LearningDashboardSummary) -> some View {
         VStack(alignment: .leading, spacing: DSSpacing.m) {
             Text("今週の進捗")
                 .font(DSFont.title)
                 .foregroundStyle(DSColor.ink)
-            let streak = appState.listeningStreak ?? dashboard.streak
-            if streak.toStatus().isShown {
-                Text("\(streak.currentStreakDays) 日連続")
+            let streak = engagement.streak ?? dashboard.streak
+            if streak.isShown {
+                Text("\(streak.days) 日連続")
                     .font(DSFont.headline)
                     .foregroundStyle(DSColor.accent)
-                    .contentTransition(.numericText(value: Double(streak.currentStreakDays)))
+                    .contentTransition(.numericText(value: Double(streak.days)))
                     .transaction { if reduceMotion { $0.animation = nil } }
             }
-            if let weeklyGoal = dashboard.weeklyGoal {
-                Text(weeklyGoal.progressText)
+            if let weekly = dashboard.weekly {
+                Text("今週 \(weekly.completed)/目標 \(weekly.goal) 本")
                     .font(DSFont.body)
                     .foregroundStyle(DSColor.ink)
-                RelevanceBar(score: weeklyGoal.toProgress().fraction)
+                RelevanceBar(score: weekly.fraction)
                     .accessibilityLabel("今週の学習目標進捗")
-                    .accessibilityValue("\(weeklyGoal.completedThisWeek)本、目標\(weeklyGoal.goalEpisodes)本")
+                    .accessibilityValue("\(weekly.completed)本、目標\(weekly.goal)本")
             }
         }
         .dsCard()
     }
 
-    private func achievementsSection(_ dashboard: LearningDashboard) -> some View {
+    private func achievementsSection(_ dashboard: LearningDashboardSummary) -> some View {
         let unlockedByID = Dictionary(
-            uniqueKeysWithValues: (dashboard.achievements ?? []).map { ($0.id, $0) }
+            uniqueKeysWithValues: dashboard.achievements.map { ($0.id, $0) }
         )
         return VStack(alignment: .leading, spacing: DSSpacing.m) {
             Text("実績")
@@ -170,7 +177,7 @@ struct LearningView: View {
                 Text("\(vocabulary.count) 語")
                     .font(DSFont.meta)
                     .foregroundStyle(DSColor.inkSecondary)
-                ForEach(vocabulary.vocabulary.prefix(5)) { item in
+                ForEach(Array(vocabulary.firstEntries.enumerated()), id: \.offset) { _, item in
                     VStack(alignment: .leading, spacing: DSSpacing.xs) {
                         Text(item.term).font(DSFont.headline)
                         Text(item.meaning).font(DSFont.body)
@@ -186,30 +193,30 @@ struct LearningView: View {
         .dsCard()
     }
 
-    private func historySection(_ dashboard: LearningDashboard) -> some View {
+    private func historySection(_ dashboard: LearningDashboardSummary) -> some View {
         VStack(alignment: .leading, spacing: DSSpacing.xl) {
-            if let records = dashboard.weeklyGoal?.history, !records.isEmpty {
+            if !dashboard.weeklyHistory.isEmpty {
                 VStack(alignment: .leading, spacing: DSSpacing.m) {
                     Text("週次履歴").font(DSFont.title)
-                    ForEach(records) { record in
+                    ForEach(dashboard.weeklyHistory, id: \.week) { record in
                         activityRow(
                             title: record.week,
-                            fact: "目標: \(record.goal) → 実績: \(record.completed)",
-                            fraction: record.toProgress().fraction,
-                            accessibilityValue: "目標\(record.goal)本、実績\(record.completed)本"
+                            fact: "目標: \(record.progress.goal) → 実績: \(record.progress.completed)",
+                            fraction: record.progress.fraction,
+                            accessibilityValue: "目標\(record.progress.goal)本、実績\(record.progress.completed)本"
                         )
                     }
                 }
             }
-            if !dashboard.monthlyActivity.isEmpty {
+            if !dashboard.monthlyListeningDays.isEmpty {
                 VStack(alignment: .leading, spacing: DSSpacing.m) {
                     Text("月別活動").font(DSFont.title)
-                    ForEach(dashboard.monthlyActivity) { activity in
+                    ForEach(dashboard.monthlyListeningDays, id: \.month) { activity in
                         activityRow(
                             title: activity.month,
-                            fact: "\(activity.activeDays) 日",
-                            fraction: Double(activity.activeDays) / 31,
-                            accessibilityValue: "\(activity.activeDays)日"
+                            fact: "\(activity.days) 日",
+                            fraction: Double(activity.days) / 31,
+                            accessibilityValue: "\(activity.days)日"
                         )
                     }
                 }
@@ -219,17 +226,17 @@ struct LearningView: View {
         .dsCard()
     }
 
-    private func accumulationSection(_ dashboard: LearningDashboard) -> some View {
+    private func accumulationSection(_ dashboard: LearningDashboardSummary) -> some View {
         VStack(alignment: .leading, spacing: DSSpacing.m) {
             Text("学習の蓄積").font(DSFont.title).foregroundStyle(DSColor.ink)
             VStack(alignment: .leading, spacing: DSSpacing.s) {
-                Text("完聴エピソード数: \(dashboard.totalEpisodes) 本")
+                Text("完聴エピソード数: \(dashboard.completedCount) 本")
                     .font(DSFont.body)
                     .foregroundStyle(DSColor.ink)
-                Text("習得語彙数: \(dashboard.vocabularyAcquired) 語")
+                Text("習得語彙数: \(dashboard.masteredVocabularyCount) 語")
                     .font(DSFont.body)
                     .foregroundStyle(DSColor.ink)
-                Text("現在のレベル: \(dashboard.currentDifficulty)")
+                Text("現在のレベル: \(dashboard.currentLevel)")
                     .font(DSFont.body)
                     .foregroundStyle(DSColor.ink)
             }
@@ -237,14 +244,14 @@ struct LearningView: View {
         .dsCard()
     }
 
-    private func quizTrendSection(_ dashboard: LearningDashboard) -> some View {
+    private func quizTrendSection(_ dashboard: LearningDashboardSummary) -> some View {
         VStack(alignment: .leading, spacing: DSSpacing.m) {
             Text("クイズ成績の推移").font(DSFont.title).foregroundStyle(DSColor.ink)
             VStack(alignment: .leading, spacing: DSSpacing.s) {
-                Text("出題エピソード数: \(dashboard.quiz.quizzedEpisodes) 本")
+                Text("出題エピソード数: \(dashboard.quizzedEpisodeCount) 本")
                     .font(DSFont.body)
                     .foregroundStyle(DSColor.ink)
-                if let avgRate = dashboard.quiz.averageCorrectRate {
+                if let avgRate = dashboard.averageCorrectRate {
                     Text(String(format: "平均正答率: %.1f%%", avgRate * 100))
                         .font(DSFont.body)
                         .foregroundStyle(DSColor.ink)
@@ -253,16 +260,16 @@ struct LearningView: View {
                         .font(DSFont.body)
                         .foregroundStyle(DSColor.inkSecondary)
                 }
-                if !dashboard.quiz.trend.isEmpty {
+                if !dashboard.quizTrend.isEmpty {
                     VStack(alignment: .leading, spacing: DSSpacing.xs) {
                         Text("最新のトレンド").font(DSFont.meta).foregroundStyle(DSColor.inkSecondary)
-                        ForEach(dashboard.quiz.trend.suffix(3)) { point in
+                        ForEach(dashboard.quizTrend.suffix(3), id: \.date) { point in
                             HStack {
-                                Text(String(point.gradedAt.prefix(10)))
+                                Text(String(point.date.prefix(10)))
                                     .font(DSFont.meta)
                                     .foregroundStyle(DSColor.inkSecondary)
                                 Spacer()
-                                Text(String(format: "%.0f%%", point.correctRate * 100))
+                                Text(String(format: "%.0f%%", point.rate * 100))
                                     .font(DSFont.meta)
                                     .foregroundStyle(DSColor.accent)
                             }
@@ -298,18 +305,23 @@ struct LearningView: View {
 }
 
 #if DEBUG
-#Preview("Learning / Light") {
-    LearningView(
-        apiClient: APIClient(baseURL: URL(string: "https://example.com")!, apiKey: "preview")
+@MainActor
+private func learningPreview() -> some View {
+    let engagement = PreviewSamples.engagement(streakDays: 5)
+    return LearningView(
+        engagement: engagement,
+        vocabularyBook: PreviewSamples.vocabularyBook(),
+        vocabularyTesting: PreviewSamples.vocabularyTesting()
     )
-    .environmentObject(AppState())
+    .environmentObject(engagement)
+}
+
+#Preview("Learning / Light") {
+    learningPreview()
 }
 
 #Preview("Learning / Dark") {
-    LearningView(
-        apiClient: APIClient(baseURL: URL(string: "https://example.com")!, apiKey: "preview")
-    )
-    .environmentObject(AppState())
-    .preferredColorScheme(.dark)
+    learningPreview()
+        .preferredColorScheme(.dark)
 }
 #endif

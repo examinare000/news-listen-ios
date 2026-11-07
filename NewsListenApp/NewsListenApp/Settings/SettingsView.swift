@@ -15,6 +15,10 @@ import SwiftUI
 struct SettingsView: View {
     /// アプリ全体で共有する設定状態。
     @ObservedObject private var appState: AppState
+    /// 聴取ストリークの保持者。再試行の後の警告の解消と完聴後の更新を画面に出すため購読する。
+    @ObservedObject private var engagement: EngagementStore
+    /// ストリークの更新（合成 root が上昇音まで含めて包む）。
+    private let refreshStreak: @MainActor () async -> Void
     /// 設定の現在値の持ち主。値の読み取りと変更（`Binding(get:set:)` → command）はここを通す。
     @EnvironmentObject private var preferencesStore: PreferencesStore
     /// RSS ソースの取得・追加・編集・削除を担う ViewModel。
@@ -53,6 +57,8 @@ struct SettingsView: View {
     /// ビューを生成する。
     /// - Parameters:
     ///   - appState: 共有の設定状態。
+    ///   - engagement: 聴取ストリークの保持者。
+    ///   - refreshStreak: ストリークを更新する手順。
     ///   - library: 合成 root が作った保存庫（キャッシュの容量表示に使う）。
     ///   - downloads: ダウンロード use case（キャッシュの全削除に使う）。
     ///   - curation: 生成の残り回数を読む application。
@@ -64,6 +70,8 @@ struct SettingsView: View {
     @MainActor
     init(
         appState: AppState,
+        engagement: EngagementStore,
+        refreshStreak: @escaping @MainActor () async -> Void,
         library: OfflineLibrary,
         downloads: OfflineDownloads,
         curation: FeedCuration,
@@ -74,6 +82,8 @@ struct SettingsView: View {
         administration: UserAdministration
     ) {
         self.appState = appState
+        self.engagement = engagement
+        self.refreshStreak = refreshStreak
         self.profile = profile
         self.deviceSessions = deviceSessions
         self.enrollment = enrollment
@@ -115,7 +125,7 @@ struct SettingsView: View {
             await viewModel.loadSources()
             await viewModel.loadFeaturedSites()
             await viewModel.loadGenerationQuota()
-            await appState.refreshListeningStreak()
+            await refreshStreak()
             await viewModel.loadCacheSize()
         }
     }
@@ -346,20 +356,20 @@ struct SettingsView: View {
     ///
     /// API クライアント未設定時は表示しない。「記録なし」の graceful 表示は
     /// `lastListenedDay == nil`（聴取記録が一度もない）で判定する。
-    /// `currentStreakDays == 0` は連続記録が途切れているだけの場合もあり、
-    /// その場合は最終聴取日を伴う ``ListeningStreak`` としてそのまま表示する
+    /// `days == 0` は連続記録が途切れているだけの場合もあり、
+    /// その場合は最終聴取日を伴う ``ListeningStreakStatus`` としてそのまま表示する
     /// （0日連続 + 過去の最終聴取日、が矛盾なく両立しうるため。issue #165 レビュー指摘）。
     /// 取得失敗時はインライン警告 + 再試行を出す。
     @ViewBuilder
     private var listeningStreakSection: some View {
         if appState.apiClient != nil {
             Section("聴取ストリーク") {
-                if let streak = appState.listeningStreak {
+                if let streak = engagement.streak {
                     if let lastListenedDay = streak.lastListenedDay {
                         HStack {
-                            DSBadge("\(streak.currentStreakDays)日連続", systemImage: "flame.fill")
+                            DSBadge("\(streak.days)日連続", systemImage: "flame.fill")
                             Spacer()
-                            if streak.todayListened {
+                            if streak.listenedToday {
                                 Label("本日聴取済み", systemImage: "checkmark.circle.fill")
                                     .font(DSFont.footnote)
                                     .foregroundStyle(DSColor.success)
@@ -374,13 +384,13 @@ struct SettingsView: View {
                             .foregroundStyle(DSColor.inkSecondary)
                     }
                 }
-                if appState.listeningStreakLoadFailed {
+                if engagement.streakLoadFailed {
                     HStack {
                         Text("聴取ストリークの取得に失敗しました")
                             .font(DSFont.footnote)
                             .foregroundStyle(DSColor.danger)
                         Spacer()
-                        Button("再試行") { Task { await appState.refreshListeningStreak() } }
+                        Button("再試行") { Task { await refreshStreak() } }
                             .buttonStyle(.borderless)
                     }
                 }

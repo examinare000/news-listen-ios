@@ -14,6 +14,25 @@ extension WeeklyGoalRecord {
     func toProgress() -> WeeklyProgress { WeeklyProgress(completed: completed, goal: goal) }
 }
 
+extension LearningDashboard {
+    /// 通信のデータモデルを presentation に見せないための写し。
+    func toSummary() -> LearningDashboardSummary {
+        LearningDashboardSummary(
+            streak: streak.toStatus(),
+            weekly: weeklyGoal?.toProgress(),
+            weeklyHistory: (weeklyGoal?.history ?? []).map { WeeklyHistoryEntry(week: $0.week, progress: $0.toProgress()) },
+            achievements: achievements ?? [],
+            monthlyListeningDays: monthlyActivity.map { MonthlyListening(month: $0.month, days: $0.activeDays) },
+            completedCount: totalEpisodes,
+            masteredVocabularyCount: vocabularyAcquired,
+            currentLevel: currentDifficulty,
+            quizzedEpisodeCount: quiz.quizzedEpisodes,
+            averageCorrectRate: quiz.averageCorrectRate,
+            quizTrend: quiz.trend.map { QuizTrendEntry(date: $0.gradedAt, rate: $0.correctRate) }
+        )
+    }
+}
+
 extension Achievement: Codable {
     enum CodingKeys: String, CodingKey {
         case id
