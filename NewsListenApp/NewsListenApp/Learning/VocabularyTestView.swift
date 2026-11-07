@@ -10,8 +10,8 @@ struct VocabularyTestView: View {
     @State private var isExiting = false
 
     @MainActor
-    init(apiClient: APIClient) {
-        _viewModel = StateObject(wrappedValue: VocabularyTestViewModel(apiClient: apiClient))
+    init(vocabularyTesting: VocabularyTesting) {
+        _viewModel = StateObject(wrappedValue: VocabularyTestViewModel(vocabularyTesting: vocabularyTesting))
     }
 
     var body: some View {
@@ -44,6 +44,23 @@ struct VocabularyTestView: View {
         .navigationTitle("単語テスト")
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.load() }
+        .onChange(of: viewModel.machine.feedback) { _, feedback in
+            announce(feedback)
+        }
+    }
+
+    /// 正誤が確定した直後（800ms 待機の前）に、効果音・触覚と VoiceOver の読み上げを行う。nil に戻るときは鳴らさない。
+    private func announce(_ feedback: VocabularyTest.RetestFeedback?) {
+        switch feedback {
+        case .correct:
+            DSFeedback.shared.play(.correct)
+            UIAccessibility.post(notification: .announcement, argument: "正解")
+        case .incorrect(let correctAnswer):
+            DSFeedback.shared.play(.incorrect)
+            UIAccessibility.post(notification: .announcement, argument: "不正解。正解は\(correctAnswer)")
+        case nil:
+            return
+        }
     }
 
     private var selfAssessment: some View {
@@ -273,19 +290,30 @@ struct VocabularyTestView: View {
 }
 
 #if DEBUG
+@MainActor
+private func vocabularyTestPreviewTesting() -> VocabularyTesting {
+    VocabularyTesting(gateway: LearningGateway(
+        fetchVocabulary: { (terms: [], count: 0) },
+        saveVocabulary: { _, _ in },
+        fetchTestSession: {
+            [VocabularyTestWord(
+                id: "preview-1", term: "deploy", meaning: "展開する", example: "We deploy twice a day.",
+                distractors: ["削除する", "翻訳する", "保存する"])]
+        },
+        submitTestResult: { _ in },
+        submitQuiz: { _, _ in QuizGrade(correctCount: 0, total: 0, perQuestion: [], isPositive: false) }
+    ))
+}
+
 #Preview("Vocabulary Test / Light") {
     NavigationStack {
-        VocabularyTestView(
-            apiClient: APIClient(baseURL: URL(string: "https://example.com")!, apiKey: "preview")
-        )
+        VocabularyTestView(vocabularyTesting: vocabularyTestPreviewTesting())
     }
 }
 
 #Preview("Vocabulary Test / Dark") {
     NavigationStack {
-        VocabularyTestView(
-            apiClient: APIClient(baseURL: URL(string: "https://example.com")!, apiKey: "preview")
-        )
+        VocabularyTestView(vocabularyTesting: vocabularyTestPreviewTesting())
     }
     .preferredColorScheme(.dark)
 }

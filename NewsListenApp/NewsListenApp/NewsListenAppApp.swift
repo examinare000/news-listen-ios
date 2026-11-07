@@ -258,6 +258,7 @@ struct ContentView: View {
         library: OfflineLibrary
     ) -> PodcastViewModel {
         let gateway = PlaybackGateway.live(apiClient: apiClient)
+        let learningGateway = LearningGateway.live(apiClient: apiClient)
         let catalog = EpisodeCatalog(gateway: .live(apiClient: apiClient))
         let networkMonitor = NetworkMonitor()
         let reporter = PositionReporter(
@@ -285,7 +286,8 @@ struct ContentView: View {
             currentSubject: currentSubjectKey
         )
         let playerViewModel = PodcastViewModel(
-            apiClient: apiClient,
+            vocabularyBook: VocabularyBook(gateway: learningGateway),
+            quizGrading: QuizGrading(gateway: learningGateway),
             catalog: catalog,
             coordinator: coordinator,
             reporter: reporter,

@@ -1,23 +1,21 @@
 import Foundation
 import Combine
-import UIKit
 
 /// 通信と 800ms フィードバック待機を純粋な状態機械へ接続する。
 @MainActor
 final class VocabularyTestViewModel: ObservableObject {
     @Published private(set) var machine = VocabularyTest()
 
-    let apiClient: APIClient
+    private let vocabularyTesting: VocabularyTesting
 
-    init(apiClient: APIClient) {
-        self.apiClient = apiClient
+    init(vocabularyTesting: VocabularyTesting) {
+        self.vocabularyTesting = vocabularyTesting
     }
 
     func load() async {
         machine.restartLoading()
         do {
-            let session = try await apiClient.fetchVocabularyTestSession()
-            machine.start(items: session.items.map { $0.toWord() })
+            machine.start(items: try await vocabularyTesting.due().words)
         } catch {
             machine.markLoadingFailed()
         }
@@ -32,21 +30,7 @@ final class VocabularyTestViewModel: ObservableObject {
 
     func answerRetest(_ choice: String) async {
         guard machine.recordRetestChoice(choice) else { return }
-        let correct: Bool
-        switch machine.feedback {
-        case .correct:
-            correct = true
-            DSFeedback.shared.play(.correct)
-        case .incorrect:
-            correct = false
-            DSFeedback.shared.play(.incorrect)
-        case nil:
-            return
-        }
-        UIAccessibility.post(
-            notification: .announcement,
-            argument: correct ? "正解" : "不正解。正解は\(machine.revealedCorrectAnswer ?? "")"
-        )
+        guard machine.feedback != nil else { return }
 
         try? await Task.sleep(for: .milliseconds(800))
         guard !Task.isCancelled else { return }
@@ -66,7 +50,7 @@ final class VocabularyTestViewModel: ObservableObject {
     private func submit() async {
         machine.markSubmitting()
         do {
-            _ = try await apiClient.submitVocabularyTestResult(machine.resultPayload)
+            try await vocabularyTesting.submit(machine)
             machine.markSubmitted()
         } catch {
             machine.markSubmissionFailed()

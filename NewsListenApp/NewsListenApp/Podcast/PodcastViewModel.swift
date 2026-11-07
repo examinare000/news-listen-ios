@@ -2,7 +2,7 @@
 //  PodcastViewModel.swift
 //  NewsListenApp
 //
-//  Podcast タブの facade。一覧と学習の操作を持ち、再生・保存は `PlaybackCoordinator`・`OfflineDownloads`・
+//  Podcast タブの facade。一覧の状態を持ち、再生・保存は `PlaybackCoordinator`・`OfflineDownloads`・
 //  `OfflineLibrary` へ中継する。再生の判断はここに書かない。
 //
 
@@ -11,7 +11,7 @@ import Combine
 
 /// Podcast タブの状態とロジックを担う ViewModel（facade）。
 ///
-/// 責務は、Coordinator の中継、一覧の状態、学習の中継、alert の文言の合成の 4 つ。
+/// 責務は、Coordinator の中継、一覧の状態、alert の文言の合成の 3 つ。
 ///
 /// - Note: 既存の構成を保つため `NSObject` を継承する。
 @MainActor
@@ -33,17 +33,19 @@ final class PodcastViewModel: NSObject, ObservableObject {
     /// 主体離脱時の再生停止 port（実体は Coordinator）。
     let playbackLifecycle: any PlaybackLifecycle
 
-    private let apiClient: APIClient
     private let catalog: EpisodeCatalog
     private let coordinator: PlaybackCoordinator
     private let positionReporter: PositionReporter
     private let library: OfflineLibrary
     let downloads: OfflineDownloads
+    let vocabularyBook: VocabularyBook
+    let quizGrading: QuizGrading
     private let defaultSpeed: () -> Float
     private var cancellables = Set<AnyCancellable>()
 
     /// - Parameters:
-    ///   - apiClient: 学習の通信に使うクライアント。
+    ///   - vocabularyBook: 語の登録と登録済みの語（学習）。変化は `objectWillChange` へ転送する。
+    ///   - quizGrading: クイズの送信（学習）。
     ///   - catalog: 一覧の保持と引き当て。
     ///   - coordinator: 再生の入口。
     ///   - reporter: `flushPosition()` のためだけに持つ。外へ出さない。
@@ -52,7 +54,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
     ///   - networkMonitor: ネットワーク監視（オフラインバナー用）。
     ///   - defaultSpeed: 再生していないときの速度の表示（`playbackSpeed` の fallback）。
     init(
-        apiClient: APIClient,
+        vocabularyBook: VocabularyBook,
+        quizGrading: QuizGrading,
         catalog: EpisodeCatalog,
         coordinator: PlaybackCoordinator,
         reporter: PositionReporter,
@@ -61,7 +64,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
         networkMonitor: NetworkMonitoring,
         defaultSpeed: @escaping () -> Float
     ) {
-        self.apiClient = apiClient
+        self.vocabularyBook = vocabularyBook
+        self.quizGrading = quizGrading
         self.catalog = catalog
         self.coordinator = coordinator
         self.positionReporter = reporter
@@ -92,6 +96,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
         library.objectWillChange
+            .sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        vocabularyBook.objectWillChange
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
         downloads.objectWillChange
@@ -271,23 +278,6 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
     /// 背景遷移などの直前に、現在の位置を送る。
     func flushPosition() { positionReporter.flush() }
-
-    // MARK: - 学習
-
-    /// 現在のクイズ回答をサーバーへ送り、採点結果を返す。
-    func submitQuizAnswers(podcastId: String, answers: [Int]) async throws -> QuizAnswerResponse {
-        try await apiClient.submitQuizAnswers(podcastId: podcastId, answers: answers)
-    }
-
-    /// 登録済み語彙を取得する。AudioPlayerView の初期「習得済み」反映に使う。
-    func fetchSavedVocabulary() async throws -> VocabularyListResponse {
-        try await apiClient.fetchVocabulary()
-    }
-
-    /// 現在の Podcast グロッサリ語を個人語彙帳へ冪等登録する。
-    func saveVocabulary(podcastId: String, term: String) async throws -> VocabularyItem {
-        try await apiClient.saveVocabulary(podcastId: podcastId, term: term)
-    }
 
     // MARK: - 一覧側の失敗
 
