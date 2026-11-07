@@ -5,7 +5,7 @@ import UIKit
 /// 通信と 800ms フィードバック待機を純粋な状態機械へ接続する。
 @MainActor
 final class VocabularyTestViewModel: ObservableObject {
-    @Published private(set) var machine = VocabularyTestStateMachine()
+    @Published private(set) var machine = VocabularyTest()
 
     let apiClient: APIClient
 
@@ -17,7 +17,7 @@ final class VocabularyTestViewModel: ObservableObject {
         machine.restartLoading()
         do {
             let session = try await apiClient.fetchVocabularyTestSession()
-            machine.start(items: session.items)
+            machine.start(items: session.items.map { $0.toWord() })
         } catch {
             machine.markLoadingFailed()
         }

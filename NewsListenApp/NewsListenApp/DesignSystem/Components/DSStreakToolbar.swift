@@ -14,9 +14,7 @@ private struct DSStreakToolbarModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.toolbar {
-            if let streak = appState.listeningStreak,
-               streak.lastListenedDay != nil,
-               streak.currentStreakDays > 0 {
+            if let streak = appState.listeningStreak, streak.toStatus().isShown {
                 ToolbarItem(placement: .navigationBarLeading) {
                     DSBadge(
                         "\(streak.currentStreakDays)日連続",

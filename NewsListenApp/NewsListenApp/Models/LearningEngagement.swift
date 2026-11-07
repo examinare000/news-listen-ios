@@ -66,22 +66,6 @@ struct WeeklyGoal: Codable, Equatable {
     var progressText: String {
         "今週 \(completedThisWeek)/目標 \(goalEpisodes) 本"
     }
-
-    var progressFraction: Double {
-        guard goalEpisodes > 0 else { return 0 }
-        return min(max(Double(completedThisWeek) / Double(goalEpisodes), 0), 1)
-    }
-}
-
-/// 解錠済み実績。API は表示文言を返さず ID と認定日だけを返す。
-struct Achievement: Codable, Equatable, Identifiable {
-    let id: String
-    let unlockedAt: String
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case unlockedAt = "unlocked_at"
-    }
 }
 
 /// `GET /users/me/learning-dashboard` のレスポンス。
@@ -109,39 +93,6 @@ struct LearningDashboard: Codable, Equatable {
     }
 }
 
-/// Web と表示文言まで共有する固定実績カタログ。
-struct AchievementCatalogItem: Identifiable, Equatable {
-    let id: String
-    let name: String
-    let description: String
-
-    static let all: [AchievementCatalogItem] = [
-        .init(
-            id: "first_episode_completed",
-            name: "初回エピソード完聴",
-            description: "はじめてエピソードを最後まで聴く"
-        ),
-        .init(
-            id: "first_quiz_correct",
-            name: "初回クイズ正解",
-            description: "はじめて理解度クイズに正解する"
-        ),
-        .init(id: "streak_7", name: "7 日連続聴取", description: "7 日間連続で聴く"),
-        .init(id: "streak_30", name: "30 日連続聴取", description: "30 日間連続で聴く"),
-        .init(id: "streak_100", name: "100 日連続聴取", description: "100 日間連続で聴く"),
-        .init(
-            id: "completed_10",
-            name: "累計 10 本完聴",
-            description: "エピソードを累計 10 本聴き終える"
-        ),
-        .init(
-            id: "completed_50",
-            name: "累計 50 本完聴",
-            description: "エピソードを累計 50 本聴き終える"
-        ),
-    ]
-}
-
 /// 端末で既に祝福した実績を保持し、初回ロードを含む未表示差分だけを返す。
 struct AchievementCelebrationTracker {
     /// key 文字列の宣言は `PreferenceRegistry`（ios-slice-auth-01）が正本で、これはその別名（D-5）。
@@ -155,7 +106,7 @@ struct AchievementCelebrationTracker {
 
     func consumeNewlyUnlocked(_ unlocked: [Achievement]) -> [Achievement] {
         let seen = Set(userDefaults.stringArray(forKey: Self.seenAchievementIDsKey) ?? [])
-        let newlyUnlocked = unlocked.filter { !seen.contains($0.id) }
+        let newlyUnlocked = AchievementCatalog.unseen(unlocked, seenIds: seen)
         guard !newlyUnlocked.isEmpty else { return [] }
 
         let updated = seen.union(unlocked.map(\.id))
