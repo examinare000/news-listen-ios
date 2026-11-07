@@ -452,7 +452,7 @@ struct AudioPlayerView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DSSpacing.m) {
                     ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                        let key = normalizedTerm(entry.term)
+                        let key = VocabularyTerm.normalize(entry.term)
                         let isRegistered = registeredTerms.contains(key)
                         let isSaving = savingTerms.contains(key)
                         let buttonText = isSaving ? "登録中" : (isRegistered ? "登録済み" : "習得")
@@ -495,10 +495,6 @@ struct AudioPlayerView: View {
         }
         .tint(DSColor.accent)
         .accessibilityHint(isVocabularyExpanded ? "語彙グロッサリを折りたたみます" : "語彙グロッサリを展開して表示します")
-    }
-
-    private func normalizedTerm(_ term: String) -> String {
-        term.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     /// 出典（ソース名・記事タイトル・原文リンク）と、`featured` のときだけの CC BY-SA 4.0 表示。
@@ -552,12 +548,12 @@ struct AudioPlayerView: View {
         registeredTerms = Set(
             response.vocabulary
                 .filter { $0.podcastId == episodeId }
-                .map { normalizedTerm($0.term) }
+                .map { VocabularyTerm.normalize($0.term) }
         )
     }
 
     private func save(_ entry: VocabularyEntry, episodeId: String) async {
-        let key = normalizedTerm(entry.term)
+        let key = VocabularyTerm.normalize(entry.term)
         guard !registeredTerms.contains(key), !savingTerms.contains(key) else { return }
         savingTerms.insert(key)
         defer { savingTerms.remove(key) }

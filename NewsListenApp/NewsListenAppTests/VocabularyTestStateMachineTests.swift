@@ -3,7 +3,7 @@ import XCTest
 
 final class VocabularyTestStateMachineTests: XCTestCase {
     func testUnknownWordsAloneEnterRetestAndChoicesStayFixed() throws {
-        var machine = VocabularyTestStateMachine()
+        var machine = VocabularyTest()
         machine.start(items: sampleItems)
 
         XCTAssertEqual(machine.phase, .selfAssessment)
@@ -11,7 +11,7 @@ final class VocabularyTestStateMachineTests: XCTestCase {
         XCTAssertEqual(machine.recordSelfAssessment(known: true), .advance)
         XCTAssertEqual(machine.recordSelfAssessment(known: false), .beginRetest)
         XCTAssertEqual(machine.phase, .retest)
-        XCTAssertEqual(machine.retestItems.map(\.vocabularyId), ["word-2"])
+        XCTAssertEqual(machine.retestItems.map(\.id), ["word-2"])
 
         let firstChoices = try XCTUnwrap(machine.currentChoices)
         let secondChoices = try XCTUnwrap(machine.currentChoices)
@@ -20,7 +20,7 @@ final class VocabularyTestStateMachineTests: XCTestCase {
     }
 
     func testAllKnownSkipsRetestAndBuildsNullableResultPayload() {
-        var machine = VocabularyTestStateMachine()
+        var machine = VocabularyTest()
         machine.start(items: sampleItems)
 
         _ = machine.recordSelfAssessment(known: true)
@@ -36,7 +36,7 @@ final class VocabularyTestStateMachineTests: XCTestCase {
     }
 
     func testRetestRejectsDoubleAnswerUntilFeedbackFinishes() {
-        var machine = VocabularyTestStateMachine()
+        var machine = VocabularyTest()
         machine.start(items: [sampleItems[0]])
         _ = machine.recordSelfAssessment(known: false)
 
@@ -51,7 +51,7 @@ final class VocabularyTestStateMachineTests: XCTestCase {
     }
 
     func testSummaryMatchesWebResultDenominators() {
-        var machine = VocabularyTestStateMachine()
+        var machine = VocabularyTest()
         machine.start(items: sampleItems)
         _ = machine.recordSelfAssessment(known: true)
         _ = machine.recordSelfAssessment(known: false)
@@ -64,17 +64,17 @@ final class VocabularyTestStateMachineTests: XCTestCase {
         )
     }
 
-    private var sampleItems: [VocabularyTestItem] {
+    private var sampleItems: [VocabularyTestWord] {
         [
-            VocabularyTestItem(
-                vocabularyId: "word-1",
+            VocabularyTestWord(
+                id: "word-1",
                 term: "term1",
                 meaning: "意味1",
                 example: "Example one.",
                 distractors: ["誤答A", "誤答B", "誤答C"]
             ),
-            VocabularyTestItem(
-                vocabularyId: "word-2",
+            VocabularyTestWord(
+                id: "word-2",
                 term: "term2",
                 meaning: "意味2",
                 example: "Example two.",

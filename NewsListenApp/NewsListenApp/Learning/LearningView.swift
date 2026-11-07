@@ -109,7 +109,7 @@ struct LearningView: View {
                 .font(DSFont.title)
                 .foregroundStyle(DSColor.ink)
             let streak = appState.listeningStreak ?? dashboard.streak
-            if streak.currentStreakDays > 0 {
+            if streak.toStatus().isShown {
                 Text("\(streak.currentStreakDays) 日連続")
                     .font(DSFont.headline)
                     .foregroundStyle(DSColor.accent)
@@ -120,7 +120,7 @@ struct LearningView: View {
                 Text(weeklyGoal.progressText)
                     .font(DSFont.body)
                     .foregroundStyle(DSColor.ink)
-                RelevanceBar(score: weeklyGoal.progressFraction)
+                RelevanceBar(score: weeklyGoal.toProgress().fraction)
                     .accessibilityLabel("今週の学習目標進捗")
                     .accessibilityValue("\(weeklyGoal.completedThisWeek)本、目標\(weeklyGoal.goalEpisodes)本")
             }
@@ -136,7 +136,7 @@ struct LearningView: View {
             Text("実績")
                 .font(DSFont.title)
                 .foregroundStyle(DSColor.ink)
-            ForEach(AchievementCatalogItem.all) { item in
+            ForEach(AchievementCatalog.all) { item in
                 let unlocked = unlockedByID[item.id]
                 VStack(alignment: .leading, spacing: DSSpacing.xs) {
                     Text(item.name)
@@ -193,7 +193,7 @@ struct LearningView: View {
                         activityRow(
                             title: record.week,
                             fact: "目標: \(record.goal) → 実績: \(record.completed)",
-                            fraction: Double(record.completed) / Double(max(record.goal, 1)),
+                            fraction: record.toProgress().fraction,
                             accessibilityValue: "目標\(record.goal)本、実績\(record.completed)本"
                         )
                     }
@@ -291,7 +291,7 @@ struct LearningView: View {
     }
 
     private func achievementName(_ id: String) -> String {
-        AchievementCatalogItem.all.first { $0.id == id }?.name ?? id
+        AchievementCatalog.all.first { $0.id == id }?.name ?? id
     }
 }
 

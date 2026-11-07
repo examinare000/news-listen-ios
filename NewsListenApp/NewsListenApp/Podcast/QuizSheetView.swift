@@ -13,7 +13,7 @@ struct QuizSheetView: View {
     let submit: @MainActor ([Int]) async throws -> QuizAnswerResponse
 
     @Environment(\.dismiss) private var dismiss
-    @State private var selections: [Int?]
+    @State private var attempt: QuizAttempt
     @State private var grade: QuizAnswerResponse?
     @State private var isSubmitting = false
     @State private var errorMessage: String?
@@ -25,7 +25,7 @@ struct QuizSheetView: View {
     ) {
         self.nowPlaying = nowPlaying
         self.submit = submit
-        _selections = State(initialValue: Array(repeating: nil, count: nowPlaying.quiz?.count ?? 0))
+        _attempt = State(initialValue: QuizAttempt(questionCount: nowPlaying.quiz?.count ?? 0))
     }
 
     var body: some View {
@@ -115,13 +115,13 @@ struct QuizSheetView: View {
 
     private func optionButton(_ option: String, questionIndex: Int, optionIndex: Int) -> some View {
         let gradeItem = grade?.results.first { $0.questionIndex == questionIndex }
-        let isSelected = selections[questionIndex] == optionIndex
+        let isSelected = attempt.selection(for: questionIndex) == optionIndex
         let isCorrect = gradeItem?.correctIndex == optionIndex
         let isSelectedIncorrect = gradeItem?.selectedIndex == optionIndex && gradeItem?.isCorrect == false
         let tint = isCorrect ? DSColor.success : (isSelectedIncorrect ? DSColor.danger : DSColor.ink)
 
         return Button {
-            selections[questionIndex] = optionIndex
+            attempt.select(optionIndex, for: questionIndex)
         } label: {
             HStack(alignment: .top, spacing: DSSpacing.s) {
                 Image(systemName: optionSymbol(
@@ -172,14 +172,14 @@ struct QuizSheetView: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(DSColor.accent)
-        .disabled(selections.contains(where: { $0 == nil }) || isSubmitting)
+        .disabled(!attempt.canSubmit || isSubmitting)
         .accessibilityHint("選択した回答を送信して採点します")
     }
 
     @MainActor
     private func submitAnswers() async {
-        let answers = selections.compactMap { $0 }
-        guard answers.count == selections.count else { return }
+        guard attempt.canSubmit else { return }
+        let answers = attempt.answers
         isSubmitting = true
         errorMessage = nil
         defer { isSubmitting = false }
@@ -189,8 +189,8 @@ struct QuizSheetView: View {
             grade = response
             // 50% 以上の正解率なら positive 音を発火（即ち .correct）。
             // それ以下は negative 触覚（.incorrect の soft のみ、音なし）。
-            let correctRate = Double(response.correctCount) / Double(response.total)
-            DSFeedback.shared.play(correctRate >= 0.5 ? .correct : .incorrect)
+            let isPositive = QuizAttempt.isPositive(correct: response.correctCount, total: response.total)
+            DSFeedback.shared.play(isPositive ? .correct : .incorrect)
             // VoiceOver ユーザーへ採点結果をアナウンス
             UIAccessibility.post(
                 notification: .announcement,

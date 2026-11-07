@@ -294,15 +294,15 @@ final class AppState: ObservableObject {
     func refreshListeningStreak() async {
         let t0 = sessionStore.token
         guard let apiClient else { return }
-        let previousStreakDays = listeningStreak?.currentStreakDays
+        let previousStatus = listeningStreak?.toStatus()
         do {
             let newStreak = try await apiClient.fetchListeningStreak()
             guard sessionStore.token == t0 else { return }
             listeningStreak = newStreak
             listeningStreakLoadFailed = false
-            // 初回ロード（previousStreakDays == nil）では発火させない。
+            // 初回ロード（previousStatus == nil）では発火させない。
             // 既存値から増加した場合のみ streakUp フィードバック。
-            if let prev = previousStreakDays, newStreak.currentStreakDays > prev {
+            if ListeningStreakStatus.didIncrease(from: previousStatus, to: newStreak.toStatus()) {
                 DSFeedback.shared.play(.streakUp)
             }
         } catch ApiFailure.notFound(subject: .streak) {
