@@ -2,7 +2,7 @@
 //  PlaybackSession.swift
 //  NewsListenApp
 //
-//  再生状態の union と、engine の駆動・engine 事象による遷移の決定を持つ。
+//  engine の駆動と、`PlaybackTransition`（domain）が決めた効果の実行を持つ。
 //  `stop`・`fail` は遷移表の外の操作（分母 16 に数えない）。
 //
 
@@ -21,9 +21,8 @@ final class PlaybackSession {
     private(set) var state: PlaybackState = .idle
     private var handlers: [(SessionEvent) -> Void] = []
     private var subscription: Task<Void, Never>?
-    /// `paused` の間に届いた `failed`（外側の nil = 保留なし、内側 = 説明文）。
-    private var pendingFailure: String??
-    private var hasPendingEnded = false
+    /// `paused` の間に届いた `failed`・`ended` の保留。
+    private var pending = PendingEngineOutcome.none
 
     init(engine: any AudioEngine) {
         self.engine = engine
@@ -64,78 +63,23 @@ final class PlaybackSession {
     }
 
     func play() {
-        guard case .paused(let episode, let position, let duration, let speed) = state else { return }
-        engine.setRate(speed)
-        setState(.playing(episode: episode, position: position, duration: duration, speed: speed))
-        if let failure = pendingFailure {
-            clearPending()
-            enterErrored(engineDescription: failure)
-        } else if hasPendingEnded {
-            clearPending()
-            enterEnded()
-        }
+        dispatch(.play)
     }
 
     func pause() {
-        switch state {
-        case .loading(let episode, let resumePosition, let speed):
-            engine.pause()
-            setState(.paused(episode: episode, position: resumePosition,
-                             duration: Double(episode.content.durationSeconds), speed: speed))
-        case .playing(let episode, let position, let duration, let speed),
-             .buffering(let episode, let position, let duration, let speed):
-            engine.pause()
-            setState(.paused(episode: episode, position: position, duration: duration, speed: speed))
-        case .idle, .paused, .ended, .errored:
-            break
-        }
+        dispatch(.pause)
     }
 
     func seek(to seconds: Double) {
-        switch state {
-        case .loading(let episode, _, let speed):
-            let target = PlaybackRules.clampPosition(seconds, duration: Double(episode.content.durationSeconds))
-            engine.seek(to: target)
-            setState(.loading(episode: episode, resumePosition: target, speed: speed))
-        case .playing(let episode, _, let duration, let speed):
-            let target = PlaybackRules.clampPosition(seconds, duration: duration)
-            engine.seek(to: target)
-            setState(.playing(episode: episode, position: target, duration: duration, speed: speed))
-        case .buffering(let episode, _, let duration, let speed):
-            let target = PlaybackRules.clampPosition(seconds, duration: duration)
-            engine.seek(to: target)
-            setState(.buffering(episode: episode, position: target, duration: duration, speed: speed))
-        case .paused(let episode, _, let duration, let speed):
-            let target = PlaybackRules.clampPosition(seconds, duration: duration)
-            engine.seek(to: target)
-            setState(.paused(episode: episode, position: target, duration: duration, speed: speed))
-        case .idle, .ended, .errored:
-            break
-        }
+        dispatch(.seek(seconds))
     }
 
     func seekRelative(_ delta: Double) {
-        guard PlaybackRules.isLoaded(state) else { return }
-        seek(to: state.position + delta)
+        dispatch(.seekRelative(delta))
     }
 
     func setSpeed(_ speed: Float) {
-        guard PlaybackConstants.speeds.contains(speed) else { return }
-        switch state {
-        case .loading(let episode, let resumePosition, _):
-            engine.setRate(speed)
-            setState(.loading(episode: episode, resumePosition: resumePosition, speed: speed))
-        case .playing(let episode, let position, let duration, _):
-            engine.setRate(speed)
-            setState(.playing(episode: episode, position: position, duration: duration, speed: speed))
-        case .buffering(let episode, let position, let duration, _):
-            engine.setRate(speed)
-            setState(.buffering(episode: episode, position: position, duration: duration, speed: speed))
-        case .paused(let episode, let position, let duration, _):
-            setState(.paused(episode: episode, position: position, duration: duration, speed: speed))
-        case .idle, .ended, .errored:
-            break
-        }
+        dispatch(.setSpeed(speed))
     }
 
     func stop() {
@@ -175,137 +119,77 @@ final class PlaybackSession {
     }
 
     private func clearPending() {
-        pendingFailure = nil
-        hasPendingEnded = false
+        pending = .none
     }
 
-    private func enterErrored(engineDescription: String?) {
-        let episodeId = state.episodeId ?? ""
-        let position = state.position
-        releaseEngine()
-        setState(.errored(episodeId: episodeId, position: position, reason: .engineFailed(description: engineDescription)))
+    // MARK: - 遷移の決定の呼出しと効果の実行
+
+    /// 純関数に決定を委ね、結果の保留を先に格納してから効果を順に実行する。
+    /// 結果の `state` は代入しない（通知を受けた handler が先に操作を呼びうるため、効果の側で進める）。
+    private func dispatch(_ input: PlaybackInput) {
+        let result = PlaybackTransition.next(state: state, pending: pending, input: input)
+        pending = result.pending
+        for effect in result.effects {
+            execute(effect)
+        }
     }
 
-    private func enterEnded() {
-        guard case .playing(let episode, _, let duration, _) = state else { return }
-        releaseEngine()
-        setState(.ended(episode: episode, duration: duration))
-        emit(.ended(episodeId: episode.content.id))
+    private func execute(_ effect: PlaybackEffect) {
+        switch effect {
+        case .engine(let command):
+            run(command)
+        case .updateState(let new):
+            state = new
+        case .notify(let output):
+            if case .stateChanged(let new) = output { state = new }
+            emit(sessionEvent(output))
+        }
     }
 
-    /// `ready` と同じ進め方（`loading` → `paused` → `playing`）。`loading` でなければ何もしない。
-    private func advanceFromLoading() {
-        guard case .loading(let episode, let resumePosition, let speed) = state else { return }
-        let duration = Double(episode.content.durationSeconds)
-        setState(.paused(episode: episode, position: resumePosition, duration: duration, speed: speed))
-        setState(.playing(episode: episode, position: resumePosition, duration: duration, speed: speed))
+    private func run(_ command: EngineCommand) {
+        switch command {
+        case .pause:
+            engine.pause()
+        case .seek(let seconds):
+            engine.seek(to: seconds)
+        case .setRate(let rate):
+            engine.setRate(rate)
+        case .unload:
+            releaseEngine()
+        }
+    }
+
+    private func sessionEvent(_ output: PlaybackOutput) -> SessionEvent {
+        switch output {
+        case .stateChanged(let new):
+            return .stateChanged(new)
+        case .positionChanged(let seconds, let duration):
+            return .positionChanged(seconds: seconds, duration: duration)
+        case .ended(let episodeId):
+            return .ended(episodeId: episodeId)
+        case .interruption(let phase):
+            return .interruption(phase)
+        }
     }
 
     // MARK: - engine 事象
 
     private func apply(_ event: EngineEvent) {
-        if state == .idle { return }
+        dispatch(input(for: event))
+    }
+
+    private func input(for event: EngineEvent) -> PlaybackInput {
         switch event {
-        case .ready:
-            advanceFromLoading()
-        case .resumed:
-            applyResumed()
-        case .buffering:
-            if case .playing(let episode, let position, let duration, let speed) = state {
-                setState(.buffering(episode: episode, position: position, duration: duration, speed: speed))
-            }
-        case .paused:
-            if case .buffering(let episode, let position, let duration, let speed) = state {
-                setState(.paused(episode: episode, position: position, duration: duration, speed: speed))
-            }
-        case .ended:
-            applyEngineEnded()
-        case .failed(let description):
-            applyEngineFailed(description)
-        case .timeUpdate(let seconds, let reportedDuration):
-            applyTimeUpdate(seconds: seconds, reportedDuration: reportedDuration)
-        case .interrupted:
-            applyInterrupted()
-        case .interruptionEnded(let shouldResume):
-            emit(.interruption(.ended(shouldResume: shouldResume)))
-        case .outputDeviceLost:
-            pauseIfRunning()
-        }
-    }
-
-    private func applyResumed() {
-        if case .buffering(let episode, let position, let duration, let speed) = state {
-            setState(.playing(episode: episode, position: position, duration: duration, speed: speed))
-        } else {
-            advanceFromLoading()
-        }
-    }
-
-    private func applyEngineEnded() {
-        switch state {
-        case .loading:
-            advanceFromLoading()
-            enterEnded()
-        case .playing:
-            enterEnded()
-        case .buffering(let episode, let position, let duration, let speed):
-            setState(.playing(episode: episode, position: position, duration: duration, speed: speed))
-            enterEnded()
-        case .paused:
-            hasPendingEnded = true
-        case .idle, .ended, .errored:
-            break
-        }
-    }
-
-    private func applyEngineFailed(_ description: String?) {
-        switch state {
-        case .loading, .playing, .buffering:
-            enterErrored(engineDescription: description)
-        case .paused:
-            pendingFailure = .some(description)
-        case .idle, .ended, .errored:
-            break
-        }
-    }
-
-    private func applyTimeUpdate(seconds: Double, reportedDuration: Double) {
-        switch state {
-        case .playing(let episode, _, let duration, let speed):
-            let newDuration = reportedDuration > 0 ? reportedDuration : duration
-            state = .playing(episode: episode, position: seconds, duration: newDuration, speed: speed)
-            emit(.positionChanged(seconds: seconds, duration: newDuration))
-        case .buffering(let episode, _, let duration, let speed):
-            let newDuration = reportedDuration > 0 ? reportedDuration : duration
-            state = .buffering(episode: episode, position: seconds, duration: newDuration, speed: speed)
-            emit(.positionChanged(seconds: seconds, duration: newDuration))
-        case .paused(let episode, _, let duration, let speed):
-            let newDuration = reportedDuration > 0 ? reportedDuration : duration
-            state = .paused(episode: episode, position: seconds, duration: newDuration, speed: speed)
-            emit(.positionChanged(seconds: seconds, duration: newDuration))
-        case .idle, .loading, .ended, .errored:
-            break
-        }
-    }
-
-    private func applyInterrupted() {
-        switch state {
-        case .loading, .playing, .buffering:
-            pause()
-            emit(.interruption(.began(wasPlaying: true)))
-        case .paused:
-            emit(.interruption(.began(wasPlaying: false)))
-        case .idle, .ended, .errored:
-            break
-        }
-    }
-
-    private func pauseIfRunning() {
-        switch state {
-        case .loading, .playing, .buffering:
-            pause()
-        case .idle, .paused, .ended, .errored:
-            break
+        case .ready: return .engineReady
+        case .resumed: return .engineResumed
+        case .buffering: return .engineBuffering
+        case .paused: return .enginePaused
+        case .ended: return .engineEnded
+        case .failed(let description): return .engineFailed(description)
+        case .timeUpdate(let seconds, let duration): return .engineTimeUpdate(seconds, duration)
+        case .interrupted: return .engineInterrupted
+        case .interruptionEnded(let shouldResume): return .engineInterruptionEnded(shouldResume)
+        case .outputDeviceLost: return .engineOutputDeviceLost
         }
     }
 }

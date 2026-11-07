@@ -2,7 +2,7 @@
 //  PlaybackState.swift
 //  NewsListenApp
 //
-//  再生状態の union と派生値（domain）。遷移の決定は `PlaybackSession`（application）が持つ。
+//  再生状態の union と派生値（domain）。遷移の決定は `PlaybackTransition`（domain の純関数）が持つ。
 //
 
 import Foundation

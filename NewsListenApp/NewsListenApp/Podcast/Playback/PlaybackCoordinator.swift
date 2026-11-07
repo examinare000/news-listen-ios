@@ -3,7 +3,7 @@
 //  NewsListenApp
 //
 //  再生の use case の判断（開始・次へ・失敗の手順と世代、キュー、ロック画面とリモートコマンド、
-//  表示形態、割り込みの記憶、背景 task、知らせ）。engine の駆動と遷移の決定は `PlaybackSession`。
+//  表示形態、割り込みの記憶、背景 task、知らせ）。engine の駆動と効果の実行は `PlaybackSession`、遷移の決定は `PlaybackTransition`。
 //
 
 import Foundation
