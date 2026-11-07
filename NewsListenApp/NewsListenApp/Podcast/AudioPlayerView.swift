@@ -56,11 +56,6 @@ struct AudioPlayerView: View {
     @State private var isVocabularyExpanded = false
     /// クイズ導線タップ時の再生中エピソードのスナップショット。
     @State private var quizTarget: NowPlaying?
-    /// 現在の Podcast で個人語彙帳へ登録済みの正規化語。
-    @State private var registeredTerms: Set<String> = []
-    /// 保存リクエスト中の語。連打を抑止し冪等 API への不要な重複送信を避ける。
-    @State private var savingTerms: Set<String> = []
-    @State private var vocabularySaveError: String?
 
     /// 語彙リストの最大高さ（Dynamic Type に応じてスケール）。
     @ScaledMetric(relativeTo: .body) private var vocabularyListMaxHeight: CGFloat = 200
@@ -87,13 +82,10 @@ struct AudioPlayerView: View {
         .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: -2)
         .padding(DSSpacing.l)
         .sheet(item: $quizTarget) { target in
-            QuizSheetView(nowPlaying: target) { answers in
-                try await vm.submitQuizAnswers(podcastId: target.episodeId, answers: answers)
-            }
+            QuizSheetView(nowPlaying: target, grading: vm.quizGrading)
         }
         .task(id: vm.nowPlaying()?.episodeId) {
             guard let nowPlaying = vm.nowPlaying() else { return }
-            registeredTerms = []
             // エピソード切替でトランスクリプト同期状態を再構築する。
             // WHY: キュー自動遷移は expandsPlayer: false で本 View を生かしたまま次エピソードへ
             //      移るため、手動スクロール中の一時停止状態を持ち越すと新エピソードの自動追従が
@@ -105,7 +97,12 @@ struct AudioPlayerView: View {
                     segments: nowPlaying.segments,
                     durationSeconds: nowPlaying.queueEntry.durationSeconds))
             activeTranscriptIndex = nil
-            await loadSavedVocabulary(episodeId: nowPlaying.episodeId)
+            // 初期状態は best-effort。旧 server やオフライン時もプレイヤーをエラーにしない。
+            _ = try? await vm.vocabularyBook.registeredTerms(episodeId: nowPlaying.episodeId)
+        }
+        .onAppear {
+            // 語彙の状態は sheet より長く生きるので、前回の失敗を次に開いたときに出さない。
+            vm.vocabularyBook.dismissSaveFailure()
         }
         .onDisappear {
             // View が階層から外れたら復帰待ちの Task を残さない。
@@ -120,10 +117,10 @@ struct AudioPlayerView: View {
                 activeTranscriptIndex = newIndex
             }
         }
-        .alert("語彙の登録に失敗しました", isPresented: vocabularySaveErrorBinding) {
-            Button("OK") { vocabularySaveError = nil }
+        .alert("語彙の登録に失敗しました", isPresented: vocabularySaveFailedBinding) {
+            Button("OK") { vm.vocabularyBook.dismissSaveFailure() }
         } message: {
-            Text(vocabularySaveError ?? "")
+            Text("通信状況を確認して、もう一度お試しください。")
         }
         .onChange(of: vm.isFinished) { _, finished in
             // WHY: finished/playing 双方向の遷移でリセットする。
@@ -453,8 +450,8 @@ struct AudioPlayerView: View {
                 VStack(alignment: .leading, spacing: DSSpacing.m) {
                     ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                         let key = VocabularyTerm.normalize(entry.term)
-                        let isRegistered = registeredTerms.contains(key)
-                        let isSaving = savingTerms.contains(key)
+                        let isRegistered = vm.vocabularyBook.registered?.terms.contains(key) == true
+                        let isSaving = vm.vocabularyBook.savingTerms.contains(key)
                         let buttonText = isSaving ? "登録中" : (isRegistered ? "登録済み" : "習得")
                         HStack(alignment: .top, spacing: DSSpacing.m) {
                             VStack(alignment: .leading, spacing: DSSpacing.xs) {
@@ -472,7 +469,7 @@ struct AudioPlayerView: View {
                             Spacer(minLength: DSSpacing.s)
                             Button(buttonText) {
                                 guard let episodeId = vm.nowPlaying()?.episodeId else { return }
-                                Task { await save(entry, episodeId: episodeId) }
+                                Task { _ = try? await vm.vocabularyBook.save(episodeId: episodeId, term: entry.term) }
                             }
                             .buttonStyle(.bordered)
                             .tint(isRegistered || isSaving ? DSColor.inkSecondary : DSColor.accent)
@@ -541,36 +538,10 @@ struct AudioPlayerView: View {
         }
     }
 
-    /// 初期状態は best-effort。旧 server やオフライン時もプレイヤーをエラーにしない。
-    private func loadSavedVocabulary(episodeId: String) async {
-        guard let response = try? await vm.fetchSavedVocabulary() else { return }
-        guard !Task.isCancelled, vm.nowPlaying()?.episodeId == episodeId else { return }
-        registeredTerms = Set(
-            response.vocabulary
-                .filter { $0.podcastId == episodeId }
-                .map { VocabularyTerm.normalize($0.term) }
-        )
-    }
-
-    private func save(_ entry: VocabularyEntry, episodeId: String) async {
-        let key = VocabularyTerm.normalize(entry.term)
-        guard !registeredTerms.contains(key), !savingTerms.contains(key) else { return }
-        savingTerms.insert(key)
-        defer { savingTerms.remove(key) }
-        do {
-            _ = try await vm.saveVocabulary(podcastId: episodeId, term: entry.term)
-            if vm.nowPlaying()?.episodeId == episodeId {
-                registeredTerms.insert(key)
-            }
-        } catch {
-            vocabularySaveError = "通信状況を確認して、もう一度お試しください。"
-        }
-    }
-
-    private var vocabularySaveErrorBinding: Binding<Bool> {
+    private var vocabularySaveFailedBinding: Binding<Bool> {
         Binding(
-            get: { vocabularySaveError != nil },
-            set: { if !$0 { vocabularySaveError = nil } }
+            get: { vm.vocabularyBook.lastSaveFailed },
+            set: { if !$0 { vm.vocabularyBook.dismissSaveFailure() } }
         )
     }
 }

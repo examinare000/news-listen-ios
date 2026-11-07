@@ -10,23 +10,25 @@ import SwiftUI
 /// 再生中エピソードの公開設問を提示し、サーバー採点結果を表示するシート。
 struct QuizSheetView: View {
     let nowPlaying: NowPlaying
-    let submit: @MainActor ([Int]) async throws -> QuizAnswerResponse
 
     @Environment(\.dismiss) private var dismiss
-    @State private var attempt: QuizAttempt
-    @State private var grade: QuizAnswerResponse?
-    @State private var isSubmitting = false
-    @State private var errorMessage: String?
-    @State private var isUnavailable = false
+    @StateObject private var viewModel: QuizViewModel
 
-    init(
-        nowPlaying: NowPlaying,
-        submit: @escaping @MainActor ([Int]) async throws -> QuizAnswerResponse
-    ) {
+    @MainActor
+    init(nowPlaying: NowPlaying, grading: QuizGrading) {
         self.nowPlaying = nowPlaying
-        self.submit = submit
-        _attempt = State(initialValue: QuizAttempt(questionCount: nowPlaying.quiz?.count ?? 0))
+        _viewModel = StateObject(wrappedValue: QuizViewModel(
+            grading: grading,
+            episodeId: nowPlaying.episodeId,
+            questionCount: nowPlaying.quiz?.count ?? 0
+        ))
     }
+
+    private var attempt: QuizAttempt { viewModel.attempt }
+    private var grade: QuizGrade? { viewModel.grade }
+    private var isSubmitting: Bool { viewModel.isSubmitting }
+    private var errorMessage: String? { viewModel.errorMessage }
+    private var isUnavailable: Bool { viewModel.isUnavailable }
 
     var body: some View {
         NavigationStack {
@@ -85,7 +87,7 @@ struct QuizSheetView: View {
         }
     }
 
-    private func scoreHeader(_ grade: QuizAnswerResponse) -> some View {
+    private func scoreHeader(_ grade: QuizGrade) -> some View {
         VStack(alignment: .leading, spacing: DSSpacing.xs) {
             Text("\(grade.correctCount) / \(grade.total) 正解")
                 .font(DSFont.title)
@@ -114,14 +116,14 @@ struct QuizSheetView: View {
     }
 
     private func optionButton(_ option: String, questionIndex: Int, optionIndex: Int) -> some View {
-        let gradeItem = grade?.results.first { $0.questionIndex == questionIndex }
+        let gradeItem = grade?.perQuestion.first { $0.questionIndex == questionIndex }
         let isSelected = attempt.selection(for: questionIndex) == optionIndex
         let isCorrect = gradeItem?.correctIndex == optionIndex
         let isSelectedIncorrect = gradeItem?.selectedIndex == optionIndex && gradeItem?.isCorrect == false
         let tint = isCorrect ? DSColor.success : (isSelectedIncorrect ? DSColor.danger : DSColor.ink)
 
         return Button {
-            attempt.select(optionIndex, for: questionIndex)
+            viewModel.select(optionIndex, for: questionIndex)
         } label: {
             HStack(alignment: .top, spacing: DSSpacing.s) {
                 Image(systemName: optionSymbol(
@@ -157,7 +159,20 @@ struct QuizSheetView: View {
 
     private var submitButton: some View {
         Button {
-            Task { await submitAnswers() }
+            // 送信中にシートを閉じても採点の音と読み上げを届けるため、View に結びつかない Task で送る。
+            Task { @MainActor in
+                let vm = viewModel
+                await vm.submit()
+                guard let grade = vm.grade else { return }
+                // 50% 以上の正解率なら positive 音を発火（即ち .correct）。
+                // それ以下は negative 触覚（.incorrect の soft のみ、音なし）。
+                DSFeedback.shared.play(grade.isPositive ? .correct : .incorrect)
+                // VoiceOver ユーザーへ採点結果をアナウンス
+                UIAccessibility.post(
+                    notification: .announcement,
+                    argument: "\(grade.correctCount)問中\(grade.total)問正解"
+                )
+            }
         } label: {
             HStack(spacing: DSSpacing.s) {
                 if isSubmitting {
@@ -174,34 +189,6 @@ struct QuizSheetView: View {
         .tint(DSColor.accent)
         .disabled(!attempt.canSubmit || isSubmitting)
         .accessibilityHint("選択した回答を送信して採点します")
-    }
-
-    @MainActor
-    private func submitAnswers() async {
-        guard attempt.canSubmit else { return }
-        let answers = attempt.answers
-        isSubmitting = true
-        errorMessage = nil
-        defer { isSubmitting = false }
-
-        do {
-            let response = try await submit(answers)
-            grade = response
-            // 50% 以上の正解率なら positive 音を発火（即ち .correct）。
-            // それ以下は negative 触覚（.incorrect の soft のみ、音なし）。
-            let isPositive = QuizAttempt.isPositive(correct: response.correctCount, total: response.total)
-            DSFeedback.shared.play(isPositive ? .correct : .incorrect)
-            // VoiceOver ユーザーへ採点結果をアナウンス
-            UIAccessibility.post(
-                notification: .announcement,
-                argument: "\(response.correctCount)問中\(response.total)問正解"
-            )
-        } catch ApiFailure.notFound(subject: .quiz) {
-            // 旧 backend・提供なしは警告にせず、クイズ自体を graceful-hide する。
-            isUnavailable = true
-        } catch {
-            errorMessage = "採点結果を取得できませんでした。もう一度お試しください。"
-        }
     }
 
     private func optionSymbol(
@@ -253,30 +240,34 @@ private let quizPreviewNowPlaying = NowPlaying(
     )
 )
 
-private func quizPreviewSubmit(_ answers: [Int]) async throws -> QuizAnswerResponse {
+@MainActor
+private func quizPreviewGrading() -> QuizGrading {
     let correctIndices = [0, 3, 1]
-    return QuizAnswerResponse(
-        correctCount: 2,
-        total: 3,
-        correctRate: 2.0 / 3.0,
-        results: answers.enumerated().map { answer in
-            let correctIndex = correctIndices[answer.offset]
-            return QuizGradeResult(
-                questionIndex: answer.offset,
-                selectedIndex: answer.element,
-                correctIndex: correctIndex,
-                isCorrect: answer.element == correctIndex
-            )
+    return QuizGrading(gateway: LearningGateway(
+        fetchVocabulary: { (terms: [], count: 0) },
+        saveVocabulary: { _, _ in },
+        fetchTestSession: { [] },
+        submitTestResult: { _ in },
+        submitQuiz: { _, answers in
+            let items = answers.enumerated().map { answer in
+                QuizGradeItem(
+                    questionIndex: answer.offset,
+                    selectedIndex: answer.element,
+                    correctIndex: correctIndices[answer.offset],
+                    isCorrect: answer.element == correctIndices[answer.offset]
+                )
+            }
+            return QuizGrade(correctCount: 2, total: 3, perQuestion: items, isPositive: true)
         }
-    )
+    ))
 }
 
 #Preview("Quiz / Light") {
-    QuizSheetView(nowPlaying: quizPreviewNowPlaying, submit: quizPreviewSubmit)
+    QuizSheetView(nowPlaying: quizPreviewNowPlaying, grading: quizPreviewGrading())
 }
 
 #Preview("Quiz / Dark") {
-    QuizSheetView(nowPlaying: quizPreviewNowPlaying, submit: quizPreviewSubmit)
+    QuizSheetView(nowPlaying: quizPreviewNowPlaying, grading: quizPreviewGrading())
         .preferredColorScheme(.dark)
 }
 #endif

@@ -5,10 +5,12 @@ struct LearningView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel: LearningViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let vocabularyTesting: VocabularyTesting
 
     @MainActor
     init(apiClient: APIClient) {
         _viewModel = StateObject(wrappedValue: LearningViewModel(apiClient: apiClient))
+        vocabularyTesting = VocabularyTesting(gateway: LearningGateway.live(apiClient: apiClient))
     }
 
     var body: some View {
@@ -23,7 +25,7 @@ struct LearningView: View {
                         // 単語テスト導線は progressSection 直後に配置（期日 0 語なら非表示）。
                         if viewModel.dueVocabularyCount > 0 {
                             NavigationLink {
-                                VocabularyTestView(apiClient: viewModel.apiClient)
+                                VocabularyTestView(vocabularyTesting: vocabularyTesting)
                             } label: {
                                 Label("単語テスト", systemImage: "checkmark.rectangle.stack")
                                     .font(DSFont.body.weight(.semibold))

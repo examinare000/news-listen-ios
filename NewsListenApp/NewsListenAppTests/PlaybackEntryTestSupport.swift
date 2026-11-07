@@ -370,8 +370,10 @@ final class PlaybackEntryRig {
         ownsCatalog = catalog == nil
         let resolvedCatalog = catalog ?? EpisodeCatalog(gateway: CatalogGateway.live(apiClient: client))
         self.catalog = resolvedCatalog
+        let learningGateway = LearningGateway.live(apiClient: client)
         viewModel = PodcastViewModel(
-            apiClient: client,
+            vocabularyBook: VocabularyBook(gateway: learningGateway),
+            quizGrading: QuizGrading(gateway: learningGateway),
             catalog: resolvedCatalog,
             coordinator: coordinator,
             reporter: reporter,

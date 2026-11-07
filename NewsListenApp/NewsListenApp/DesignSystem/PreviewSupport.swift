@@ -236,8 +236,10 @@ enum PreviewSamples {
             downloadAudio: { _ in throw CancellationError() },
             currentSubject: { nil })
         let catalog = EpisodeCatalog(gateway: CatalogGateway(fetchEpisodes: { episodes }))
+        let learningGateway = LearningGateway.live(apiClient: apiClient())
         return PodcastViewModel(
-            apiClient: apiClient(),
+            vocabularyBook: VocabularyBook(gateway: learningGateway),
+            quizGrading: QuizGrading(gateway: learningGateway),
             catalog: catalog,
             coordinator: parts.coordinator,
             reporter: parts.reporter,

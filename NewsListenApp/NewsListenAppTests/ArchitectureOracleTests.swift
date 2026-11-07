@@ -446,7 +446,7 @@ final class ArchitectureOracleTests: XCTestCase {
         let viewHits = collectHits(in: views, where: isDTO)
         let viewModelHits = collectHits(in: viewModels, where: isDTO)
         XCTAssertTrue(viewHits.contains { $0.path == "Podcast/PodcastView.swift" }, "View の DTO の行が集合に無い")
-        XCTAssertTrue(viewModelHits.contains { $0.path == "Podcast/PodcastViewModel.swift" }, "ViewModel の DTO の行が集合に無い")
+        XCTAssertTrue(isDTO("let response: QuizAnswerResponse"), "DTO 名を書いた行は検出される")
         assertAllowlistMatches(rule: "ios-dep-04/DTO", measured: viewHits)
         assertAllowlistMatches(rule: "ios-dep-06/DTO", measured: viewModelHits)
     }
@@ -701,6 +701,9 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Feed/Application/ArticleCardModel.swift", 6),
         ("Feed/Application/FeedCuration.swift", 20),
         ("Starred/Application/StarredArticles.swift", 3),
+        ("Learning/Application/VocabularyBook.swift", 19),
+        ("Learning/Application/VocabularyTesting.swift", 3),
+        ("Learning/Application/QuizGrading.swift", 10),
     ]
 
     private func kindCounts(_ ledger: [OperationRow]) -> [String: Int] {
@@ -770,7 +773,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 318)
+        XCTAssertEqual(result.declared.count, 350)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -781,12 +784,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 318)
-        XCTAssertEqual(ledger.count, 318)
+        XCTAssertEqual(declared.count, 350)
+        XCTAssertEqual(ledger.count, 350)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 69, "query": 49, "port": 58, "internal": 28, "readModel": 94, "factory": 20]
+            ["command": 73, "query": 55, "port": 63, "internal": 28, "readModel": 108, "factory": 23]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -813,7 +816,7 @@ final class ArchitectureOracleTests: XCTestCase {
             if case .query(let id) = row.kind { return id }
             return nil
         })
-        XCTAssertEqual(queryIDs.count, 18, "台帳の query ID は 18 個")
+        XCTAssertEqual(queryIDs.count, 20, "台帳の query ID は 20 個")
 
         let uncovered = ArchitectureScan.uncoveredQueryRows(
             ledger: ledger,
