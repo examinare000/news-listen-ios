@@ -248,6 +248,45 @@ enum PreviewSamples {
             networkMonitor: StubNetworkMonitor(),
             defaultSpeed: { 1.0 })
     }
+
+    /// 通信なしで組む学習の port。`streakDays` があれば `fetchStreak` がその日数を返し、無ければ失敗する。
+    private static func previewLearningGateway(streakDays: Int?) -> LearningGateway {
+        LearningGateway(
+            fetchVocabulary: { (terms: [], count: 0) },
+            saveVocabulary: { _, _ in },
+            fetchTestSession: { [] },
+            submitTestResult: { _ in },
+            submitQuiz: { _, _ in throw CancellationError() },
+            fetchDashboard: { throw CancellationError() },
+            fetchStreak: {
+                guard let streakDays else { throw CancellationError() }
+                return ListeningStreakStatus(days: streakDays, listenedToday: true, lastListenedDay: "2026-07-29")
+            }
+        )
+    }
+
+    /// `streakDays` があるとき、ストリークを 1 回取得した状態の `EngagementStore`。
+    @MainActor static func engagement(streakDays: Int? = nil) -> EngagementStore {
+        let state = appState()
+        let store = EngagementStore(
+            gateway: previewLearningGateway(streakDays: streakDays),
+            seenStore: (read: { [] }, write: { _ in }),
+            subjectStamp: { state.subjectStamp },
+            isCurrentSubject: { _ in true }
+        )
+        if streakDays != nil {
+            Task { await store.refreshStreak() }
+        }
+        return store
+    }
+
+    @MainActor static func vocabularyBook() -> VocabularyBook {
+        VocabularyBook(gateway: previewLearningGateway(streakDays: nil))
+    }
+
+    @MainActor static func vocabularyTesting() -> VocabularyTesting {
+        VocabularyTesting(gateway: previewLearningGateway(streakDays: nil))
+    }
 }
 
 /// `feed` / `podcasts` / `starred` のパスに応じてサンプル JSON を 200 で返すプレビュー用モックセッション。

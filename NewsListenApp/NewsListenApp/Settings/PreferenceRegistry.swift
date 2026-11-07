@@ -3,7 +3,7 @@
 //  NewsListenApp
 //
 //  設定宣言（key・scope・subjectScoped・値域・既定値）を 1 箇所に集約する（ios-slice-auth-01 / ios-contract-23）。
-//  `AppState.Keys`・`DSFeedback` の AppStorage key・`AchievementCelebrationTracker` の key
+//  `AppState.Keys`・`DSFeedback` の AppStorage key・実績の既読の key
 //  文字列宣言はここへ一本化し、他ファイルは本ファイルの key 定数を参照する別名にする。
 //
 
@@ -188,6 +188,14 @@ final class PreferenceRegistry {
         guard setting.isValid(value) else { return false }
         defaults.set(setting.encode(value), forKey: setting.key)
         return true
+    }
+
+    /// 実績の既読の保存先。呼出のたびに registry を読み（主体の離脱で消えた値を持ち越さない）、write は `sorted()` の配列で書く。
+    var seenAchievements: (read: () -> Set<String>, write: (Set<String>) -> Void) {
+        (
+            read: { [self] in Set(get(seenAchievementIds)) },
+            write: { [self] ids in set(seenAchievementIds, ids.sorted()) }
+        )
     }
 
     /// `subjectScopedKeys` の key をすべて削除する（端末設定・registry 外 key は残す）。冪等。

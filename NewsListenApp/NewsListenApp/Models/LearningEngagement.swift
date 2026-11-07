@@ -92,25 +92,3 @@ struct LearningDashboard: Codable, Equatable {
         case achievements
     }
 }
-
-/// 端末で既に祝福した実績を保持し、初回ロードを含む未表示差分だけを返す。
-struct AchievementCelebrationTracker {
-    /// key 文字列の宣言は `PreferenceRegistry`（ios-slice-auth-01）が正本で、これはその別名（D-5）。
-    static let seenAchievementIDsKey = PreferenceRegistry.seenAchievementIdsKey
-
-    private let userDefaults: UserDefaults
-
-    init(userDefaults: UserDefaults = .standard) {
-        self.userDefaults = userDefaults
-    }
-
-    func consumeNewlyUnlocked(_ unlocked: [Achievement]) -> [Achievement] {
-        let seen = Set(userDefaults.stringArray(forKey: Self.seenAchievementIDsKey) ?? [])
-        let newlyUnlocked = AchievementCatalog.unseen(unlocked, seenIds: seen)
-        guard !newlyUnlocked.isEmpty else { return [] }
-
-        let updated = seen.union(unlocked.map(\.id))
-        userDefaults.set(updated.sorted(), forKey: Self.seenAchievementIDsKey)
-        return newlyUnlocked
-    }
-}

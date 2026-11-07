@@ -120,7 +120,8 @@ final class SubjectCleanupTests: XCTestCase {
         appState.registerPlaybackLifecycle(playback)
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: subjectA)))
 
-        await appState.refreshListeningStreak() // 保存トークン付きの任意 API が 401（shared-leave-02 の契機）
+        appState.didRegisterDeviceToken("devicetokenhex")
+        await appState.registerDeviceTokenIfPossible() // 保存トークン付きの任意 API が 401（shared-leave-02 の契機）
 
         guard case .anonymous = appState.session else { return XCTFail(".anonymous になるべき") }
         XCTAssertNil(store.token)

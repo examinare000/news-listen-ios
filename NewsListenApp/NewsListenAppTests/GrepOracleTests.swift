@@ -45,7 +45,6 @@ final class GrepOracleTests: XCTestCase {
             "appState.handleNotificationPodcastId(": 2,
             "appState.logout(": 1,
             "appState.refreshAuth(": 1,
-            "appState.refreshListeningStreak(": 5,
             "appState.registerDownloads(": 1,
             "appState.registerPlaybackLifecycle(": 1,
             "appState.retryResolve(": 1,
@@ -253,5 +252,151 @@ final class GrepOracleTests: XCTestCase {
             "NewsListenAppApp.swift": 1,
             "AppState.swift": 1,
         ], "MediaPlayerNowPlaying( の生成箇所が想定と違う: \(hits)")
+    }
+
+    // MARK: - ios-slice-learning-03: 継続の application と音の置き場（T-W1〜T-W5）
+    //
+    // 音と SwiftUI の配線は XCTest から観測できない。振る舞いの代わりに配線の退行だけを字面で見る。
+
+    private func appFile(_ relativePath: String) -> URL {
+        SourceGrep.appRoot.appendingPathComponent(relativePath)
+    }
+
+    /// コメント行を除いた、パターンに当たる行。ファイルが無いときは空（呼出側で存在を確かめる）。
+    private func codeHits(_ pattern: String, in relativePath: String) -> [(path: String, line: Int, text: String)] {
+        nonCommentHits(pattern: pattern, in: [appFile(relativePath)])
+    }
+
+    private func assertFileExists(_ relativePath: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(FileManager.default.fileExists(atPath: appFile(relativePath).path), "\(relativePath) が存在する", file: file, line: line)
+    }
+
+    /// `marker` を含む最初の非コメント行から、波括弧が閉じるまでの本体の文字列（見つからなければ nil）。
+    private func braceBody(startingAt marker: String, in relativePath: String) -> String? {
+        let lines = SourceGrep.content(of: appFile(relativePath)).components(separatedBy: "\n")
+        guard let start = lines.firstIndex(where: { $0.contains(marker) && !SourceGrep.isCommentLine($0) }) else { return nil }
+        var depth = 0
+        var opened = false
+        var collected: [String] = []
+        for line in lines[start...] {
+            collected.append(line)
+            for character in line {
+                if character == "{" { depth += 1; opened = true }
+                if character == "}" { depth -= 1 }
+            }
+            if opened && depth <= 0 { break }
+        }
+        return collected.joined(separator: "\n")
+    }
+
+    // verifies: CI-25（T-W1）
+    func testW1_streakRefreshOfAllCallersGoesThroughOneCelebratingFunction() {
+        let root = "NewsListenAppApp.swift"
+        let settings = "Settings/SettingsView.swift"
+        assertFileExists(root)
+        assertFileExists(settings)
+
+        XCTAssertEqual(
+            codeHits(#"refreshStreak: \{ await Self\.refreshStreakAndCelebrate\(engagementStore\) \}"#, in: root).count, 1,
+            "ContentView へ渡す closure は合成 root の 1 つの関数だけを呼ぶ")
+        XCTAssertEqual(codeHits(#"onCompletionRecorded: refreshStreak\b"#, in: root).count, 1, "完聴後の更新も同じ closure")
+        XCTAssertEqual(
+            codeHits(#"(^|[^.A-Za-z])await refreshStreak\(\)"#, in: root).count, 2,
+            "起動の .task と scenePhase .active の 2 か所")
+        XCTAssertEqual(
+            codeHits(#"(^|[^.A-Za-z])await refreshStreak\(\)"#, in: settings).count, 2,
+            "設定画面の .task と再試行の 2 か所")
+        XCTAssertEqual(codeHits(#"engagement\.refreshStreak"#, in: settings).count, 0, "設定画面は store を直接呼ばない")
+
+        let body = braceBody(startingAt: "func refreshStreakAndCelebrate", in: root)
+        XCTAssertNotNil(body, "refreshStreakAndCelebrate が合成 root にある")
+        XCTAssertNotNil(body?.range(of: #"if [^\n]*increased"#, options: .regularExpression), "増えたときだけ鳴らす")
+        XCTAssertNotNil(body?.range(of: #"play\(\.streakUp\)"#, options: .regularExpression), "上昇音を鳴らす")
+    }
+
+    // verifies: CI-26（T-W2）
+    func testW2_achievementSoundIsPlayedOnlyForNonEmptyNewValueOfNewlyUnlocked() {
+        let view = "Learning/LearningView.swift"
+        assertFileExists(view)
+
+        let body = braceBody(startingAt: "onChange(of: viewModel.newlyUnlocked)", in: view)
+
+        XCTAssertNotNil(body, "newlyUnlocked の変化を見る .onChange がある")
+        XCTAssertNotNil(body?.range(of: #"isEmpty"#, options: .regularExpression), "閉じて空になったときは鳴らさない")
+        XCTAssertNotNil(body?.range(of: #"play\(\.achievement\)"#, options: .regularExpression), "解錠音を鳴らす")
+    }
+
+    // verifies: CI-27（T-W3）
+    func testW3_presentationReadsEngagementStoreWithTheSameDisplayConditions() {
+        let toolbar = "DesignSystem/Components/DSStreakToolbar.swift"
+        let settings = "Settings/SettingsView.swift"
+        let learning = "Learning/LearningView.swift"
+        for path in [toolbar, settings, learning] { assertFileExists(path) }
+
+        XCTAssertEqual(codeHits(#"@ObservedObject var engagement\b"#, in: toolbar).count, 1)
+        XCTAssertGreaterThanOrEqual(codeHits(#"streak\.isShown"#, in: toolbar).count, 1)
+
+        XCTAssertEqual(codeHits(#"@ObservedObject private var engagement\b"#, in: settings).count, 1)
+        XCTAssertGreaterThanOrEqual(codeHits(#"lastListenedDay"#, in: settings).count, 1)
+
+        XCTAssertEqual(codeHits(#"@EnvironmentObject private var engagement\b"#, in: learning).count, 1)
+        for needle in [
+            #"engagement\.streak \?\? dashboard\.streak"#, #"dashboard\.weekly\b"#, #"weeklyHistory"#, #"monthlyListeningDays"#,
+            #"quizTrend\.suffix\(3\)"#, #"firstEntries"#, #"\.term\b"#, #"\.meaning\b"#, #"registeredAt\.prefix\(10\)"#,
+        ] {
+            XCTAssertGreaterThanOrEqual(codeHits(needle, in: learning).count, 1, "LearningView が \(needle) を読む")
+        }
+        XCTAssertEqual(codeHits(#"firstTerms"#, in: learning).count, 0, "登録語彙の節は firstEntries を描く（firstTerms ではない）")
+    }
+
+    // verifies: CI-27（T-W4）。`\(…)` は補間で、変数名に依らず任意の文字列で受ける。
+    func testW4_userVisibleWordingIsUnchangedPerFile() {
+        let interpolation = #"\\\([^"]*\)"#
+        let expectations: [(path: String, patterns: [String])] = [
+            ("DesignSystem/Components/DSStreakToolbar.swift", [
+                "\"\(interpolation)日連続\"",
+                "聴取ストリーク \(interpolation)日連続",
+            ]),
+            ("Settings/SettingsView.swift", [
+                "\"\(interpolation)日連続\"",
+                "まだ聴取記録がありません",
+                "最終聴取日: \(interpolation)",
+                "本日聴取済み",
+                "聴取ストリークの取得に失敗しました",
+            ]),
+            ("Learning/LearningView.swift", [
+                "\"\(interpolation) 日連続\"",
+                "今週 \(interpolation)/目標 \(interpolation) 本",
+                "\(interpolation)本、目標\(interpolation)本",
+                "今週の学習目標進捗",
+                "目標: \(interpolation) → 実績: \(interpolation)",
+                "目標\(interpolation)本、実績\(interpolation)本",
+                "完聴エピソード数: \(interpolation) 本",
+                "習得語彙数: \(interpolation) 語",
+                "現在のレベル: \(interpolation)",
+                "出題エピソード数: \(interpolation) 本",
+                "平均正答率: %\\.1f%%",
+                "平均正答率: 未確定",
+                "解錠: \(interpolation)",
+                "\"\(interpolation) 語\"",
+                "\"\(interpolation) 日\"",
+            ]),
+        ]
+        for (path, patterns) in expectations {
+            assertFileExists(path)
+            for pattern in patterns {
+                XCTAssertGreaterThanOrEqual(codeHits(pattern, in: path).count, 1, "\(path) の文言が変わった: \(pattern)")
+            }
+        }
+    }
+
+    // verifies: CI-15（T-W5）。値では等価で LearningViewModelTests から観測できないので、配線で固定する。
+    func testW5_viewModelMarksAllUnlockedIdsNotOnlyUnseenOnes() {
+        let viewModel = "Learning/LearningViewModel.swift"
+        assertFileExists(viewModel)
+
+        let hits = codeHits(#"markAchievementsSeen\([^)]*achievements\.map\(\\\.id\)"#, in: viewModel)
+
+        XCTAssertEqual(hits.count, 1, "解錠済みの全 id（achievements.map(\\.id)）を既読として渡す")
     }
 }

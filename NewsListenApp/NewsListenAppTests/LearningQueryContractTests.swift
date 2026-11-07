@@ -27,7 +27,7 @@ final class LearningQueryContractTests: XCTestCase {
     private func vocabularyItemJSON(podcastId: String, term: String) -> [String: Any] {
         [
             "vocabulary_id": "v-\(term)", "podcast_id": podcastId, "term": term,
-            "meaning": "意味", "example": "example", "registered_at": "2026-11-07T00:00:00Z",
+            "meaning": "意味-\(term)", "example": "example", "registered_at": "2026-11-0\(podcastId == "e1" ? 7 : 8)T00:00:00Z",
         ]
     }
 
@@ -97,7 +97,10 @@ final class LearningQueryContractTests: XCTestCase {
 
         let result = try await gateway.fetchVocabulary()
 
-        XCTAssertEqual(result.terms, [SavedTerm(episodeId: "e1", term: "Apple"), SavedTerm(episodeId: "e2", term: "pear")])
+        XCTAssertEqual(result.terms, [
+            SavedTerm(episodeId: "e1", term: "Apple", meaning: "意味-Apple", registeredAt: "2026-11-07T00:00:00Z"),
+            SavedTerm(episodeId: "e2", term: "pear", meaning: "意味-pear", registeredAt: "2026-11-08T00:00:00Z"),
+        ], "意味と登録日を写す")
         XCTAssertEqual(result.count, 7, "count は応答の値（terms.count で数え直さない）")
     }
 

@@ -258,7 +258,9 @@ private func quizPreviewGrading() -> QuizGrading {
                 )
             }
             return QuizGrade(correctCount: 2, total: 3, perQuestion: items, isPositive: true)
-        }
+        },
+        fetchDashboard: { throw CancellationError() },
+        fetchStreak: { throw CancellationError() }
     ))
 }
 

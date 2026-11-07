@@ -16,8 +16,8 @@ struct PodcastView: View {
     @ObservedObject var viewModel: PodcastViewModel
     /// 再生待ちキューのシート表示状態（issue #81）。
     @State private var showQueue = false
-    /// アプリ全体で共有する設定状態（ストリーク表示に使う）。
-    @EnvironmentObject private var appState: AppState
+    /// 聴取ストリークの保持者（ツールバーの表示に使う）。
+    @EnvironmentObject private var engagement: EngagementStore
 
     var body: some View {
         NavigationStack {
@@ -31,7 +31,7 @@ struct PodcastView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .dsScreenBackground()
             .navigationTitle("Podcast")
-            .dsStreakToolbar(appState: appState)
+            .dsStreakToolbar(engagement: engagement)
             .toolbar {
                 // 再生待ち一覧（キュー）を開く。待機数をバッジ的に併記する。
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -140,13 +140,13 @@ struct PodcastView: View {
 #if DEBUG
 #Preview("Podcast List / Light") {
     PodcastView(viewModel: PreviewSamples.playerViewModel())
-        .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.engagement())
         .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("Podcast List / Dark") {
     PodcastView(viewModel: PreviewSamples.playerViewModel())
-        .environmentObject(PreviewSamples.appState())
+        .environmentObject(PreviewSamples.engagement())
         .environmentObject(PreviewSamples.preferencesStore())
         .preferredColorScheme(.dark)
 }

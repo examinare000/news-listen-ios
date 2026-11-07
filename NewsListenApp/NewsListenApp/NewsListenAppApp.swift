@@ -19,6 +19,8 @@ struct NewsListenAppApp: App {
     @StateObject private var appState: AppState
     /// 設定の現在値の持ち主。`init()` で `AppState` と相互に結ぶ（ios-dec-92）。
     @StateObject private var preferencesStore: PreferencesStore
+    /// 継続（ストリーク・ダッシュボード・実績の既読）の保持者。`preferencesStore` と同じ寿命。
+    @StateObject private var engagementStore: EngagementStore
 
     /// `PreferencesStore` と `AppState` は互いの closure を必要とする。構築の順序を、後から結ぶ弱参照の箱で解く。
     private final class AppStateBox {
@@ -45,6 +47,15 @@ struct NewsListenAppApp: App {
     /// APNs プッシュ通知（issue #80）の AppDelegate。純 SwiftUI ライフサイクルに接続する。
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    /// ストリークを更新し、増えたときだけ上昇音を鳴らす。更新の呼出（完聴・起動・復帰・設定画面）はすべてここを通す。
+    @MainActor
+    private static func refreshStreakAndCelebrate(_ engagement: EngagementStore) async {
+        let receipt = await engagement.refreshStreak()
+        if receipt.increased {
+            DSFeedback.shared.play(.streakUp)
+        }
+    }
+
     /// グローバル外観（ナビゲーション見出しのセリフ化・紙背景）を起動時に一度だけ設定する。
     /// あわせて MetricKit のクラッシュ診断購読を開始する（次回起動時に前回クラッシュが配信される）。
     init() {
@@ -52,9 +63,10 @@ struct NewsListenAppApp: App {
         Self.crashReporter.register()
 
         let box = AppStateBox()
+        let registry = PreferenceRegistry()
         let store = PreferencesStore(
             gateway: .live(client: { box.state?.apiClient }),
-            storage: .live(registry: PreferenceRegistry()),
+            storage: .live(registry: registry),
             isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false },
             subjectStamp: { box.state!.subjectStamp },
             isAuthenticated: { box.state?.currentSubject != nil }
@@ -70,6 +82,13 @@ struct NewsListenAppApp: App {
         box.state = state
         _appState = StateObject(wrappedValue: state)
         _preferencesStore = StateObject(wrappedValue: store)
+        // 継続の保持者。`PreferencesStore` と同じ寿命・同じ主体の結び方で、主体の離脱では作り直さない。
+        _engagementStore = StateObject(wrappedValue: EngagementStore(
+            gateway: .live(client: { box.state?.apiClient }),
+            seenStore: registry.seenAchievements,
+            subjectStamp: { box.state!.subjectStamp },
+            isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false }
+        ))
         self.box = box
         let accountGateway = AccountGateway.live(client: { box.state?.apiClient })
         let passkeyProvider = ASAuthorizationPasskeyProvider()
@@ -115,7 +134,7 @@ struct NewsListenAppApp: App {
                         if let client = appState.apiClient {
                             ContentView(
                                 apiClient: client,
-                                refreshListeningStreak: { await appState.refreshListeningStreak() },
+                                refreshStreak: { await Self.refreshStreakAndCelebrate(engagementStore) },
                                 defaultSpeed: { Float(preferencesStore.defaultPlaybackSpeed) },
                                 currentSubjectKey: { appState.currentSubject?.key },
                                 audioEngine: Self.audioEngine,
@@ -149,6 +168,7 @@ struct NewsListenAppApp: App {
             .tint(DSColor.accent)
             .environmentObject(appState)
             .environmentObject(preferencesStore)
+            .environmentObject(engagementStore)
             // AppDelegate に AppState を注入し、保留中のトークン/通知遷移を反映させる。
             .onAppear { appDelegate.appState = appState }
         }
@@ -159,6 +179,8 @@ struct NewsListenAppApp: App {
 struct ContentView: View {
     /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var appState: AppState
+    /// 聴取ストリークと学習ダッシュボードの保持者（App が作った 1 個）。
+    @EnvironmentObject private var engagement: EngagementStore
 
     /// タブ選択。通知タップ時に Podcast タブ（tag 1）へ切り替えるため保持する。
     @State private var selectedTab = 0
@@ -181,6 +203,12 @@ struct ContentView: View {
     /// 初回 Onboarding の完了の状態。logout で `ContentView` ごと外れ、次の主体は nil から始まる。
     @StateObject private var onboarding: OnboardingProgress
 
+    /// 学習タブの語彙帳と単語テスト。authenticated の間だけ生きる。
+    @State private var vocabularyBook: VocabularyBook
+    @State private var vocabularyTesting: VocabularyTesting
+    /// ストリークを更新して祝う手順（App が包んだもの）。起動・復帰・設定画面が呼ぶ。
+    private let refreshStreak: @MainActor () async -> Void
+
     /// 設定画面に渡す保存庫（App が作った 1 個）。
     private let library: OfflineLibrary
     /// アカウント欄の手順。authenticated の間だけ生きる（logout で `ContentView` ごと外れる）。
@@ -192,7 +220,7 @@ struct ContentView: View {
     /// ビューを生成する。
     /// - Parameters:
     ///   - apiClient: 再生 ViewModel に注入する API クライアント。
-    ///   - refreshListeningStreak: 完聴時に共有ストリークを更新するクロージャ。
+    ///   - refreshStreak: 共有ストリークを更新するクロージャ（完聴・起動・復帰・設定画面で使う）。
     ///   - defaultSpeed: 既定の再生速度（`appState` に依るので呼ぶ側が closure にして渡す）。
     ///   - currentSubjectKey: ダウンロードの開始時に固定する現在の主体キー（`defaultSpeed` と同じ形で渡す）。
     ///   - audioEngine: 再生エンジン（App がプロセスで 1 個作ったもの）。
@@ -208,7 +236,7 @@ struct ContentView: View {
     @MainActor
     init(
         apiClient: APIClient,
-        refreshListeningStreak: @escaping @MainActor () async -> Void,
+        refreshStreak: @escaping @MainActor () async -> Void,
         defaultSpeed: @escaping () -> Float,
         currentSubjectKey: @escaping () -> SubjectKey?,
         audioEngine: any AudioEngine,
@@ -221,6 +249,7 @@ struct ContentView: View {
         isCurrentSubject: @escaping (SubjectStamp) -> Bool
     ) {
         self.library = library
+        self.refreshStreak = refreshStreak
         // `init` は再描画のたびに走るが、`@StateObject`／`@State` が最初の 1 つだけを保つ。
         let gateway = CurationGateway.live(client: { apiClient })
         _curation = StateObject(wrappedValue: FeedCuration(gateway: gateway, undoGracePeriod: .seconds(4), currentSubject: currentSubjectKey))
@@ -231,12 +260,15 @@ struct ContentView: View {
         _deviceSessions = State(wrappedValue: DeviceSessions(gateway: accountGateway))
         _passkeyEnrollment = State(wrappedValue: PasskeyEnrollment(gateway: accountGateway, provider: passkeyProvider))
         _userAdministration = State(wrappedValue: UserAdministration(gateway: accountGateway, currentUsername: currentUsername))
+        let learningGateway = LearningGateway.live(apiClient: apiClient)
+        _vocabularyBook = State(wrappedValue: VocabularyBook(gateway: learningGateway))
+        _vocabularyTesting = State(wrappedValue: VocabularyTesting(gateway: learningGateway))
         _onboarding = StateObject(wrappedValue: OnboardingProgress.live(client: currentClient, subjectStamp: subjectStamp, isCurrentSubject: isCurrentSubject))
         // 再生 ViewModel の組み立ては `StateObject` の autoclosure の中（1 回だけ評価される）で行う。
         _playerViewModel = StateObject(
             wrappedValue: Self.makePlayerViewModel(
                 apiClient: apiClient,
-                refreshListeningStreak: refreshListeningStreak,
+                refreshStreak: refreshStreak,
                 defaultSpeed: defaultSpeed,
                 currentSubjectKey: currentSubjectKey,
                 engine: audioEngine,
@@ -250,7 +282,7 @@ struct ContentView: View {
     @MainActor
     private static func makePlayerViewModel(
         apiClient: APIClient,
-        refreshListeningStreak: @escaping @MainActor () async -> Void,
+        refreshStreak: @escaping @MainActor () async -> Void,
         defaultSpeed: @escaping () -> Float,
         currentSubjectKey: @escaping () -> SubjectKey?,
         engine: any AudioEngine,
@@ -265,7 +297,7 @@ struct ContentView: View {
             updatePosition: gateway.updatePosition,
             markCompleted: gateway.markCompleted,
             onPositionSaved: { episode in catalog.applyPositionSaved(episode) },
-            onCompletionRecorded: refreshListeningStreak,
+            onCompletionRecorded: refreshStreak,
             beginBackgroundTask: { beginBackgroundTask() }
         )
         let coordinator = PlaybackCoordinator(
@@ -311,13 +343,15 @@ struct ContentView: View {
                 StarredView(starred: starred)
             }
             // 学習は第 3 タブ（iOS 慣習: 学習機能は追加タブ）。
-            apiTab("学習", systemImage: "book.closed", tag: 3) { client in
-                LearningView(apiClient: client)
+            apiTab("学習", systemImage: "book.closed", tag: 3) { _ in
+                LearningView(engagement: engagement, vocabularyBook: vocabularyBook, vocabularyTesting: vocabularyTesting)
             }
             // Settings は API 未設定の修正導線として常に表示する（第 4 タブ末尾）。
             // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
             SettingsView(
                 appState: appState,
+                engagement: engagement,
+                refreshStreak: refreshStreak,
                 library: library,
                 downloads: playerViewModel.downloads,
                 curation: curation,
@@ -345,7 +379,7 @@ struct ContentView: View {
         // 3分岐ルーティングではなく cover にすることで launch をブロックしない。
         .task {
             await onboarding.refresh()
-            await appState.refreshListeningStreak()
+            await refreshStreak()
         }
         // 主体離脱時の再生停止 port を登録する（ios-slice-auth-01 / ios-contract-21.9。実体は `PlaybackCoordinator`）。
         .onAppear {
@@ -355,7 +389,7 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
-                Task { await appState.refreshListeningStreak() }
+                Task { await refreshStreak() }
             case .background, .inactive:
                 // タブ離脱で再生を止めなくなったため、アプリ離脱直前の
                 // 再生位置をここで同期する（15秒毎の定期同期の取りこぼし補完）。

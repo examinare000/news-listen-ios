@@ -15,16 +15,22 @@ struct LearningGateway {
     let fetchTestSession: () async throws -> [VocabularyTestWord]
     let submitTestResult: (VocabularyTest) async throws -> Void
     let submitQuiz: (String, [Int]) async throws -> QuizGrade
+    let fetchDashboard: () async throws -> LearningDashboardSummary
+    /// 404 の `.streak` は意味づけせずそのまま投げる（`EngagementStore` が「無し」にする）。
+    let fetchStreak: () async throws -> ListeningStreakStatus
 }
 
 struct SavedTerm: Equatable {
     let episodeId: String
     let term: String
+    let meaning: String
+    let registeredAt: String
 }
 
 struct VocabularyBookView: Equatable {
     let count: Int
     let firstTerms: [String]
+    let firstEntries: [SavedTerm]
 }
 
 struct RegisteredTerms: Equatable {
@@ -50,7 +56,8 @@ final class VocabularyBook: ObservableObject {
 
     func book() async throws -> VocabularyBookView {
         let saved = try await gateway.fetchVocabulary()
-        return VocabularyBookView(count: saved.count, firstTerms: saved.terms.prefix(5).map(\.term))
+        let first = Array(saved.terms.prefix(5))
+        return VocabularyBookView(count: saved.count, firstTerms: first.map(\.term), firstEntries: first)
     }
 
     /// 呼ばれた時点で `registered` を空に置き換える。応答が古い（cancel 済み、または後から別のエピソードを求められた）ときは
