@@ -131,11 +131,13 @@ final class PlaybackCoordinatorTests: XCTestCase {
             let environment = self.environment
             let clock = self.clock
             reporter = PositionReporter(
-                updatePosition: { id, seconds in gateway.updatePosition(id, seconds) },
+                updatePosition: { id, seconds, _ in gateway.updatePosition(id, seconds) },
                 markCompleted: { id in gateway.markCompleted(id) },
                 onPositionSaved: { _ in },
                 onCompletionRecorded: {},
                 beginBackgroundTask: { environment.beginBackground() },
+                records: makeBoundPositionRecords(),
+                connectivity: makeSilentConnectivity(),
                 now: { clock.now }
             )
             coordinator = PlaybackCoordinator(

@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import Combine
 
 /// アプリの `@main` エントリポイント。
 ///
@@ -43,6 +44,10 @@ struct NewsListenAppApp: App {
     private static let nowPlayingCenter = MediaPlayerNowPlaying()
     /// 保存済み音声の保存庫。プロセスで 1 個作り、再生・ダウンロード・設定の全員が同じ集合を見る。
     private static let offlineLibrary = OfflineLibrary(store: .live(cacheManager: AudioCacheManager()))
+    /// 端末の位置の記録の持ち主。プロセスで 1 個作り、束縛・離脱の削除・回収・再生の記録が同じ集合を見る。
+    private static let positionRecords = PositionRecords(store: .live(files: PositionRecordFiles(
+        directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NewsListenApp/position-records", isDirectory: true))))
 
     /// APNs プッシュ通知（issue #80）の AppDelegate。純 SwiftUI ライフサイクルに接続する。
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -76,8 +81,13 @@ struct NewsListenAppApp: App {
             clearSubjectPreferences: { store.clearSubjectScoped() },
             nowPlayingCenter: Self.nowPlayingCenter,
             clearOfflineLibrary: { @MainActor key in try Self.offlineLibrary.remove(subject: key) },
-            bindOfflineSubject: { @MainActor key in Self.offlineLibrary.bind(subject: key) },
-            reclaimOfflineLibrary: { @MainActor key in try Self.offlineLibrary.reclaim(keeping: key) }
+            bindOfflineSubject: { @MainActor key in
+                Self.offlineLibrary.bind(subject: key)
+                Self.positionRecords.bind(subject: key)
+            },
+            reclaimOfflineLibrary: { @MainActor key in try Self.offlineLibrary.reclaim(keeping: key) },
+            clearPositionRecords: { @MainActor key in if let key { try Self.positionRecords.remove(subject: key) } },
+            reclaimPositionRecords: { @MainActor key in try Self.positionRecords.reclaim(keeping: key) }
         )
         box.state = state
         _appState = StateObject(wrappedValue: state)
@@ -140,6 +150,7 @@ struct NewsListenAppApp: App {
                                 audioEngine: Self.audioEngine,
                                 nowPlayingCenter: Self.nowPlayingCenter,
                                 library: Self.offlineLibrary,
+                                positionRecords: Self.positionRecords,
                                 passkeyProvider: passkeyProvider,
                                 currentUsername: { box.state?.currentSubject?.username },
                                 currentClient: { box.state?.apiClient },
@@ -242,6 +253,7 @@ struct ContentView: View {
         audioEngine: any AudioEngine,
         nowPlayingCenter: NowPlayingCenter,
         library: OfflineLibrary,
+        positionRecords: PositionRecords,
         passkeyProvider: PasskeyAuthorizationProviding,
         currentUsername: @escaping () -> String?,
         currentClient: @escaping @MainActor () -> APIClient?,
@@ -273,7 +285,8 @@ struct ContentView: View {
                 currentSubjectKey: currentSubjectKey,
                 engine: audioEngine,
                 nowPlayingCenter: nowPlayingCenter,
-                library: library
+                library: library,
+                positionRecords: positionRecords
             )
         )
     }
@@ -287,7 +300,8 @@ struct ContentView: View {
         currentSubjectKey: @escaping () -> SubjectKey?,
         engine: any AudioEngine,
         nowPlayingCenter: NowPlayingCenter,
-        library: OfflineLibrary
+        library: OfflineLibrary,
+        positionRecords: PositionRecords
     ) -> PodcastViewModel {
         let gateway = PlaybackGateway.live(apiClient: apiClient)
         let learningGateway = LearningGateway.live(apiClient: apiClient)
@@ -298,7 +312,9 @@ struct ContentView: View {
             markCompleted: gateway.markCompleted,
             onPositionSaved: { episode in catalog.applyPositionSaved(episode) },
             onCompletionRecorded: refreshStreak,
-            beginBackgroundTask: { beginBackgroundTask() }
+            beginBackgroundTask: { beginBackgroundTask() },
+            records: positionRecords,
+            connectivity: networkMonitor.isOnlinePublisher.eraseToAnyPublisher()
         )
         let coordinator = PlaybackCoordinator(
             engine: engine,
@@ -378,6 +394,8 @@ struct ContentView: View {
         // 起動ごとに onboarding 状態を取得し、未完了なら追加ステップを被せる。
         // 3分岐ルーティングではなく cover にすることで launch をブロックしない。
         .task {
+            // 前回送れなかった位置の再送（認証が確定した後の ContentView の寿命の 1 回）。
+            playerViewModel.resendUnsentPositions()
             await onboarding.refresh()
             await refreshStreak()
         }

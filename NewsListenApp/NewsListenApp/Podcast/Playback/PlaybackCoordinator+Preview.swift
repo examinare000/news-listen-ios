@@ -16,11 +16,13 @@ extension PlaybackCoordinator {
     ) -> (coordinator: PlaybackCoordinator, reporter: PositionReporter, library: OfflineLibrary) {
         let library = OfflineLibrary(store: previewStore)
         let reporter = PositionReporter(
-            updatePosition: { _, _ in throw CancellationError() },
+            updatePosition: { _, _, _ in throw CancellationError() },
             markCompleted: { _ in },
             onPositionSaved: { _ in },
             onCompletionRecorded: {},
-            beginBackgroundTask: { {} })
+            beginBackgroundTask: { {} },
+            records: PositionRecords(store: previewPositionStore),
+            connectivity: Empty<Bool, Never>().eraseToAnyPublisher())
         let coordinator = PlaybackCoordinator(
             engine: IdleAudioEngine(),
             nowPlayingCenter: IdleNowPlayingCenter(),
@@ -34,6 +36,13 @@ extension PlaybackCoordinator {
         coordinator.previewSet(session: session, queue: queue)
         return (coordinator, reporter, library)
     }
+
+    /// 何も保存しない記録の保存先。`PositionRecordFiles(` は合成 root 以外で作れないので closure だけで組む。
+    private static let previewPositionStore = PositionRecordStore(
+        read: { _ in [] },
+        write: { _, _ in },
+        removeSubject: { _ in },
+        reclaim: { _ in })
 
     private static let previewStore = AudioFileStore(
         url: { _, _ in nil },

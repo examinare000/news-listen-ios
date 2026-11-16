@@ -11,7 +11,7 @@ import Foundation
 enum PlaybackGateway {
     typealias Closures = (
         fetchEpisode: (String) async throws -> Episode,
-        updatePosition: (_ id: String, _ seconds: Double) async throws -> Episode,
+        updatePosition: (_ id: String, _ seconds: Double, _ recordedAt: Date) async throws -> Episode,
         markCompleted: (String) async throws -> Void,
         downloadAudio: (URL) async throws -> Data
     )
@@ -19,8 +19,8 @@ enum PlaybackGateway {
     static func live(apiClient: APIClient) -> Closures {
         (
             fetchEpisode: { id in try await apiClient.fetchPodcast(id: id).toEpisode() },
-            updatePosition: { id, seconds in
-                try await apiClient.updatePlaybackPosition(podcastId: id, positionSeconds: seconds).toEpisode()
+            updatePosition: { id, seconds, recordedAt in
+                try await apiClient.updatePlaybackPosition(podcastId: id, positionSeconds: seconds, recordedAt: recordedAt).toEpisode()
             },
             markCompleted: { id in try await apiClient.markCompleted(id: id) },
             downloadAudio: { url in try await apiClient.downloadAudio(from: url) }

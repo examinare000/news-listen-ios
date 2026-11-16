@@ -13,13 +13,16 @@ struct PlayableEpisode: Equatable {
     let audioUrl: String
     /// サーバーが保持する最後の再生位置（秒）。
     let serverPosition: Double
+    /// `serverPosition` をサーバーが記録した時刻（ミリ秒）。応答に無ければ nil（最も古い扱い）。
+    let serverRecordedAt: Date?
 
     /// 空の音声 URL は再生できないため nil を返す。
-    init?(content: EpisodeContent, audioUrl: String, serverPosition: Double) {
+    init?(content: EpisodeContent, audioUrl: String, serverPosition: Double, serverRecordedAt: Date? = nil) {
         guard !audioUrl.isEmpty else { return nil }
         self.content = content
         self.audioUrl = audioUrl
         self.serverPosition = serverPosition
+        self.serverRecordedAt = serverRecordedAt
     }
 }
 

@@ -48,6 +48,8 @@ struct Podcast: Codable, Identifiable {
     /// 出典区分（`"featured"` | `"user"` | `"unknown"`）。`"featured"` のときだけ CC BY-SA 4.0 表示を
     /// 出す（ADR-095、fail-closed）。旧エピソードや未デプロイ環境ではキー欠落・`null` のため Optional。
     private(set) var sourceKind: String? = nil
+    /// `playback_position_seconds` をサーバーが記録した時刻（ISO 8601 文字列）。旧応答ではキー欠落・`null`。
+    private(set) var playbackPositionRecordedAt: String? = nil
 
     /// バックエンドの snake_case フィールドに対応する。
     enum CodingKeys: String, CodingKey {
@@ -60,6 +62,7 @@ struct Podcast: Codable, Identifiable {
         case createdAt = "created_at"
         case errorMessage = "error_message"
         case playbackPositionSeconds = "playback_position_seconds"
+        case playbackPositionRecordedAt = "playback_position_recorded_at"
         case segments, vocabulary, quiz
         case sourceArticles = "source_articles"
         case sourceKind = "source_kind"
@@ -93,6 +96,8 @@ extension Podcast {
         self.quiz = try container.decodeIfPresent([QuizQuestion].self, forKey: .quiz)
         self.sourceArticles = try container.decodeIfPresent([PodcastSourceArticle].self, forKey: .sourceArticles)
         self.sourceKind = try container.decodeIfPresent(String.self, forKey: .sourceKind)
+        // 読めない値は nil にして、位置の時刻のために一覧全体の decode を失敗させない。
+        self.playbackPositionRecordedAt = (try? container.decodeIfPresent(String.self, forKey: .playbackPositionRecordedAt)) ?? nil
     }
 }
 

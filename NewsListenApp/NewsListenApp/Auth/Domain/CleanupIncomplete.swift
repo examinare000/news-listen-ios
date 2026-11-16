@@ -11,6 +11,8 @@ import Foundation
 enum SubjectCleanupFailedPart: Equatable {
     /// 音声キャッシュ削除（`clearOfflineLibrary`）の失敗。
     case offlineLibrary
+    /// 端末の位置の記録の削除（`clearPositionRecords`）の失敗。
+    case positionRecords
 }
 
 /// 主体離脱の後始末が一部失敗したことを表す。遷移自体は完了している（shared-dec-28）。

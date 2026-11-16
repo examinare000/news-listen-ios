@@ -82,7 +82,9 @@ final class PlaybackQueryContractTests: XCTestCase {
             markCompleted: gateway.markCompleted,
             onPositionSaved: { _ in },
             onCompletionRecorded: {},
-            beginBackgroundTask: { return {} }
+            beginBackgroundTask: { return {} },
+            records: makeBoundPositionRecords(),
+            connectivity: makeSilentConnectivity()
         )
         let coordinator = PlaybackCoordinator(
             engine: engine,

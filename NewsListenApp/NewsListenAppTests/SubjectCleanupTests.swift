@@ -180,7 +180,8 @@ final class SubjectCleanupTests: XCTestCase {
             nowPlayingCenter: nowPlaying,
             clearSubjectPreferences: {},
             clearOfflineLibrary: { key in if let key { try cacheManager.removeSubject(key) } },
-            cancelDownloads: {}
+            cancelDownloads: {},
+            clearPositionRecords: { _ in }
         )
 
         let firstResult = cleanup.run(departing: subjectA)
@@ -195,7 +196,8 @@ final class SubjectCleanupTests: XCTestCase {
             nowPlayingCenter: nowPlaying,
             clearSubjectPreferences: {},
             clearOfflineLibrary: { key in if let key { try recoveredCacheManager.removeSubject(key) } },
-            cancelDownloads: {}
+            cancelDownloads: {},
+            clearPositionRecords: { _ in }
         )
 
         let secondResult = recoveredCleanup.run(departing: subjectA)
@@ -587,30 +589,34 @@ final class SubjectCleanupTests: XCTestCase {
             nowPlayingCenter: nowPlaying,
             clearSubjectPreferences: { order.append("preferences") },
             clearOfflineLibrary: { key in order.append("clear:\(key?.rawValue ?? "nil")") },
-            cancelDownloads: { order.append("cancel") }
+            cancelDownloads: { order.append("cancel") },
+            clearPositionRecords: { key in order.append("positions:\(key?.rawValue ?? "nil")") }
         )
 
         let result = cleanup.run(departing: subjectA)
 
         XCTAssertNil(result)
-        XCTAssertEqual(order, ["stop", "clearNowPlaying", "preferences", "cancel", "clear:user-a"])
+        XCTAssertEqual(order, ["stop", "clearNowPlaying", "preferences", "cancel", "clear:user-a", "positions:user-a"])
     }
 
     // verifies: ios-contract-21.2
     // kills: 離脱主体 nil を握りつぶして clearOfflineLibrary を呼ばない／既定の key を補う
     func testRunPassesNilDepartingSubjectToClearOfflineLibrary() {
         var received: [SubjectKey?] = []
+        var receivedByPositions: [SubjectKey?] = []
         let cleanup = SubjectCleanup(
             playbackLifecycle: nil,
             nowPlayingCenter: NowPlayingCenterSpy(),
             clearSubjectPreferences: {},
             clearOfflineLibrary: { key in received.append(key) },
-            cancelDownloads: {}
+            cancelDownloads: {},
+            clearPositionRecords: { key in receivedByPositions.append(key) }
         )
 
         _ = cleanup.run(departing: nil)
 
         XCTAssertEqual(received.count, 1)
         XCTAssertNil(received[0], "離脱主体 nil はそのまま渡る")
+        XCTAssertEqual(receivedByPositions.count, 1)
     }
 }
