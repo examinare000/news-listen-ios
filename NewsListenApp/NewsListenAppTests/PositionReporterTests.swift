@@ -53,7 +53,7 @@ final class PositionReporterTests: XCTestCase {
             lock.withLock { $0.calls.append(call) }
         }
 
-        func updatePosition(_ id: String, _ seconds: Double) async throws -> Episode {
+        func updatePosition(_ id: String, _ seconds: Double, _ recordedAt: Date) async throws -> Episode {
             record(.update(id, seconds))
             if let error = lock.withLock({ $0.updateError }) { throw error }
             return Self.response(id: id, seconds: seconds)
@@ -127,11 +127,13 @@ final class PositionReporterTests: XCTestCase {
             let clock = self.clock
             session = PlaybackSession(engine: engine)
             reporter = PositionReporter(
-                updatePosition: { id, seconds in try await gateway.updatePosition(id, seconds) },
+                updatePosition: { id, seconds, at in try await gateway.updatePosition(id, seconds, at) },
                 markCompleted: { id in try await gateway.markCompleted(id) },
                 onPositionSaved: { gateway.positionSaved($0) },
                 onCompletionRecorded: { await gateway.completionRecorded() },
                 beginBackgroundTask: { gateway.beginBackgroundTask() },
+                records: makeBoundPositionRecords(),
+                connectivity: makeSilentConnectivity(),
                 now: { clock.now }
             )
             reporter.attach(session)
@@ -482,11 +484,13 @@ final class PositionReporterTests: XCTestCase {
         weak var released: PositionReporter?
         do {
             let reporter = PositionReporter(
-                updatePosition: { id, seconds in try await gateway.updatePosition(id, seconds) },
+                updatePosition: { id, seconds, at in try await gateway.updatePosition(id, seconds, at) },
                 markCompleted: { id in try await gateway.markCompleted(id) },
                 onPositionSaved: { gateway.positionSaved($0) },
                 onCompletionRecorded: { await gateway.completionRecorded() },
-                beginBackgroundTask: { gateway.beginBackgroundTask() }
+                beginBackgroundTask: { gateway.beginBackgroundTask() },
+                records: makeBoundPositionRecords(),
+                connectivity: makeSilentConnectivity()
             )
             released = reporter
             reporter.attach(session)

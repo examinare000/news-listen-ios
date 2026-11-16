@@ -30,11 +30,13 @@ final class PositionReporterSeekPositionTests: XCTestCase {
         let session = PlaybackSession(engine: engine)
         let gateway = Gateway()
         let reporter = PositionReporter(
-            updatePosition: { id, seconds in gateway.updatePosition(id, seconds) },
+            updatePosition: { id, seconds, _ in gateway.updatePosition(id, seconds) },
             markCompleted: { _ in },
             onPositionSaved: { _ in },
             onCompletionRecorded: {},
             beginBackgroundTask: { {} },
+            records: makeBoundPositionRecords(),
+            connectivity: makeSilentConnectivity(),
             now: { Date(timeIntervalSince1970: 1_000_000) }
         )
         reporter.attach(session)

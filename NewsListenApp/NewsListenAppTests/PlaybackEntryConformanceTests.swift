@@ -647,7 +647,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
         let rig = PlaybackEntryRig(
             catalog: catalog,
             onPositionSaved: { episode in catalog.applyPositionSaved(episode) },
-            updatePosition: { _, _ in throw ApiFailure.server(status: 500) })
+            updatePosition: { _, _, _ in throw ApiFailure.server(status: 500) })
 
         try await rig.play("a")
         await rig.engine.send(.timeUpdate(seconds: 42, duration: 300))

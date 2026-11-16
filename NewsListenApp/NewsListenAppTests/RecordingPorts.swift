@@ -192,8 +192,8 @@ final class RecordingPlaybackGateway {
 
     func resetCounts() { counter.reset() }
 
-    var updatePosition: (String, Double) async throws -> Episode {
-        { [self] id, _ in
+    var updatePosition: (String, Double, Date) async throws -> Episode {
+        { [self] id, _, _ in
             counter.increment()
             return response(id)
         }
@@ -208,6 +208,39 @@ final class RecordingPlaybackGateway {
     }
 }
 
+/// `PositionRecords(store:)` に渡す `PositionRecordStore` を包む double。`write`・`removeSubject`・`reclaim` の呼出を数える
+/// （同値の書込も数える）。`read` は数えない。`RecordingPorts` の struct（`AppState` の継ぎ目の束）には入れない。
+final class RecordingPositionStore {
+    private let delegate: PositionRecordStore
+    private let counter = WriteCounter()
+
+    init(delegate: PositionRecordStore) {
+        self.delegate = delegate
+    }
+
+    var writeCount: Int { counter.count }
+
+    func resetCounts() { counter.reset() }
+
+    var store: PositionRecordStore {
+        PositionRecordStore(
+            read: { [self] subject in delegate.read(subject) },
+            write: { [self] subject, records in
+                counter.increment()
+                try delegate.write(subject, records)
+            },
+            removeSubject: { [self] subject in
+                counter.increment()
+                try delegate.removeSubject(subject)
+            },
+            reclaim: { [self] keeping in
+                counter.increment()
+                try delegate.reclaim(keeping)
+            }
+        )
+    }
+}
+
 /// 5 つの double を既存の継ぎ目に合わせて束ねる。
 struct RecordingPorts {
     /// ios-check-15 (b) の静的検査が、テストファイルの参照を数えるときに使う型名。
@@ -218,6 +251,7 @@ struct RecordingPorts {
         "RecordingFileManager",
         "RecordingClearOfflineLibrary",
         "RecordingPlaybackGateway",
+        "RecordingPositionStore",
     ]
 
     let suiteName: String

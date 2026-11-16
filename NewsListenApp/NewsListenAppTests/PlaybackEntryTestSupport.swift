@@ -19,7 +19,10 @@ final class EntryGatewayLog: @unchecked Sendable {
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: [Event]())
+    private let times = OSAllocatedUnfairLock(initialState: [Date]())
     var events: [Event] { lock.withLock { $0 } }
+    /// `updatePosition` に渡された記録時刻（呼ばれた順）。`events` の `updatePosition` と同じ件数になる。
+    var recordedAts: [Date] { times.withLock { $0 } }
     var fetches: [String] { events.compactMap { if case .fetch(let id) = $0 { return id } else { return nil } } }
     var updates: [(id: String, seconds: Double)] {
         events.compactMap { if case .updatePosition(let id, let seconds) = $0 { return (id, seconds) } else { return nil } }
@@ -28,6 +31,11 @@ final class EntryGatewayLog: @unchecked Sendable {
     var downloads: [URL] { events.compactMap { if case .downloadAudio(let url) = $0 { return url } else { return nil } } }
 
     func record(_ event: Event) { lock.withLock { $0.append(event) } }
+
+    func recordUpdate(id: String, seconds: Double, recordedAt: Date) {
+        times.withLock { $0.append(recordedAt) }
+        record(.updatePosition(id: id, seconds: seconds))
+    }
 }
 
 /// 保留できる `fetchEpisode`。`hold` した id は `release` まで応答を待たせる。
@@ -279,6 +287,8 @@ final class PlaybackEntryRig {
     let clock = EntryClock()
     let environment = EntryEnvironment()
     let completions = CompletionCounter()
+    let store = InMemoryPositionStore()
+    let records: PositionRecords
     let reporter: PositionReporter
     let coordinator: PlaybackCoordinator
     let downloads: OfflineDownloads
@@ -302,7 +312,7 @@ final class PlaybackEntryRig {
         session: URLSessionProtocol? = nil,
         catalog: EpisodeCatalog? = nil,
         onPositionSaved: ((Episode) -> Void)? = nil,
-        updatePosition: ((_ id: String, _ seconds: Double) async throws -> Episode)? = nil,
+        updatePosition: ((_ id: String, _ seconds: Double, _ recordedAt: Date) async throws -> Episode)? = nil,
         markCompleted: ((_ id: String) async throws -> Void)? = nil,
         onCompletion: (@MainActor () async -> Void)? = nil
     ) {
@@ -323,11 +333,14 @@ final class PlaybackEntryRig {
             store: .live(cacheManager: AudioCacheManager(fileManager: PodcastViewModelTests.MockFileManager())))
         library.bind(subject: subjectA)
         self.library = library
+        let records = PositionRecords(store: store.store)
+        records.bind(subject: subjectA)
+        self.records = records
 
         let reporter = PositionReporter(
-            updatePosition: { id, seconds in
-                gateway.record(.updatePosition(id: id, seconds: seconds))
-                if let updatePosition { return try await updatePosition(id, seconds) }
+            updatePosition: { id, seconds, recordedAt in
+                gateway.recordUpdate(id: id, seconds: seconds, recordedAt: recordedAt)
+                if let updatePosition { return try await updatePosition(id, seconds, recordedAt) }
                 return EntryFixture.playable(id, serverPosition: seconds)
             },
             markCompleted: { id in
@@ -341,6 +354,8 @@ final class PlaybackEntryRig {
                 completions.increment()
             },
             beginBackgroundTask: { environment.beginBackground() },
+            records: records,
+            connectivity: network.isOnlinePublisher,
             now: { clock.now })
         self.reporter = reporter
 
