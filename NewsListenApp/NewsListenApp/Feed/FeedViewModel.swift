@@ -55,8 +55,8 @@ final class FeedViewModel: ObservableObject {
     /// ViewModel を生成する。
     /// - Parameters:
     ///   - curation: 一覧・保留・確定を持つ application。
-    ///   - networkMonitor: ネットワーク監視（既定: 実機監視の `NetworkMonitor()`。`PodcastViewModel` と同一パターン）。
-    init(curation: FeedCuration, networkMonitor: NetworkMonitoring = NetworkMonitor()) {
+    ///   - networkMonitor: ネットワーク監視（合成 root が作った 1 個を `PodcastViewModel` と共有する）。
+    init(curation: FeedCuration, networkMonitor: NetworkMonitoring) {
         self.curation = curation
         self.networkMonitor = networkMonitor
         self.isOnline = networkMonitor.isOnline

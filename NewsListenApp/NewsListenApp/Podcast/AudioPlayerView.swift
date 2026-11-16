@@ -18,7 +18,7 @@ struct PodcastAttributionContent {
     init(nowPlaying: NowPlaying) {
         showsSourceArticleList = nowPlaying.hasSourceArticles
         sourceArticles = nowPlaying.sourceArticles ?? []
-        licenseNotice = nowPlaying.showsCcBySaLicense ? Podcast.ccBySaLicenseNotice : nil
+        licenseNotice = nowPlaying.showsCcBySaLicense ? LicenseNotice.ccBySaLicenseNotice : nil
     }
 
     var isVisible: Bool {

@@ -76,6 +76,12 @@ extension AccountGateway {
             },
             deleteUser: { @MainActor username in
                 try await current().deleteUser(username: username)
+            },
+            fetchMe: { @MainActor in
+                try await current().fetchMe().toSubject()
+            },
+            logout: { @MainActor in
+                try await current().logout()
             }
         )
     }

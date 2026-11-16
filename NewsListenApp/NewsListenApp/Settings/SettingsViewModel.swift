@@ -18,7 +18,7 @@ final class SettingsViewModel: ObservableObject {
     /// 読み込み中かどうか。
     @Published private(set) var isLoading = false
     /// 直近のエラーメッセージ（なければ `nil`）。アラート表示に使う。
-    @Published var errorMessage: String?
+    @Published private(set) var errorMessage: String?
     /// 直近の `loadFeaturedSites()` が失敗したか（issue #164）。
     ///
     /// `categorizedFeaturedSites` は失敗時も空のまま既存仕様（`errorMessage` は汚さずセクション非表示）を
@@ -31,15 +31,9 @@ final class SettingsViewModel: ObservableObject {
     /// ダウンロード音声キャッシュの合計サイズ（バイト・issue #52）。未取得時は `0`。
     @Published private(set) var cacheSizeBytes: Int64 = 0
 
-    /// API 通信に使うクライアント。
-    ///
-    /// `AppState/apiClient` は URL 不正・未設定時に `nil` を返すため optional とする。
-    /// `nil` の場合は RSS ソース操作を行わず、難易度・API 設定の編集のみ可能にする
+    /// API が使えるか。`false` の場合は RSS ソース操作を行わず、難易度・API 設定の編集のみ可能にする
     /// （設定タブからの設定修正の導線を残すため）。
-    private let apiClientOverride: APIClient?
-    /// 本番では共有状態を正本として API クライアントも AppState から取得する。
-    private let appState: AppState?
-    private var apiClient: APIClient? { appState?.apiClient ?? apiClientOverride }
+    private let isAPIAvailable: () -> Bool
     /// ダウンロード音声の保存庫。容量取得・全削除に使う（issue #52）。
     private let library: OfflineLibrary
     /// 「キャッシュ全削除」の窓口。範囲は `OfflineDownloads` の現在主体に従う。
@@ -51,45 +45,33 @@ final class SettingsViewModel: ObservableObject {
 
     /// ViewModel を生成する。
     /// - Parameters:
-    ///   - apiClient: API 通信に使うクライアント。未設定時は `nil`。
+    ///   - isAPIAvailable: API が使えるか。使えないときは RSS ソース操作を行わない。
     ///   - library: 保存庫。合成 root が作った 1 個を渡す。
     ///   - downloads: ダウンロード use case。キャッシュの全削除に使う。
     ///   - curation: 生成の残り回数を読む application。
     ///   - sources: RSS ソースの操作とおすすめの取得を担う application。
     init(
-        apiClient: APIClient?,
+        isAPIAvailable: @escaping () -> Bool,
         library: OfflineLibrary,
         downloads: OfflineDownloads,
         curation: FeedCuration,
         sources: SourceSubscriptions
     ) {
-        self.apiClientOverride = apiClient
-        self.appState = nil
+        self.isAPIAvailable = isAPIAvailable
         self.library = library
         self.downloads = downloads
         self.curation = curation
         self.subscriptions = sources
     }
 
-    /// 共有 AppState を正本として使う本番用 initializer。
-    init(
-        appState: AppState,
-        library: OfflineLibrary,
-        downloads: OfflineDownloads,
-        curation: FeedCuration,
-        sources: SourceSubscriptions
-    ) {
-        self.apiClientOverride = nil
-        self.appState = appState
-        self.library = library
-        self.downloads = downloads
-        self.curation = curation
-        self.subscriptions = sources
+    /// 表示中のエラーを閉じる。View が `errorMessage` へ直接書かないための窓口。
+    func dismissError() {
+        errorMessage = nil
     }
 
     /// RSS ソース一覧を取得して `sources` を更新する。失敗時は `errorMessage` に反映する。
     func loadSources() async {
-        guard apiClient != nil else { return }
+        guard isAPIAvailable() else { return }
         isLoading = true
         errorMessage = nil
         do {
@@ -108,7 +90,7 @@ final class SettingsViewModel: ObservableObject {
     /// には反映しない。代わりに `featuredSitesLoadFailed` を立て、インライン表示 + 再試行に使う
     /// （issue #164・完全サイレントの解消）。
     func loadFeaturedSites() async {
-        guard apiClient != nil else { return }
+        guard isAPIAvailable() else { return }
         do {
             categorizedFeaturedSites = try await subscriptions.featured()
             featuredSitesLoadFailed = false
@@ -123,7 +105,7 @@ final class SettingsViewModel: ObservableObject {
     ///   - name: ソースの表示名。
     ///   - url: RSS フィードの URL。
     func addSource(name: String, url: String) async {
-        guard apiClient != nil else { return }
+        guard isAPIAvailable() else { return }
         do {
             try await subscriptions.add(name: name, url: url)
             sources = try await subscriptions.list()
@@ -141,7 +123,7 @@ final class SettingsViewModel: ObservableObject {
     ///   - name: 新しい表示名。
     ///   - url: 新しい RSS フィード URL（変更しない場合は `oldURL` と同値）。
     func updateSource(oldURL: String, name: String, url: String) async {
-        guard apiClient != nil else { return }
+        guard isAPIAvailable() else { return }
         do {
             try await subscriptions.update(oldURL: oldURL, name: name, url: url)
             sources = try await subscriptions.list()
@@ -155,7 +137,7 @@ final class SettingsViewModel: ObservableObject {
     /// 指定 URL の RSS ソースを削除し、一覧から取り除く。失敗時は `errorMessage` に反映する。
     /// - Parameter url: 削除対象ソースの URL。
     func removeSource(url: String) async {
-        guard apiClient != nil else { return }
+        guard isAPIAvailable() else { return }
         do {
             try await subscriptions.remove(url: url)
             sources.removeAll { $0.url == url }
@@ -176,7 +158,7 @@ final class SettingsViewModel: ObservableObject {
     /// 失敗時は `generationAllowance` を `nil` のまま `generationQuotaLoadFailed` を立てる。
     /// 404 時は `FeedCuration` が nil で返すので graceful degradation: セクション非表示（`generationQuotaLoadFailed = false`）。
     func loadGenerationQuota() async {
-        guard apiClient != nil else { return }
+        guard isAPIAvailable() else { return }
         do {
             generationAllowance = try await curation.generationAllowance()
             generationQuotaLoadFailed = false

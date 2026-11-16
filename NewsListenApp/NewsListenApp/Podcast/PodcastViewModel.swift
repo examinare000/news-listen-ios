@@ -44,6 +44,8 @@ final class PodcastViewModel: NSObject, ObservableObject {
     let quizGrading: QuizGrading
     private let defaultSpeed: () -> Float
     private var cancellables = Set<AnyCancellable>()
+    /// ネットワーク監視。合成 root が作った 1 個で、フィード・スターの画面が共有する。
+    let networkMonitor: NetworkMonitoring
 
     /// - Parameters:
     ///   - vocabularyBook: 語の登録と登録済みの語（学習）。変化は `objectWillChange` へ転送する。
@@ -77,6 +79,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
         self.library = library
         self.downloads = downloads
         self.defaultSpeed = defaultSpeed
+        self.networkMonitor = networkMonitor
         self.playbackLifecycle = coordinator
         self.isOnline = networkMonitor.isOnline
         // NSObject 継承のため、`$isOnline` 等 self を用いるプロパティラッパアクセスは

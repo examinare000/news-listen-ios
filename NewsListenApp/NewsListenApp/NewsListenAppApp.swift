@@ -18,6 +18,8 @@ import Combine
 struct NewsListenAppApp: App {
     /// アプリ全体で共有する認証状態。ロック画面 port は再生 ViewModel と同じ 1 個を共有する。
     @StateObject private var appState: AppState
+    /// 通知の端末トークンの登録と、通知のタップで選ばれたエピソードの保留。`AppState` より先に作る。
+    @StateObject private var pushRegistration: PushRegistration
     /// 設定の現在値の持ち主。`init()` で `AppState` と相互に結ぶ（ios-dec-92）。
     @StateObject private var preferencesStore: PreferencesStore
     /// 継続（ストリーク・ダッシュボード・実績の既読）の保持者。`preferencesStore` と同じ寿命。
@@ -35,9 +37,42 @@ struct NewsListenAppApp: App {
     private let passkeySignIn: PasskeySignIn
     /// Passkey の認証器。ログインと登録で同じ 1 個を使う（同時には使わない）。
     private let passkeyProvider: PasskeyAuthorizationProviding
+    /// 解決の後の起動時の連鎖（設定の同期 → 通知の登録）。`resolve()` が true のときだけ起こす。
+    private let launchSequence: LaunchSequence
+    /// 呼出のたびに、その時点の保存トークンで作る API クライアント。作れないとき nil。
+    private let currentClient: @MainActor () -> APIClient?
 
     /// MetricKit クラッシュ診断の購読者（issue #83）。購読を維持するため保持する。
-    private static let crashReporter = CrashReporter()
+    /// 送信は認証不要（token 無しの client）で、設定欠如・通信エラーは握りつぶす。
+    private static let crashReporter = CrashReporter(send: { payload in
+        Task { @MainActor in
+            guard let client = makeClient(token: nil, onUnauthorized: {}) else { return }
+            try? await client.reportClientError(payload)
+        }
+    })
+
+    /// ビルド時に Secrets.xcconfig → Info.plist 経由で注入された値を読む。
+    /// 未注入（空文字や未置換のまま）の場合は `nil` を返す。
+    /// - Parameter key: Info.plist のキー名。
+    private static func injectedValue(_ key: String) -> String? {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // xcconfig 未設定時は "$(API_KEY)" のような未置換文字列が残るため弾く。
+        guard !value.isEmpty, !value.hasPrefix("$(") else { return nil }
+        return value
+    }
+
+    /// 注入された API の URL とキーで `APIClient` を作る。どちらかが無い、または URL が不正なら nil。
+    /// - Parameters:
+    ///   - token: セッショントークン（未ログインは nil）。
+    ///   - onUnauthorized: そのトークンのリクエストが 401 を受けたときの観測先。
+    @MainActor
+    private static func makeClient(token: String?, onUnauthorized: @escaping @MainActor () -> Void) -> APIClient? {
+        guard let base = injectedValue("APIBaseURL"),
+              let key = injectedValue("APIKey"),
+              let url = URL(string: base) else { return nil }
+        return APIClient(baseURL: url, apiKey: key, sessionToken: token, onUnauthorized: onUnauthorized)
+    }
 
     /// 再生エンジンとロック画面 port。プロセスで 1 個ずつ作る（App の init が何回呼ばれても同じインスタンス）。
     private static let audioEngine = AVPlayerEngine()
@@ -68,16 +103,31 @@ struct NewsListenAppApp: App {
         Self.crashReporter.register()
 
         let box = AppStateBox()
+        let sessionStore = KeychainSessionStore()
+        let currentClient: @MainActor () -> APIClient? = {
+            let token = sessionStore.token
+            return Self.makeClient(token: token, onUnauthorized: box.state?.sessionExpiryObserver(sentToken: token) ?? {})
+        }
         let registry = PreferenceRegistry()
         let store = PreferencesStore(
-            gateway: .live(client: { box.state?.apiClient }),
+            gateway: .live(client: { currentClient() }),
             storage: .live(registry: registry),
             isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false },
             subjectStamp: { box.state!.subjectStamp },
             isAuthenticated: { box.state?.currentSubject != nil }
         )
+        let push = PushRegistration(
+            gateway: { currentClient().map { PushGateway.live(apiClient: $0) } },
+            isAuthenticated: { box.state?.currentSubject != nil },
+            subjectStamp: { box.state!.subjectStamp },
+            isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false }
+        )
         let state = AppState(
-            refreshPreferences: { await store.refreshFromServer() },
+            sessionStore: sessionStore,
+            accountGatewayFactory: { token, onUnauthorized in
+                Self.makeClient(token: token, onUnauthorized: onUnauthorized).map { AccountGateway.live(apiClient: $0) }
+            },
+            isConfigured: Self.injectedValue("APIBaseURL") != nil && Self.injectedValue("APIKey") != nil,
             clearSubjectPreferences: { store.clearSubjectScoped() },
             nowPlayingCenter: Self.nowPlayingCenter,
             clearOfflineLibrary: { @MainActor key in try Self.offlineLibrary.remove(subject: key) },
@@ -87,20 +137,29 @@ struct NewsListenAppApp: App {
             },
             reclaimOfflineLibrary: { @MainActor key in try Self.offlineLibrary.reclaim(keeping: key) },
             clearPositionRecords: { @MainActor key in if let key { try Self.positionRecords.remove(subject: key) } },
-            reclaimPositionRecords: { @MainActor key in try Self.positionRecords.reclaim(keeping: key) }
+            reclaimPositionRecords: { @MainActor key in try Self.positionRecords.reclaim(keeping: key) },
+            cancelPushRegistration: { push.cancelPendingRegistration() }
         )
         box.state = state
         _appState = StateObject(wrappedValue: state)
+        _pushRegistration = StateObject(wrappedValue: push)
         _preferencesStore = StateObject(wrappedValue: store)
         // 継続の保持者。`PreferencesStore` と同じ寿命・同じ主体の結び方で、主体の離脱では作り直さない。
         _engagementStore = StateObject(wrappedValue: EngagementStore(
-            gateway: .live(client: { box.state?.apiClient }),
+            gateway: .live(client: { currentClient() }),
             seenStore: registry.seenAchievements,
             subjectStamp: { box.state!.subjectStamp },
             isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false }
         ))
         self.box = box
-        let accountGateway = AccountGateway.live(client: { box.state?.apiClient })
+        self.currentClient = currentClient
+        self.launchSequence = LaunchSequence(
+            refreshPreferences: { await store.refreshFromServer() },
+            registerPush: { await push.registerIfPossible() },
+            subjectStamp: { box.state!.subjectStamp },
+            isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false }
+        )
+        let accountGateway = AccountGateway.live(client: { currentClient() })
         let passkeyProvider = ASAuthorizationPasskeyProvider()
         self.authentication = Authentication(gateway: accountGateway)
         self.passkeySignIn = PasskeySignIn(gateway: accountGateway, provider: passkeyProvider)
@@ -129,10 +188,16 @@ struct NewsListenAppApp: App {
                     case .resolving:
                         // 保存済みトークンで /auth/me を解決する間のローディング。
                         ProgressView("認証を確認中…")
-                            .task { await appState.refreshAuth() }
+                            .task {
+                                // 連鎖は非構造化 Task で起こす。`ProgressView` が消えて `.task` が cancel されても同期は中断しない。
+                                if await appState.resolve() { Task { await launchSequence.run() } }
+                            }
                     case .anonymous:
-                        if appState.apiClient != nil {
-                            LoginView(authentication: authentication, passkeySignIn: passkeySignIn) { appState.completeLogin($0) }
+                        if currentClient() != nil {
+                            LoginView(authentication: authentication, passkeySignIn: passkeySignIn) {
+                                appState.completeLogin($0)
+                                Task { await pushRegistration.registerIfPossible() }
+                            }
                         } else {
                             ContentUnavailableView(
                                 "API 設定を確認してください",
@@ -141,9 +206,10 @@ struct NewsListenAppApp: App {
                             )
                         }
                     case .authenticated:
-                        if let client = appState.apiClient {
+                        if let client = currentClient() {
                             ContentView(
                                 apiClient: client,
+                                isAPIAvailable: { currentClient() != nil },
                                 refreshStreak: { await Self.refreshStreakAndCelebrate(engagementStore) },
                                 defaultSpeed: { Float(preferencesStore.defaultPlaybackSpeed) },
                                 currentSubjectKey: { appState.currentSubject?.key },
@@ -153,7 +219,7 @@ struct NewsListenAppApp: App {
                                 positionRecords: Self.positionRecords,
                                 passkeyProvider: passkeyProvider,
                                 currentUsername: { box.state?.currentSubject?.username },
-                                currentClient: { box.state?.apiClient },
+                                currentClient: { currentClient() },
                                 subjectStamp: { box.state!.subjectStamp },
                                 isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false }
                             )
@@ -178,10 +244,11 @@ struct NewsListenAppApp: App {
             }
             .tint(DSColor.accent)
             .environmentObject(appState)
+            .environmentObject(pushRegistration)
             .environmentObject(preferencesStore)
             .environmentObject(engagementStore)
-            // AppDelegate に AppState を注入し、保留中のトークン/通知遷移を反映させる。
-            .onAppear { appDelegate.appState = appState }
+            // AppDelegate に PushRegistration を注入し、保留中のトークン/通知遷移を反映させる。
+            .onAppear { appDelegate.pushRegistration = pushRegistration }
         }
     }
 }
@@ -190,6 +257,8 @@ struct NewsListenAppApp: App {
 struct ContentView: View {
     /// アプリ全体で共有する設定状態。
     @EnvironmentObject private var appState: AppState
+    /// 通知のタップで選ばれたエピソードの保留（App が作った 1 個）。
+    @EnvironmentObject private var pushRegistration: PushRegistration
     /// 聴取ストリークと学習ダッシュボードの保持者（App が作った 1 個）。
     @EnvironmentObject private var engagement: EngagementStore
 
@@ -220,6 +289,8 @@ struct ContentView: View {
     /// ストリークを更新して祝う手順（App が包んだもの）。起動・復帰・設定画面が呼ぶ。
     private let refreshStreak: @MainActor () async -> Void
 
+    /// API が使えるか（API 必須のタブと設定画面の出し分け。呼ぶたびに読む）。
+    private let isAPIAvailable: () -> Bool
     /// 設定画面に渡す保存庫（App が作った 1 個）。
     private let library: OfflineLibrary
     /// アカウント欄の手順。authenticated の間だけ生きる（logout で `ContentView` ごと外れる）。
@@ -231,6 +302,7 @@ struct ContentView: View {
     /// ビューを生成する。
     /// - Parameters:
     ///   - apiClient: 再生 ViewModel に注入する API クライアント。
+    ///   - isAPIAvailable: API が使えるか。
     ///   - refreshStreak: 共有ストリークを更新するクロージャ（完聴・起動・復帰・設定画面で使う）。
     ///   - defaultSpeed: 既定の再生速度（`appState` に依るので呼ぶ側が closure にして渡す）。
     ///   - currentSubjectKey: ダウンロードの開始時に固定する現在の主体キー（`defaultSpeed` と同じ形で渡す）。
@@ -247,6 +319,7 @@ struct ContentView: View {
     @MainActor
     init(
         apiClient: APIClient,
+        isAPIAvailable: @escaping () -> Bool,
         refreshStreak: @escaping @MainActor () async -> Void,
         defaultSpeed: @escaping () -> Float,
         currentSubjectKey: @escaping () -> SubjectKey?,
@@ -261,6 +334,7 @@ struct ContentView: View {
         isCurrentSubject: @escaping (SubjectStamp) -> Bool
     ) {
         self.library = library
+        self.isAPIAvailable = isAPIAvailable
         self.refreshStreak = refreshStreak
         // `init` は再描画のたびに走るが、`@StateObject`／`@State` が最初の 1 つだけを保つ。
         let gateway = CurationGateway.live(client: { apiClient })
@@ -351,24 +425,25 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            apiTab("フィード", systemImage: "newspaper", tag: 0) { _ in
-                FeedView(curation: curation)
+            apiTab("フィード", systemImage: "newspaper", tag: 0) {
+                FeedView(curation: curation, networkMonitor: playerViewModel.networkMonitor)
             }
-            apiTab("Podcast", systemImage: "headphones", tag: 1) { _ in
+            apiTab("Podcast", systemImage: "headphones", tag: 1) {
                 PodcastView(viewModel: playerViewModel)
             }
-            apiTab("スター", systemImage: "star", tag: 2) { _ in
-                StarredView(starred: starred)
+            apiTab("スター", systemImage: "star", tag: 2) {
+                StarredView(starred: starred, networkMonitor: playerViewModel.networkMonitor)
             }
             // 学習は第 3 タブ（iOS 慣習: 学習機能は追加タブ）。
-            apiTab("学習", systemImage: "book.closed", tag: 3) { _ in
+            apiTab("学習", systemImage: "book.closed", tag: 3) {
                 LearningView(engagement: engagement, vocabularyBook: vocabularyBook, vocabularyTesting: vocabularyTesting)
             }
             // Settings は API 未設定の修正導線として常に表示する（第 4 タブ末尾）。
-            // apiClient が nil でも難易度・API 設定は編集可能（RSS 操作のみ無効）。
+            // API が使えなくても難易度・API 設定は編集可能（RSS 操作のみ無効）。
             SettingsView(
                 appState: appState,
                 engagement: engagement,
+                isAPIAvailable: isAPIAvailable,
                 refreshStreak: refreshStreak,
                 library: library,
                 downloads: playerViewModel.downloads,
@@ -390,9 +465,9 @@ struct ContentView: View {
         }
         // 通知タップで遷移先 Podcast が指定されたら Podcast タブへ切り替えて再生する。
         // .task(id:) はマウント時にも発火するため、コールドスタート（ContentView 生成前に
-        // selectedPodcastId が確定済み）でも初期値を拾える（onChange はマウント済みの変化のみで取りこぼす）。
+        // pendingEpisodeId が確定済み）でも初期値を拾える（onChange はマウント済みの変化のみで取りこぼす）。
         // 再生 ViewModel を ContentView が所有するため、PodcastView のマウントに依存せず消費できる。
-        .task(id: appState.selectedPodcastId) { await consumeDeepLink() }
+        .task(id: pushRegistration.pendingEpisodeId) { await consumeDeepLink() }
         // 起動ごとに onboarding 状態を取得し、未完了なら追加ステップを被せる。
         // 3分岐ルーティングではなく cover にすることで launch をブロックしない。
         .task {
@@ -425,13 +500,11 @@ struct ContentView: View {
 
     /// 通知ディープリンクで指定された Podcast へタブを切り替えて再生し、消費後に状態をクリアする。
     private func consumeDeepLink() async {
-        guard let id = appState.selectedPodcastId else { return }
+        guard let id = pushRegistration.pendingEpisodeId else { return }
         selectedTab = 1
         await playerViewModel.startEpisode(id: id)
         // await 中に新しい通知タップで id が変わり得るため、自分が消費した id のときだけクリアする。
-        if appState.selectedPodcastId == id {
-            appState.selectedPodcastId = nil
-        }
+        pushRegistration.consumePendingEpisode(id: id)
     }
 
     /// API 必須タブの稀な client=nil 表示を一元化し、タブ追加で分岐を複製しない。
@@ -440,10 +513,10 @@ struct ContentView: View {
         _ title: String,
         systemImage: String,
         tag: Int,
-        @ViewBuilder content: (APIClient) -> Content
+        @ViewBuilder content: () -> Content
     ) -> some View {
-        if let client = appState.apiClient {
-            content(client)
+        if isAPIAvailable() {
+            content()
                 .withMiniPlayer(playerViewModel)
                 .tabItem { Label(title, systemImage: systemImage) }
                 .tag(tag)

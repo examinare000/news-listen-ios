@@ -26,6 +26,8 @@ struct AccountGateway {
     let createUser: (String, String, String?, Role) async throws -> Void
     let updateUserRole: (String, Role) async throws -> Void
     let deleteUser: (String) async throws -> Void
+    let fetchMe: () async throws -> Subject
+    let logout: () async throws -> Void
 }
 
 enum AccountProfileFailure: Error, Equatable {
