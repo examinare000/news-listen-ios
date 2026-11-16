@@ -26,8 +26,9 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
     @Published private(set) var queue: PlaybackQueue<Episode> = PlaybackQueue()
     @Published private(set) var notice: PlaybackNotice?
     @Published private(set) var isAdvancing: Bool = false
+    @Published private(set) var resumeChoice: ResumeChoice?
 
-    private typealias Prepared = (playable: PlayableEpisode, url: URL, serverPosition: Double)
+    private typealias Prepared = (playable: PlayableEpisode, url: URL, resumeSeconds: Double)
 
     private enum StartCheck {
         case rejected(PlaybackErrorReason)
@@ -38,6 +39,7 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
     private let nowPlayingCenter: NowPlayingCenter
     private let library: OfflineLibrary
     private let reporter: PositionReporter
+    private let positionRecords: PositionRecords
     private let fetchEpisode: (String) async throws -> Episode
     private let isOnline: () -> Bool
     private let defaultSpeed: () -> Float
@@ -52,6 +54,7 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
          nowPlayingCenter: NowPlayingCenter,
          library: OfflineLibrary,
          reporter: PositionReporter,
+         positionRecords: PositionRecords,
          fetchEpisode: @escaping (String) async throws -> Episode,
          isOnline: @escaping () -> Bool,
          defaultSpeed: @escaping () -> Float,
@@ -60,6 +63,7 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
         self.nowPlayingCenter = nowPlayingCenter
         self.library = library
         self.reporter = reporter
+        self.positionRecords = positionRecords
         self.fetchEpisode = fetchEpisode
         self.isOnline = isOnline
         self.defaultSpeed = defaultSpeed
@@ -123,6 +127,37 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
         case .errored:
             Task { [weak self] in await self?.retry() }
         case .idle, .ended:
+            break
+        }
+    }
+
+    /// 画面の再生/一時停止ボタンの入口。一時停止中に、別の端末から取り込んだ位置が離れていれば、再生せず確認を保留する。
+    /// リモート・割込み終了は `togglePlayPause()`・`play` を使い、確認を通らない（ios-dec-139）。
+    func toggleFromScreen() {
+        if case .paused(let episode, let position, _, _) = session,
+           let other = positionRecords.otherDevicePosition(for: episode.content.id),
+           let choice = ResumeConfirmation.choice(
+               episodeId: episode.content.id, thisDeviceSeconds: position, otherDeviceSeconds: other) {
+            resumeChoice = choice
+            return
+        }
+        togglePlayPause()
+    }
+
+    /// 確認の選択（nil は選ばずに閉じた）。確認を出したエピソードの一時停止中でなければ、何も起こさない。
+    func resolveResume(_ selection: ResumeSelection?) {
+        guard let choice = resumeChoice else { return }
+        resumeChoice = nil
+        guard case .paused(let episode, _, _, _) = session, episode.content.id == choice.episodeId else { return }
+        switch selection {
+        case .otherDevice:
+            playbackSession.seek(to: PlaybackRules.resolveResumePosition(
+                serverSeconds: choice.otherDeviceSeconds, durationSeconds: Double(episode.content.durationSeconds)))
+            playbackSession.play()
+        case .thisDevice:
+            playbackSession.play()
+            reporter.recordNow()
+        case nil:
             break
         }
     }
@@ -227,12 +262,14 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
 
     /// キューと表示形態を残して止める。停止の前に位置を送る。
     func stop() {
+        resumeChoice = nil
         reporter.flush()
         stopSession()
         nowPlayingCenter.clear()
     }
 
     func stopForLogout() {
+        resumeChoice = nil
         stopSession()
         nowPlayingCenter.clear()
         if let token = registrationBox.token {
@@ -307,7 +344,7 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
     private func prepare(_ held: PlayableEpisode, _ heldURL: URL, _ source: PlaybackSource, resolved: Episode?) async -> Prepared? {
         switch source {
         case .cached:
-            return (held, library.url(held.content.id) ?? heldURL, held.serverPosition)
+            return (held, library.url(held.content.id) ?? heldURL, positionRecords.candidate(for: held))
         case .network:
             do {
                 let fetched: Episode
@@ -317,12 +354,13 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
                     fetched = try await fetchEpisode(held.content.id)
                 }
                 if case .playable(let playable) = fetched, let url = URL(string: playable.audioUrl) {
-                    return (playable, url, playable.serverPosition)
+                    positionRecords.absorb([fetched])
+                    return (playable, url, positionRecords.candidate(for: playable))
                 }
             } catch {
                 if isCancellation(error) { return nil }
             }
-            return (held, heldURL, held.serverPosition)
+            return (held, heldURL, positionRecords.candidate(for: held))
         case .unavailable:
             return nil
         }
@@ -358,12 +396,13 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
 
     private func confirmStart(_ prepared: Prepared, expandsPlayer: Bool, resumeOverride: Double?) {
         generation += 1
+        resumeChoice = nil
         notice = nil
         isAdvancing = false
         interruptedWasPlaying = nil
         reporter.flush()
         let resumePosition = resumeOverride ?? PlaybackRules.resolveResumePosition(
-            serverSeconds: prepared.serverPosition,
+            serverSeconds: prepared.resumeSeconds,
             durationSeconds: Double(prepared.playable.content.durationSeconds))
         let warning = playbackSession.start(
             episode: prepared.playable, url: prepared.url, resumePosition: resumePosition, speed: defaultSpeed())
@@ -382,6 +421,7 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
     }
 
     private func failSession(episodeId: String, reason: PlaybackErrorReason) {
+        resumeChoice = nil
         generation += 1
         playbackSession.fail(episodeId: episodeId, reason: reason)
     }
@@ -398,6 +438,12 @@ final class PlaybackCoordinator: ObservableObject, PlaybackLifecycle {
     private func handle(_ event: SessionEvent) {
         switch event {
         case .stateChanged(let state):
+            // 確認は、同じエピソードの一時停止である間だけ残す（確認中の seek は残し、再生・停止・失敗・別の開始で消す）。
+            if let choice = resumeChoice {
+                var staysPaused = false
+                if case .paused = state, state.episodeId == choice.episodeId { staysPaused = true }
+                if !staysPaused { resumeChoice = nil }
+            }
             session = state
             updateLockScreen(for: state)
             if case .errored(_, _, let reason) = state { notice = .failure(reason) }

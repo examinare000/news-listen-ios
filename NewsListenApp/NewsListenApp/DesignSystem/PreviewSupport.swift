@@ -243,6 +243,7 @@ enum PreviewSamples {
             catalog: catalog,
             coordinator: parts.coordinator,
             reporter: parts.reporter,
+            positionRecords: parts.positionRecords,
             library: parts.library,
             downloads: downloads,
             networkMonitor: StubNetworkMonitor(),

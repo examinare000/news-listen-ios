@@ -29,6 +29,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     @Published private(set) var session: PlaybackState = .idle
     @Published private(set) var presentation: PlayerPresentation = .hidden
     @Published private(set) var notice: PlaybackNotice?
+    @Published private(set) var resumeChoice: ResumeChoice?
 
     /// 主体離脱時の再生停止 port（実体は Coordinator）。
     let playbackLifecycle: any PlaybackLifecycle
@@ -36,6 +37,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     private let catalog: EpisodeCatalog
     private let coordinator: PlaybackCoordinator
     private let positionReporter: PositionReporter
+    private let positionRecords: PositionRecords
     private let library: OfflineLibrary
     let downloads: OfflineDownloads
     let vocabularyBook: VocabularyBook
@@ -49,6 +51,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
     ///   - catalog: 一覧の保持と引き当て。
     ///   - coordinator: 再生の入口。
     ///   - reporter: `flushPosition()` のためだけに持つ。外へ出さない。
+    ///   - positionRecords: 一覧の再読込で取得した値を取り込む（Coordinator・Reporter と同じ instance）。
     ///   - library: 保存済み音声の集合。
     ///   - downloads: オフライン保存の use case。
     ///   - networkMonitor: ネットワーク監視（オフラインバナー用）。
@@ -59,6 +62,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
         catalog: EpisodeCatalog,
         coordinator: PlaybackCoordinator,
         reporter: PositionReporter,
+        positionRecords: PositionRecords,
         library: OfflineLibrary,
         downloads: OfflineDownloads,
         networkMonitor: NetworkMonitoring,
@@ -69,6 +73,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
         self.catalog = catalog
         self.coordinator = coordinator
         self.positionReporter = reporter
+        self.positionRecords = positionRecords
         self.library = library
         self.downloads = downloads
         self.defaultSpeed = defaultSpeed
@@ -85,6 +90,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
         coordinator.$session.assign(to: &$session)
         coordinator.$presentation.assign(to: &$presentation)
         coordinator.$notice.assign(to: &$notice)
+        coordinator.$resumeChoice.assign(to: &$resumeChoice)
         // 再生を始めたら、前回の一覧側の失敗を消す（issue #58）。
         coordinator.$session
             .sink { [weak self] state in
@@ -177,6 +183,7 @@ final class PodcastViewModel: NSObject, ObservableObject {
         do {
             try await catalog.reload()
             library.refresh(candidateIds: rows.map(\.episodeId))
+            positionRecords.absorb(rows.compactMap { catalog.episode(id: $0.episodeId) })
         } catch let f as ApiFailure {
             listErrorMessage = FailureMessages.message(for: f, context: .podcast)
         } catch {
@@ -242,7 +249,10 @@ final class PodcastViewModel: NSObject, ObservableObject {
 
     func retry() async { await coordinator.retry() }
 
-    func togglePlayPause() { coordinator.togglePlayPause() }
+    /// 画面の再生/一時停止ボタン。確認が要る条件なら Coordinator が確認を保留する。
+    func togglePlayPause() { coordinator.toggleFromScreen() }
+
+    func resolveResume(_ selection: ResumeSelection?) { coordinator.resolveResume(selection) }
 
     func seek(to seconds: Double) { coordinator.seek(to: seconds) }
 

@@ -77,13 +77,14 @@ final class PlaybackQueryContractTests: XCTestCase {
         )
         XCTAssertEqual(files.writeCount, 0, "Given: OfflineDownloads を組んだだけでは保存庫に書かない")
         XCTAssertEqual(downloadCalls.fetchCount + downloadCalls.downloadCount, 0, "Given: 組んだだけでは closure を呼ばない")
+        let records = makeBoundPositionRecords()
         let reporter = PositionReporter(
             updatePosition: gateway.updatePosition,
             markCompleted: gateway.markCompleted,
             onPositionSaved: { _ in },
             onCompletionRecorded: {},
             beginBackgroundTask: { return {} },
-            records: makeBoundPositionRecords(),
+            records: records,
             connectivity: makeSilentConnectivity()
         )
         let coordinator = PlaybackCoordinator(
@@ -91,6 +92,7 @@ final class PlaybackQueryContractTests: XCTestCase {
             nowPlayingCenter: spy,
             library: library,
             reporter: reporter,
+            positionRecords: records,
             fetchEpisode: gateway.fetchEpisode,
             isOnline: { true },
             defaultSpeed: { 1.0 },

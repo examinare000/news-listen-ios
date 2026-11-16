@@ -240,30 +240,50 @@ enum EntryFixture {
         )
     }
 
-    static func playable(_ id: String, url: String? = nil, serverPosition: Double = 0, duration: Int = 300) -> Episode {
-        .playable(PlayableEpisode(
-            content: content(id, duration: duration),
-            audioUrl: url ?? "https://cdn.example.com/\(id).mp3",
-            serverPosition: serverPosition
-        )!)
+    static func playable(
+        _ id: String, url: String? = nil, serverPosition: Double = 0, duration: Int = 300, serverRecordedAt: Date? = nil
+    ) -> Episode {
+        .playable(playableValue(id, url: url, serverPosition: serverPosition, duration: duration, serverRecordedAt: serverRecordedAt))
     }
 
-    /// 一覧の行（通信のデータモデル）。
+    /// `playable` と同じ値を `PlayableEpisode` のまま返す（`PositionRecords.candidate(for:)` などへ渡す用）。
+    static func playableValue(
+        _ id: String, url: String? = nil, serverPosition: Double = 0, duration: Int = 300, serverRecordedAt: Date? = nil
+    ) -> PlayableEpisode {
+        PlayableEpisode(
+            content: content(id, duration: duration),
+            audioUrl: url ?? "https://cdn.example.com/\(id).mp3",
+            serverPosition: serverPosition,
+            serverRecordedAt: serverRecordedAt
+        )!
+    }
+
+    /// 一覧の行（通信のデータモデル）。`serverRecordedAt` を渡すと、一覧の応答の `playback_position_recorded_at` として decode された値になる
+    /// （`Podcast` の記録時刻は `private(set)` なので、JSON を経由して作る）。
     static func podcast(
         _ id: String,
         status: String = "completed",
         audioUrl: String? = nil,
         errorMessage: String? = nil,
         playbackPositionSeconds: Double = 0,
-        durationSeconds: Int = 300
+        durationSeconds: Int = 300,
+        serverRecordedAt: Date? = nil
     ) -> Podcast {
-        Podcast(
+        let base = Podcast(
             id: id, type: "single", articleIds: [], difficulty: "toeic_900",
             audioUrl: audioUrl ?? "https://cdn.example.com/\(id).mp3", title: "題 \(id)",
             japaneseIntroText: "導入 \(id)",
             durationSeconds: durationSeconds, createdAt: "2026-05-31T06:00:00Z", status: status,
             errorMessage: errorMessage, playbackPositionSeconds: playbackPositionSeconds, segments: nil
         )
+        guard let serverRecordedAt else { return base }
+        do {
+            var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as? [String: Any])
+            object["playback_position_recorded_at"] = PositionSyncRules.format(serverRecordedAt)
+            return try JSONDecoder().decode(Podcast.self, from: JSONSerialization.data(withJSONObject: object))
+        } catch {
+            preconditionFailure("記録時刻つきの一覧の行を作れない: \(error)")
+        }
     }
 
     /// 一覧の JSON（`GET /podcasts` の応答）。facade の `loadPodcasts()` に読ませる。
@@ -364,6 +384,7 @@ final class PlaybackEntryRig {
             nowPlayingCenter: spy,
             library: library,
             reporter: reporter,
+            positionRecords: records,
             fetchEpisode: { id in try await fetch.fetch(id) },
             isOnline: { network.isOnline },
             defaultSpeed: { environment.speed },
@@ -392,6 +413,7 @@ final class PlaybackEntryRig {
             catalog: resolvedCatalog,
             coordinator: coordinator,
             reporter: reporter,
+            positionRecords: records,
             library: library,
             downloads: downloads,
             networkMonitor: network,
@@ -419,6 +441,18 @@ final class PlaybackEntryRig {
         try await catalog.reload()
     }
 
+    /// 一覧の画面の読み込み（`loadPodcasts()`）に、次の `GET /podcasts` の応答として `podcasts` を返させて実行する。
+    /// `seed(_:)` は `catalog.reload()` を直接呼ぶので `loadPodcasts()` を通らない。取り込みの入口を通すときはこちらを使う。
+    /// 応答を積まずに `loadPodcasts()` を呼ぶと、`session:` に渡した base の応答（失敗など）が返る。
+    func loadList(_ podcasts: [Podcast]) async throws {
+        guard ownsCatalog else {
+            XCTFail("catalog を外から渡した rig では loadList を使わない")
+            return
+        }
+        try listSession.queueSeed(podcasts)
+        await viewModel.loadPodcasts()
+    }
+
     /// キャッシュ済みとして開始し、`ready`（playing）まで進める。一覧に無い id は先に入れる。
     func play(_ id: String, duration: Int = 300) async throws {
         try cached(id)
@@ -427,5 +461,100 @@ final class PlaybackEntryRig {
         }
         await viewModel.startEpisode(episodeId: id)
         await engine.send(.ready)
+    }
+}
+
+// MARK: - 再開位置の確認（別の端末の位置を取り込んだ状態）の fixture
+
+extension PlaybackEntryRig {
+    /// 「起きないこと」の確認の前に、保留中の Task を流す。不在には合図が無いので、同じ入口の正方向の対照と組にする。
+    func settle() async {
+        for _ in 0..<25 {
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+    }
+
+    /// 条件が成り立つまで短く間隔を置いて待つ（位置の送信の完了に同期の合図が無いため）。
+    func waitUntil(
+        _ what: String,
+        timeout: TimeInterval = 2,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: @MainActor () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() > deadline {
+                XCTFail("待ち条件が満たされなかった: \(what)", file: file, line: line)
+                return
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000)
+        }
+    }
+
+    /// 別の端末が、この端末の記録より新しい時刻で書いた値を、一覧の取得として取り込む。
+    /// 時刻は rig の時計より後なので、この端末の最後の記録より厳密に新しい。
+    func absorbOtherDevice(_ id: String, seconds: Double, duration: Int = 300, after offset: TimeInterval = 60) {
+        records.absorb([EntryFixture.playable(
+            id, serverPosition: seconds, duration: duration, serverRecordedAt: clock.now.addingTimeInterval(offset))])
+    }
+
+    /// 開始 → `thisDevice` 秒まで再生 → 一時停止（Reporter がその位置を記録する）→ 別の端末の `otherDevice` 秒を取り込む。
+    /// 確認の 4 条件のうち、画面のボタン以外（`paused`・取り込んだ印・差）が揃った状態にする。`otherDevice` との差は呼び出し側が決める。
+    /// 一時停止は `coordinator.togglePlayPause()`（確認を出さない入口）で行う。
+    func pausedWithOtherDevice(
+        _ id: String = "e", thisDevice: Double = 100, otherDevice: Double = 200, duration: Int = 300
+    ) async throws {
+        try await play(id, duration: duration)
+        await engine.send(.timeUpdate(seconds: thisDevice, duration: Double(duration)))
+        coordinator.togglePlayPause()
+        absorbOtherDevice(id, seconds: otherDevice, duration: duration)
+    }
+
+    /// 保存庫にある、主体 A の `id` の記録（無ければ nil）。
+    func storedRecord(_ id: String) -> PositionRecord? {
+        store.stored(for: subjectA).first { $0.episodeId == id }
+    }
+}
+
+extension PlaybackState {
+    /// 状態の種別名（付随値を無視して種別だけを比べる）。
+    var stateKind: String {
+        switch self {
+        case .idle: return "idle"
+        case .loading: return "loading"
+        case .playing: return "playing"
+        case .buffering: return "buffering"
+        case .paused: return "paused"
+        case .ended: return "ended"
+        case .errored: return "errored"
+        }
+    }
+
+    /// `loading` の再開位置（開始の直後に、どの位置から始めるかを読む）。`loading` 以外は nil。
+    var loadingResumePosition: Double? {
+        if case .loading(_, let resumePosition, _) = self { return resumePosition }
+        return nil
+    }
+}
+
+// MARK: - 字面の検査（合成 root・View の配線）
+
+enum ResumeWiringSource {
+    /// `opening`（例: `PlaybackCoordinator(`）を含む最初の非コメント行から、閉じ括弧だけの行までの非コメント行。
+    static func constructionLines(in url: URL, opening: String) -> [String] {
+        let lines = SourceGrep.content(of: url).components(separatedBy: "\n")
+        guard let start = lines.firstIndex(where: { !SourceGrep.isCommentLine($0) && $0.contains(opening) }) else { return [] }
+        var collected: [String] = []
+        for line in lines[start...] {
+            if !SourceGrep.isCommentLine(line) { collected.append(line) }
+            if line.trimmingCharacters(in: .whitespaces) == ")" { break }
+        }
+        return collected
+    }
+
+    static func codeLines(in url: URL) -> [String] {
+        SourceGrep.content(of: url).components(separatedBy: "\n").filter { !SourceGrep.isCommentLine($0) }
     }
 }

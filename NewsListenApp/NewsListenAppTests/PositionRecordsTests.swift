@@ -227,4 +227,111 @@ final class PositionRecordsTests: XCTestCase {
         XCTAssertEqual(records.unsent().map(\.seconds), [20])
         XCTAssertEqual(records.unsent().first?.recordedAt, t2)
     }
+
+    // MARK: - 取得の取り込み（absorb）・再開位置の候補・別の端末の位置の印
+
+    private func playableValue(_ id: String, position: Double, at recordedAt: Date?) -> PlayableEpisode {
+        EntryFixture.playableValue(id, serverPosition: position, serverRecordedAt: recordedAt)
+    }
+
+    // verifies: ios-cmd-playback-26, ios-query-playback-08, shared-sync-07
+    // kills: 同時刻・古い・時刻なしの値で置き換える／置き換えた記録を未送信のままにする／印を立てない／
+    //        record・bind・remove・reclaim で印を外さない
+    func testAbsorbReplacesRecordOnlyForStrictlyNewerListOrDetailValues() throws {
+        let store = InMemoryPositionStore()
+        let records = makeRecords(store)
+        records.record(episodeId: "e", seconds: 100, at: t1)
+        let original = PositionRecord(subject: subjectA, episodeId: "e", seconds: 100, recordedAt: t1, isSent: false)
+
+        // 対照: 同時刻・古い・時刻なしでは、記録も印も変わらない。
+        let notNewer: [(String, Date?)] = [("同時刻", t1), ("古い", t1.addingTimeInterval(-1)), ("時刻なし", nil)]
+        for (label, recordedAt) in notNewer {
+            records.absorb([response("e", position: 200, at: recordedAt)])
+            XCTAssertEqual(store.stored(for: subjectA), [original], "\(label): 記録は不変")
+            XCTAssertEqual(records.unsent(), [original], "\(label): 未送信のまま")
+            XCTAssertNil(records.otherDevicePosition(for: "e"), "\(label): 印は立たない")
+        }
+
+        // 厳密に新しければ、送信済みの記録に置き換わり、印が立つ。
+        records.absorb([response("e", position: 200, at: t2)])
+        let absorbed = PositionRecord(subject: subjectA, episodeId: "e", seconds: 200, recordedAt: t2, isSent: true)
+        XCTAssertEqual(store.stored(for: subjectA), [absorbed])
+        XCTAssertTrue(records.unsent().isEmpty, "取り込んだ値は送信済み")
+        XCTAssertEqual(records.otherDevicePosition(for: "e"), 200)
+
+        // この端末が新しく記録すると、その id の印が外れる。
+        records.record(episodeId: "e", seconds: 120, at: t1.addingTimeInterval(3))
+        XCTAssertNil(records.otherDevicePosition(for: "e"), "record で外れる")
+
+        // bind・remove・reclaim は、記録を残したまま全 id の印を空にする。
+        records.absorb([response("e", position: 210, at: t1.addingTimeInterval(4))])
+        XCTAssertEqual(records.otherDevicePosition(for: "e"), 210, "Given: 印がある")
+        records.bind(subject: subjectA)
+        XCTAssertNil(records.otherDevicePosition(for: "e"), "bind で空")
+
+        records.absorb([response("e", position: 220, at: t1.addingTimeInterval(5))])
+        XCTAssertEqual(records.otherDevicePosition(for: "e"), 220, "Given: 印がある")
+        try records.remove(subject: subjectB)
+        XCTAssertNil(records.otherDevicePosition(for: "e"), "別の主体の remove でも印は空（記録は残る）")
+        XCTAssertEqual(store.stored(for: subjectA).first?.seconds, 220, "束縛中の主体の記録は残っている")
+
+        records.absorb([response("e", position: 230, at: t1.addingTimeInterval(6))])
+        XCTAssertEqual(records.otherDevicePosition(for: "e"), 230, "Given: 印がある")
+        try records.reclaim(keeping: subjectA)
+        XCTAssertNil(records.otherDevicePosition(for: "e"), "reclaim で空")
+        XCTAssertEqual(store.stored(for: subjectA).first?.seconds, 230, "keeping の記録は残っている")
+    }
+
+    // verifies: ios-cmd-playback-26, ios-query-playback-07
+    // kills: 記録の無いエピソードに記録を作る（未送信の記録を作って送ってしまう）／印を立てる／サーバーの値を候補にしない
+    func testAbsorbCreatesNoRecordForEpisodesWithoutOne() {
+        let store = InMemoryPositionStore()
+        let records = makeRecords(store)
+
+        records.absorb([response("e", position: 200, at: t2)])
+
+        XCTAssertTrue(records.unsent().isEmpty)
+        XCTAssertEqual(store.writeCount, 0, "記録が無ければ保存もしない")
+        XCTAssertTrue(store.stored(for: subjectA).isEmpty)
+        XCTAssertNil(records.otherDevicePosition(for: "e"))
+        XCTAssertEqual(
+            records.candidate(for: playableValue("e", position: 200, at: t2)), 200, "サーバーの値は候補が直接読む")
+    }
+
+    // verifies: ios-cmd-playback-26, shared-dec-37
+    // kills: 取り込みが一覧へ渡した応答の時刻を上げない（古い PATCH の応答が、新しい一覧を巻き戻す）／高水位を無条件に代入する
+    func testAbsorbRaisesTheHighWaterSoAnOlderPatchResponseIsNotAppliedToTheList() {
+        let sent = PositionRecord(subject: subjectA, episodeId: "e", seconds: 150, recordedAt: t1, isSent: false)
+        let older = response("e", position: 150, at: t2)
+
+        let absorbing = makeRecords(InMemoryPositionStore())
+        absorbing.absorb([response("e", position: 200, at: t1.addingTimeInterval(3))])
+        XCTAssertNil(absorbing.settle(sent, response: older), "一覧の取得より古い応答は、一覧へ渡さない")
+
+        // 対照: 取り込まなければ、同じ応答は一覧へ渡る。
+        let control = makeRecords(InMemoryPositionStore())
+        XCTAssertNotNil(control.settle(sent, response: older))
+
+        // 古い値の取り込みは高水位を下げない（新しいときだけ上げる）。
+        let lowering = makeRecords(InMemoryPositionStore())
+        lowering.absorb([response("e", position: 200, at: t1.addingTimeInterval(3))])
+        lowering.absorb([response("e", position: 10, at: t1)])
+        XCTAssertNil(lowering.settle(sent, response: older), "古い取り込みで高水位は下がらない")
+    }
+
+    // verifies: ios-cmd-playback-24, ios-query-playback-08
+    // kills: settle が応答を取り込んで記録を置き換えても印を立てない／置き換えない応答（同時刻・時刻なし）で印を立てる
+    func testSettleMarksTheEpisodeOnlyWhenTheResponseReplacesTheRecord() throws {
+        let records = makeRecords(InMemoryPositionStore())
+        let sent = try XCTUnwrap(records.record(episodeId: "e", seconds: 100, at: t1))
+
+        // 対照: 同時刻・時刻なしの応答では記録が置き換わらず、印も立たない。
+        _ = records.settle(sent, response: response("e", position: 200, at: t1))
+        _ = records.settle(sent, response: response("e", position: 200, at: nil))
+        XCTAssertNil(records.otherDevicePosition(for: "e"), "置き換えない応答では印を立てない")
+
+        // 厳密に新しい応答で置き換わると、印が立ち、その位置を返す。
+        _ = records.settle(sent, response: response("e", position: 200, at: t2))
+        XCTAssertEqual(records.otherDevicePosition(for: "e"), 200, "settle の取り込みでも印が立つ")
+    }
 }
