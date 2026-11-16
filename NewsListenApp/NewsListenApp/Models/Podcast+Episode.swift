@@ -35,7 +35,8 @@ extension Podcast {
             guard let playable = PlayableEpisode(
                 content: content,
                 audioUrl: audioUrl,
-                serverPosition: playbackPositionSeconds
+                serverPosition: playbackPositionSeconds,
+                serverRecordedAt: PositionSyncRules.parse(playbackPositionRecordedAt)
             ) else {
                 return .failed(FailedEpisode(content: content, reportedMessage: errorMessage))
             }

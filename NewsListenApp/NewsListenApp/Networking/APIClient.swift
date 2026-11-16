@@ -113,9 +113,11 @@ final class APIClient {
     /// - Parameters:
     ///   - podcastId: 対象 Podcast の ID。
     ///   - positionSeconds: 再生位置（秒）。
+    ///   - recordedAt: 端末が位置を記録した時刻。nil なら `recorded_at` を送らない（旧クライアントと同じ形）。
     /// - Returns: 更新後の Podcast 情報。
-    func updatePlaybackPosition(podcastId: String, positionSeconds: Double) async throws -> Podcast {
-        let body = ["position_seconds": positionSeconds]
+    func updatePlaybackPosition(podcastId: String, positionSeconds: Double, recordedAt: Date? = nil) async throws -> Podcast {
+        var body: [String: Any] = ["position_seconds": positionSeconds]
+        if let recordedAt { body["recorded_at"] = PositionSyncRules.format(recordedAt) }
         return try await request(.updatePlaybackPosition(id: podcastId), body: body, responseType: Podcast.self)
     }
 

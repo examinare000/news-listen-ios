@@ -88,6 +88,12 @@ final class AppState: ObservableObject {
     /// 起動時の回収。現在の主体以外の音声キャッシュと旧置き場を消す。
     private let reclaimOfflineLibrary: (SubjectKey?) throws -> Void
 
+    /// 離脱主体の端末の位置の記録の削除（主体離脱の後始末）。未送信も送らずに消す。
+    private let clearPositionRecords: (SubjectKey?) throws -> Void
+
+    /// 起動時の回収。現在の主体以外の位置の記録を消す。
+    private let reclaimPositionRecords: (SubjectKey?) throws -> Void
+
     /// ダウンロードの cancel 先。`ContentView` が `registerDownloads(_:)` で登録する（weak）。
     private weak var offlineDownloads: OfflineDownloads?
 
@@ -315,20 +321,30 @@ final class AppState: ObservableObject {
             nowPlayingCenter: nowPlayingCenter,
             clearSubjectPreferences: clearSubjectPreferences,
             clearOfflineLibrary: clearOfflineLibrary,
-            cancelDownloads: { [weak self] in self?.offlineDownloads?.cancelAll() }
+            cancelDownloads: { [weak self] in self?.offlineDownloads?.cancelAll() },
+            clearPositionRecords: clearPositionRecords
         )
         lastCleanupIncomplete = cleanup.run(departing: departing)
     }
 
-    /// 起動後に主体が最初に確定した時点で 1 回だけ、現在の主体以外の音声キャッシュを回収する。
+    /// 起動後に主体が最初に確定した時点で 1 回だけ、現在の主体以外の音声キャッシュと位置の記録を、互いに独立に回収する。
     /// 失敗は黙殺せず `lastCleanupIncomplete` に載せる。旗は戻さない（次回起動の回収が再実行する）。
     private func reclaimOfflineLibraryOnce(keeping key: SubjectKey?) {
         guard !didReclaimOfflineLibrary else { return }
         didReclaimOfflineLibrary = true
+        var failedParts: [SubjectCleanupFailedPart] = []
         do {
             try reclaimOfflineLibrary(key)
         } catch {
-            lastCleanupIncomplete = CleanupIncomplete(failedParts: [.offlineLibrary])
+            failedParts.append(.offlineLibrary)
+        }
+        do {
+            try reclaimPositionRecords(key)
+        } catch {
+            failedParts.append(.positionRecords)
+        }
+        if !failedParts.isEmpty {
+            lastCleanupIncomplete = CleanupIncomplete(failedParts: failedParts)
         }
     }
 
@@ -378,7 +394,9 @@ final class AppState: ObservableObject {
             if let key { try AudioCacheManager().removeSubject(key) }
         },
         bindOfflineSubject: @escaping (SubjectKey?) -> Void = { _ in },
-        reclaimOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { _ in }
+        reclaimOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { _ in },
+        clearPositionRecords: @escaping (SubjectKey?) throws -> Void = { _ in },
+        reclaimPositionRecords: @escaping (SubjectKey?) throws -> Void = { _ in }
     ) {
         self.sessionStore = sessionStore
         self.apiClientOverride = apiClientOverride
@@ -389,6 +407,8 @@ final class AppState: ObservableObject {
         self.clearOfflineLibrary = clearOfflineLibrary
         self.bindOfflineSubject = bindOfflineSubject
         self.reclaimOfflineLibrary = reclaimOfflineLibrary
+        self.clearPositionRecords = clearPositionRecords
+        self.reclaimPositionRecords = reclaimPositionRecords
         // API URL・キーはビルド時注入のみ（ユーザー入力・UserDefaults フォールバックは廃止）。
         self.apiBaseURL = Self.injectedValue("APIBaseURL") ?? ""
         self.apiKey = Self.injectedValue("APIKey") ?? ""

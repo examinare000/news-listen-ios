@@ -279,6 +279,9 @@ final class PodcastViewModel: NSObject, ObservableObject {
     /// 背景遷移などの直前に、現在の位置を送る。
     func flushPosition() { positionReporter.flush() }
 
+    /// 起動時に、前回送れなかった位置を再送する（`ContentView` が呼ぶ）。
+    func resendUnsentPositions() { positionReporter.resendUnsent() }
+
     // MARK: - 一覧側の失敗
 
     /// cancel は何も書かない（`CancellationError`・`URLError` の `.cancelled`）。
