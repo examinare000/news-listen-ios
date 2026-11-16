@@ -101,22 +101,6 @@ extension Podcast {
     }
 }
 
-extension Podcast {
-    /// web `page.tsx` と同一文言の Markdown ソース。リンク範囲は "CC BY-SA 4.0" のみ（issue #240）。
-    static let ccBySaLicenseNoticeMarkdown =
-        "この音声コンテンツは [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.ja) で提供されます。"
-    /// Markdown 除去後の表示文字列（テストと Markdown 解析失敗時のフォールバックで共有）。
-    static let ccBySaLicenseNoticePlainText = "この音声コンテンツは CC BY-SA 4.0 で提供されます。"
-    /// `Text(_: AttributedString)` に渡す値。`.link` 属性を持つ run が "CC BY-SA 4.0" だけになる。
-    static let ccBySaLicenseNotice: AttributedString = {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        // WHY: 定数リテラルの解析失敗は起こらない前提だが、万一失敗してもプレイヤーを落とさず
-        //      プレーン文で帰属表示を維持する。
-        return (try? AttributedString(markdown: ccBySaLicenseNoticeMarkdown, options: options))
-            ?? AttributedString(ccBySaLicenseNoticePlainText)
-    }()
-}
-
 /// `/podcasts` エンドポイントのレスポンス。Podcast 一覧を保持する。
 struct PodcastListResponse: Codable {
     /// 取得した Podcast 一覧。

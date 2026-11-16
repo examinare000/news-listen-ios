@@ -26,9 +26,11 @@ struct FeedView: View {
     @State private var safariURL: IdentifiableURL?
 
     /// ビューを生成する。
-    /// - Parameter curation: 一覧・保留・確定を持つ application。
-    init(curation: FeedCuration) {
-        _viewModel = StateObject(wrappedValue: FeedViewModel(curation: curation))
+    /// - Parameters:
+    ///   - curation: 一覧・保留・確定を持つ application。
+    ///   - networkMonitor: ネットワーク監視（`ContentView` が持つ 1 個）。
+    init(curation: FeedCuration, networkMonitor: NetworkMonitoring) {
+        _viewModel = StateObject(wrappedValue: FeedViewModel(curation: curation, networkMonitor: networkMonitor))
     }
 
     var body: some View {
@@ -240,13 +242,13 @@ struct FeedView: View {
 
 #if DEBUG
 #Preview("Feed / Light") {
-    FeedView(curation: PreviewSamples.feedCuration())
+    FeedView(curation: PreviewSamples.feedCuration(), networkMonitor: StubNetworkMonitor())
         .environmentObject(PreviewSamples.engagement())
         .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("Feed / Dark") {
-    FeedView(curation: PreviewSamples.feedCuration())
+    FeedView(curation: PreviewSamples.feedCuration(), networkMonitor: StubNetworkMonitor())
         .environmentObject(PreviewSamples.engagement())
         .environmentObject(PreviewSamples.preferencesStore())
         .preferredColorScheme(.dark)

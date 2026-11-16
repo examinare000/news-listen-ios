@@ -8,8 +8,8 @@
 import Foundation
 
 extension PreferencesGateway {
-    /// - Parameter client: 呼出のたびに現在の `APIClient` を返す。`AppState.apiClient` は保存トークンから
-    ///   作る computed なので、構築時に固定できない。nil のとき `update` は何もせず成功、`fetch` は値なし。
+    /// - Parameter client: 呼出のたびに現在の `APIClient` を返す。合成 root の `currentClient` は保存トークンから
+    ///   作るので、構築時に固定できない。nil のとき `update` は何もせず成功、`fetch` は値なし。
     static func live(client: @escaping () -> APIClient?) -> PreferencesGateway {
         PreferencesGateway(
             fetch: { @MainActor in

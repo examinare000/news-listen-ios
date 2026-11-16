@@ -12,18 +12,18 @@ import UserNotifications
 
 /// APNs 登録と通知ハンドリングを担う AppDelegate。
 ///
-/// `AppState` への参照は SwiftUI 側から注入する。トークン/遷移先が `AppState` 設定前に
+/// `PushRegistration` への参照は SwiftUI 側から注入する。トークン/遷移先が `PushRegistration` 設定前に
 /// 届いた場合に備えて保留し、設定時にフラッシュする（コールドスタート対策）。
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    /// アプリ状態。SwiftUI から注入される。設定時に保留中のトークン/遷移先を反映する。
-    weak var appState: AppState? {
+    /// 通知の登録と保留。SwiftUI から注入される。設定時に保留中のトークン/遷移先を反映する。
+    weak var pushRegistration: PushRegistration? {
         didSet { flushPending() }
     }
 
-    /// `AppState` 未設定時に届いたデバイストークン（16 進）。
+    /// `PushRegistration` 未設定時に届いたデバイストークン（16 進）。
     private var pendingDeviceToken: String?
-    /// `AppState` 未設定時に届いた遷移先 Podcast ID。
+    /// `PushRegistration` 未設定時に届いた遷移先 Podcast ID。
     private var pendingPodcastId: String?
 
     func application(
@@ -50,8 +50,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         let token = DeviceTokenFormatter.hexString(from: deviceToken)
-        if let appState {
-            appState.didRegisterDeviceToken(token)
+        if let pushRegistration {
+            pushRegistration.didReceiveDeviceToken(token)
         } else {
             pendingDeviceToken = token
         }
@@ -82,8 +82,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         if let podcastId = PushPayload.podcastId(from: response.notification.request.content.userInfo) {
-            if let appState {
-                appState.handleNotificationPodcastId(podcastId)
+            if let pushRegistration {
+                pushRegistration.openEpisode(id: podcastId)
             } else {
                 pendingPodcastId = podcastId
             }
@@ -91,15 +91,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         completionHandler()
     }
 
-    /// `AppState` 設定時に、保留中のトークン/遷移先を反映する。
+    /// `PushRegistration` 設定時に、保留中のトークン/遷移先を反映する。
     private func flushPending() {
-        guard let appState else { return }
+        guard let pushRegistration else { return }
         if let token = pendingDeviceToken {
-            appState.didRegisterDeviceToken(token)
+            pushRegistration.didReceiveDeviceToken(token)
             pendingDeviceToken = nil
         }
         if let podcastId = pendingPodcastId {
-            appState.handleNotificationPodcastId(podcastId)
+            pushRegistration.openEpisode(id: podcastId)
             pendingPodcastId = nil
         }
     }

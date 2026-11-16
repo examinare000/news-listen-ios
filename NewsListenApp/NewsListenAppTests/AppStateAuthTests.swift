@@ -44,7 +44,7 @@ final class AppStateAuthTests: XCTestCase {
         let session = MockURLSession(data: Data(), statusCode: 200)
         let appState = makeSubjectAwareAppState(session: session)
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .anonymous = appState.session else { return XCTFail("トークン無しでは anonymous になるべき") }
         XCTAssertNil(session.lastRequest)
@@ -56,7 +56,7 @@ final class AppStateAuthTests: XCTestCase {
         let appState = makeSubjectAwareAppState(session: session, sessionStore: InMemorySessionStore(token: "tA"))
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .authenticated(let user) = appState.session, user.username == "alice" else {
             return XCTFail("authenticated のまま変わらないべき")
@@ -72,7 +72,7 @@ final class AppStateAuthTests: XCTestCase {
         let session = MockURLSession(data: Data(json.utf8), statusCode: 200)
         let appState = makeSubjectAwareAppState(session: session, sessionStore: InMemorySessionStore(token: "tA"))
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .authenticated(let user) = appState.session else { return XCTFail("authenticated になるべき") }
         XCTAssertEqual(user.username, "alice")
@@ -90,7 +90,7 @@ final class AppStateAuthTests: XCTestCase {
         let appState = makeSubjectAwareAppState(session: session, sessionStore: store, nowPlayingCenter: nowPlaying)
         appState.registerPlaybackLifecycle(playback)
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .anonymous = appState.session else { return XCTFail(".anonymous になるべき") }
         XCTAssertNil(store.token)
@@ -106,7 +106,7 @@ final class AppStateAuthTests: XCTestCase {
         let store = InMemorySessionStore(token: "tA")
         let appState = makeSubjectAwareAppState(session: session, sessionStore: store)
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .unavailable(.network) = appState.session else { return XCTFail(".unavailable(.network) になるべき") }
         XCTAssertEqual(store.token, "tA", "トークンは保持されるべき")
@@ -118,7 +118,7 @@ final class AppStateAuthTests: XCTestCase {
         let store = InMemorySessionStore(token: "tA")
         let appState = makeSubjectAwareAppState(session: session, sessionStore: store)
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .unavailable(.server(status: 500)) = appState.session else {
             return XCTFail(".unavailable(.server(status: 500)) になるべき")
@@ -132,7 +132,7 @@ final class AppStateAuthTests: XCTestCase {
         let store = InMemorySessionStore(token: "tA")
         let appState = makeSubjectAwareAppState(session: session, sessionStore: store)
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .unavailable(.decoding) = appState.session else { return XCTFail(".unavailable(.decoding) になるべき") }
         XCTAssertEqual(store.token, "tA")
@@ -147,7 +147,7 @@ final class AppStateAuthTests: XCTestCase {
         let appState = makeSubjectAwareAppState(session: session, sessionStore: store, nowPlayingCenter: nowPlaying)
         appState.registerPlaybackLifecycle(playback)
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .resolving = appState.session else { return XCTFail("キャンセルでは resolving のまま") }
         XCTAssertEqual(store.token, "tA")
@@ -161,7 +161,7 @@ final class AppStateAuthTests: XCTestCase {
     func testTT14_06_retryResolveOnlyFromUnavailable() async {
         let store = InMemorySessionStore(token: "tA")
         let appState = makeSubjectAwareAppState(session: MockURLSession(data: Data(), statusCode: 500), sessionStore: store)
-        await appState.refreshAuth()
+        await appState.resolve()
         guard case .unavailable = appState.session else { return XCTFail("前提: unavailable") }
 
         appState.retryResolve()
@@ -171,7 +171,7 @@ final class AppStateAuthTests: XCTestCase {
 
         // anonymous から呼んでも不変（unavailable 以外は no-op）。
         let anonymousAppState = makeSubjectAwareAppState(session: MockURLSession(data: Data(), statusCode: 200))
-        await anonymousAppState.refreshAuth()
+        await anonymousAppState.resolve()
         guard case .anonymous = anonymousAppState.session else { return XCTFail("前提: anonymous") }
 
         anonymousAppState.retryResolve()
@@ -194,7 +194,7 @@ final class AppStateAuthTests: XCTestCase {
         let store2 = InMemorySessionStore()
         let nowPlaying2 = NowPlayingCenterSpy()
         let s2 = makeSubjectAwareAppState(sessionStore: store2, nowPlayingCenter: nowPlaying2)
-        await s2.refreshAuth()
+        await s2.resolve()
         s2.handle(failure: .unauthorized, sentToken: store2.token)
         guard case .anonymous = s2.session else { return XCTFail("anonymous のまま") }
         XCTAssertEqual(nowPlaying2.clearCallCount, 0)
@@ -203,7 +203,7 @@ final class AppStateAuthTests: XCTestCase {
         let store3 = InMemorySessionStore(token: "tA")
         let nowPlaying3 = NowPlayingCenterSpy()
         let s3 = makeSubjectAwareAppState(session: MockURLSession(data: Data(), statusCode: 500), sessionStore: store3, nowPlayingCenter: nowPlaying3)
-        await s3.refreshAuth()
+        await s3.resolve()
         s3.handle(failure: .unauthorized, sentToken: "tA")
         guard case .unavailable = s3.session else { return XCTFail("unavailable のまま") }
         XCTAssertEqual(store3.token, "tA")
@@ -378,9 +378,9 @@ final class AppStateAuthTests: XCTestCase {
 
     // verifies: ios-contract-20.11
     func testTT14_13b_updateCurrentUserIgnoredWhenCapturedAnonymous() async {
-        // 前提: トークン無しで refreshAuth() し anonymous にする（HTTP は送らない: ios-contract-20.2）
+        // 前提: トークン無しで resolve() し anonymous にする（HTTP は送らない: ios-contract-20.2）
         let appState = makeSubjectAwareAppState()
-        await appState.refreshAuth()
+        await appState.resolve()
         let stamp = appState.subjectStamp
         guard case .anonymous = appState.session else { return XCTFail("前提: 新規は resolving。まず anonymous にする") }
 
@@ -462,7 +462,7 @@ final class AppStateAuthTests: XCTestCase {
         scripted.configure(method: "POST", path: "/notifications/device-tokens", status: 200)
         let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
 
-        let task = Task { await appState.refreshAuth() }
+        let task = Task { await appState.resolve() }
         await scripted.waitUntilRequested(method: "GET", path: "/auth/me")
         appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         let aliceJSON = #"{"username":"alice","role":"user","display_name":"Alice"}"#
@@ -489,7 +489,7 @@ final class AppStateAuthTests: XCTestCase {
         let nowPlaying = NowPlayingCenterSpy()
         let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store, nowPlayingCenter: nowPlaying)
 
-        let task = Task { await appState.refreshAuth() }
+        let task = Task { await appState.resolve() }
         await scripted.waitUntilRequested(method: "GET", path: "/auth/me")
         appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
         scripted.release(method: "GET", path: "/auth/me", status: 401)
@@ -513,14 +513,17 @@ final class AppStateAuthTests: XCTestCase {
         scripted.configure(method: "GET", path: "/auth/me", status: 200, body: Data(aliceJSON.utf8))
         scripted.configurePending(method: "GET", path: "/settings/preferences")
         scripted.configure(method: "POST", path: "/notifications/device-tokens", status: 200)
-        let (appState, prefs) = makeAppStateWithPreferences(session: scripted, sessionStore: store)
+        let harness = makeAppStateHarness(session: scripted, sessionStore: store)
+        let appState = harness.state
+        let prefs = harness.store
 
-        let outer = Task { await appState.refreshAuth() }
+        let outer = Task { await harness.resolveAndLaunch() }
         await scripted.waitUntilRequested(method: "GET", path: "/settings/preferences")
         outer.cancel()
         let prefsJSON = #"{"default_difficulty":"toeic_900","default_playback_speed":1.25,"weekly_goal_episodes":5}"#
         scripted.release(method: "GET", path: "/settings/preferences", status: 200, body: Data(prefsJSON.utf8))
-        await outer.value
+        let launched = await outer.value
+        await launched?.value
 
         guard case .authenticated(let user) = appState.session, user.username == "alice" else {
             return XCTFail("authenticated(alice) になるべき")
@@ -563,16 +566,18 @@ final class AppStateAuthTests: XCTestCase {
         scripted.configurePending(method: "GET", path: "/settings/preferences")
         scripted.configure(method: "POST", path: "/auth/logout", status: 200)
         scripted.configurePending(method: "POST", path: "/notifications/device-tokens")
-        let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
+        let harness = makeAppStateHarness(session: scripted, sessionStore: store)
+        let appState = harness.state
 
-        let t = Task { await appState.refreshAuth() }
+        let t = Task { await harness.resolveAndLaunch() }
         await scripted.waitUntilRequested(method: "GET", path: "/settings/preferences")
         await appState.logout()
-        appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
-        appState.didRegisterDeviceToken("apns-bob")
+        harness.login(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
+        harness.push.didReceiveDeviceToken("apns-bob")
         await scripted.waitUntilRequested(method: "POST", path: "/notifications/device-tokens")
         scripted.release(method: "GET", path: "/settings/preferences", status: 200, body: Data("{}".utf8))
-        await t.value
+        let launched = await t.value
+        await launched?.value
 
         XCTAssertTrue(scripted.cancelledRequests.isEmpty, "A の refreshAuth が B の登録 Task を cancel してはならない")
         let registerRequests = scripted.sentRequests.filter { $0.httpMethod == "POST" && $0.url?.path == "/notifications/device-tokens" }
@@ -590,7 +595,7 @@ final class AppStateAuthTests: XCTestCase {
     func testTT14_22_isCurrentSubjectReflectsSessionAtCaptureTime() async {
         let store = InMemorySessionStore()
         let appState = makeSubjectAwareAppState(sessionStore: store)
-        await appState.refreshAuth() // -> anonymous（トークン無し）
+        await appState.resolve() // -> anonymous（トークン無し）
         guard case .anonymous = appState.session else { return XCTFail("前提: anonymous") }
         let s0 = appState.subjectStamp
 
@@ -615,35 +620,43 @@ final class AppStateAuthTests: XCTestCase {
     // MARK: - APNs（既存。authStatus → session への機械的書換えのみ）
 
     func testHandleNotificationPodcastIdSetsSelectedPodcastId() {
-        let appState = makeSubjectAwareAppState()
+        let harness = makeAppStateHarness()
 
-        appState.handleNotificationPodcastId("pod123")
+        harness.push.openEpisode(id: "pod123")
 
-        XCTAssertEqual(appState.selectedPodcastId, "pod123")
+        XCTAssertEqual(harness.push.pendingEpisodeId, "pod123")
     }
 
-    func testDidRegisterDeviceTokenStoresTokenWithoutCrashWhenUnauthenticated() {
-        let appState = makeSubjectAwareAppState()
+    func testDidRegisterDeviceTokenStoresTokenWithoutCrashWhenUnauthenticated() async {
+        let scripted = ScriptedURLSession()
+        scripted.configure(method: "POST", path: "/notifications/device-tokens", status: 200)
+        let harness = makeAppStateHarness(session: scripted)
 
-        appState.didRegisterDeviceToken("devicetokenhex")
+        harness.push.didReceiveDeviceToken("devicetokenhex")
+        for _ in 0..<30 { await Task.yield() }
+        XCTAssertTrue(scripted.sentRequests.isEmpty, "未認証で受け取った時点では登録を送らない")
 
-        XCTAssertEqual(appState.apnsDeviceToken, "devicetokenhex")
-    }
+        // 保持していた token が、認証済みになった後の登録で同じ値のまま送られる。
+        harness.state.completeLogin(LoginReceipt(token: "tok-1", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
+        await harness.push.registerIfPossible()
 
-    private func makeAppState(session: URLSessionProtocol) -> AppState {
-        makeSubjectAwareAppState(session: session)
+        let registers = scripted.sentRequests.filter { $0.httpMethod == "POST" && $0.url?.path == "/notifications/device-tokens" }
+        XCTAssertEqual(registers.count, 1)
+        let body = registers.first?.httpBody.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        XCTAssertTrue(body.contains("devicetokenhex"), "保持していた token をそのまま送る（実際: \(body)）")
     }
 
     func testRegisterDeviceTokenIfPossibleDoesNotCallAPIAfterLogout() async {
-        // logout() 後（session = .anonymous）に registerDeviceTokenIfPossible() を
+        // logout() 後（session = .anonymous）に registerIfPossible() を
         // 直接 await しても、HTTP リクエストが発生しないことを検証する（issue #80 レビュー指摘）。
         let session = MockURLSession(data: Data(), statusCode: 200)
-        let appState = makeAppState(session: session)
+        let harness = makeAppStateHarness(session: session)
+        let appState = harness.state
         appState.completeLogin(LoginReceipt(token: "tok-1", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
-        appState.didRegisterDeviceToken("devicetokenhex")
+        harness.push.didReceiveDeviceToken("devicetokenhex")
         await appState.logout()
 
-        await appState.registerDeviceTokenIfPossible()
+        await harness.push.registerIfPossible()
 
         // logout() 自体が /auth/logout の HTTP 呼び出しを行うため
         // lastRequest は nil にならない。検証すべきは「登録（POST /notifications/device-tokens）
@@ -654,24 +667,37 @@ final class AppStateAuthTests: XCTestCase {
     }
 
     func testRegisterDeviceTokenIfPossibleCallsAPIWhenAuthenticated() async {
-        // authenticated 状態で didRegisterDeviceToken を呼ぶと、登録リクエストが発生する（正常系）。
+        // authenticated 状態で token を受け取ってから登録すると、登録リクエストが発生する（正常系）。
         let session = MockURLSession(data: Data(), statusCode: 200)
-        let appState = makeAppState(session: session)
-        appState.completeLogin(
+        let harness = makeAppStateHarness(session: session)
+        harness.state.completeLogin(
             LoginReceipt(
                 token: "tok-1",
                 subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)
             )
         )
 
-        appState.didRegisterDeviceToken("devicetokenhex")
-        // didRegisterDeviceToken() 内で投げっぱなし Task が起動するが、テストからは追跡できない
-        // ため、決定論的に検証するには同一状態で registerDeviceTokenIfPossible() を直接 await する。
-        await appState.registerDeviceTokenIfPossible()
+        harness.push.didReceiveDeviceToken("devicetokenhex")
+        // didReceiveDeviceToken() 内で投げっぱなし Task が起動するが、テストからは追跡できない
+        // ため、決定論的に検証するには同一状態で registerIfPossible() を直接 await する。
+        await harness.push.registerIfPossible()
 
         XCTAssertEqual(
             session.lastRequest?.url?.path,
             "/notifications/device-tokens"
         )
+    }
+
+    // MARK: - sessionExpiryObserver
+
+    func testSessionExpiryObserverLeavesOnlyForMatchingToken() {
+        let appState = makeSubjectAwareAppState()
+        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
+
+        appState.sessionExpiryObserver(sentToken: "tOld")()
+        guard case .authenticated = appState.session else { return XCTFail("古い token 宛ての失効は離脱させない") }
+
+        appState.sessionExpiryObserver(sentToken: "tA")()
+        guard case .anonymous = appState.session else { return XCTFail("現在の token 宛ての失効は離脱させる") }
     }
 }

@@ -41,8 +41,8 @@ final class StarredViewModel: ObservableObject {
     /// ViewModel を生成する。
     /// - Parameters:
     ///   - starred: 一覧と Star 解除を持つ application。
-    ///   - networkMonitor: ネットワーク監視（既定: 実機監視の `NetworkMonitor()`。`FeedViewModel` と同一パターン）。
-    init(starred: StarredArticles, networkMonitor: NetworkMonitoring = NetworkMonitor()) {
+    ///   - networkMonitor: ネットワーク監視（合成 root が作った 1 個を `PodcastViewModel` と共有する）。
+    init(starred: StarredArticles, networkMonitor: NetworkMonitoring) {
         self.starred = starred
         self.networkMonitor = networkMonitor
         self.isOnline = networkMonitor.isOnline

@@ -110,18 +110,18 @@ final class SubjectCleanupTests: XCTestCase {
         let suite = UserDefaults(suiteName: suiteName)!
         seedAllKeys(suite)
         let session = MockURLSession(data: Data(), statusCode: 401)
-        let (appState, _) = makeAppStateWithPreferences(
+        let harness = makeAppStateHarness(
             session: session,
             sessionStore: store,
             defaults: suite,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { key in if let key { try AudioCacheManager(fileManager: fileManager).removeSubject(key) } }
         )
+        let appState = harness.state
         appState.registerPlaybackLifecycle(playback)
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: subjectA)))
 
-        appState.didRegisterDeviceToken("devicetokenhex")
-        await appState.registerDeviceTokenIfPossible() // 保存トークン付きの任意 API が 401（shared-leave-02 の契機）
+        _ = try? await harness.currentClient()?.fetchListeningStreak() // 保存トークン付きの任意 API が 401（shared-leave-02 の契機）
 
         guard case .anonymous = appState.session else { return XCTFail(".anonymous になるべき") }
         XCTAssertNil(store.token)
@@ -254,7 +254,7 @@ final class SubjectCleanupTests: XCTestCase {
             )
             appState.registerPlaybackLifecycle(playback)
 
-            await appState.refreshAuth()
+            await appState.resolve()
 
             guard case .unavailable = appState.session else { return XCTFail(".unavailable になるべき") }
             XCTAssertEqual(store.token, "tA")
@@ -278,7 +278,7 @@ final class SubjectCleanupTests: XCTestCase {
             clearOfflineLibrary: { _ in }
         )
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .unavailable(.decoding) = appState.session else { return XCTFail(".unavailable(.decoding) になるべき") }
         XCTAssertEqual(store.token, "tA")
@@ -292,18 +292,19 @@ final class SubjectCleanupTests: XCTestCase {
         let nowPlaying = NowPlayingCenterSpy()
         let playback = PlaybackLifecycleSpy()
         let session = MockURLSession(data: Data(), statusCode: 401)
-        let (appState, _) = makeAppStateWithPreferences(
+        let harness = makeAppStateHarness(
             session: session,
             sessionStore: InMemorySessionStore(),
             defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { _ in }
         )
+        let appState = harness.state
         appState.registerPlaybackLifecycle(playback)
         guard case .resolving = appState.session else { return XCTFail("前提: resolving") }
 
         do {
-            _ = try await appState.apiClient!.login(username: "alice", password: "wrong")
+            _ = try await harness.currentClient()!.login(username: "alice", password: "wrong")
             XCTFail("401 は throw されるべき")
         } catch ApiFailure.unauthorized {
             // 期待どおり。
@@ -481,16 +482,17 @@ final class SubjectCleanupTests: XCTestCase {
         let nowPlaying = NowPlayingCenterSpy()
         let playback = PlaybackLifecycleSpy()
         let session = MutableStatusSession(statusCode: 200) // logout 自体は成功させる
-        let (appState, _) = makeAppStateWithPreferences(
+        let harness = makeAppStateHarness(
             session: session,
             sessionStore: store,
             defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { _ in }
         )
+        let appState = harness.state
         appState.registerPlaybackLifecycle(playback)
         appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
-        let staleClient = appState.apiClient! // A の client（トークンは生成時点で固定）
+        let staleClient = harness.currentClient()! // A の client（トークンは生成時点で固定）
 
         await appState.logout()
         appState.completeLogin(LoginReceipt(token: "tB", subject: Subject(username: "bob", displayName: "Bob", role: Role(rawValue: "user"), key: nil)))
@@ -520,16 +522,17 @@ final class SubjectCleanupTests: XCTestCase {
         scripted.configure(method: "DELETE", path: "/notifications/device-tokens", status: 401)
         scripted.configurePending(method: "POST", path: "/auth/logout")
         scripted.configure(method: "POST", path: "/notifications/device-tokens", status: 200)
-        let (appState, _) = makeAppStateWithPreferences(
+        let harness = makeAppStateHarness(
             session: scripted,
             sessionStore: store,
             defaults: UserDefaults(suiteName: "SubjectCleanupTests.\(UUID().uuidString)")!,
             nowPlayingCenter: nowPlaying,
             clearOfflineLibrary: { _ in }
         )
+        let appState = harness.state
         appState.registerPlaybackLifecycle(playback)
-        appState.completeLogin(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
-        appState.didRegisterDeviceToken("apns-1")
+        harness.login(LoginReceipt(token: "tA", subject: Subject(username: "alice", displayName: "Alice", role: Role(rawValue: "user"), key: nil)))
+        harness.push.didReceiveDeviceToken("apns-1")
 
         let logoutTask = Task { await appState.logout() }
         await scripted.waitUntilRequested(method: "POST", path: "/auth/logout")

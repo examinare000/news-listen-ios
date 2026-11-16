@@ -35,6 +35,8 @@ struct AccountSettingsView: View {
 
     /// ユーザー管理画面へ渡す手順。
     private let administration: UserAdministration
+    /// API が使えるか（Passkey 管理の出し分け）。
+    private let isAPIAvailable: () -> Bool
 
     /// ビューを生成する。
     /// - Parameters:
@@ -42,8 +44,13 @@ struct AccountSettingsView: View {
     ///   - deviceSessions: 端末のセッションの手順。
     ///   - enrollment: Passkey の登録・一覧・削除の手順。
     ///   - administration: ユーザー管理の手順（管理者のみ画面へ渡す）。
-    init(profile: AccountProfile, deviceSessions: DeviceSessions, enrollment: PasskeyEnrollment, administration: UserAdministration) {
+    ///   - isAPIAvailable: API が使えるか（Passkey 管理の出し分け）。
+    init(
+        profile: AccountProfile, deviceSessions: DeviceSessions, enrollment: PasskeyEnrollment,
+        administration: UserAdministration, isAPIAvailable: @escaping () -> Bool
+    ) {
         self.administration = administration
+        self.isAPIAvailable = isAPIAvailable
         _registrationViewModel = StateObject(wrappedValue: PasskeyRegistrationViewModel(enrollment: enrollment))
         _credentialsViewModel = StateObject(wrappedValue: PasskeyCredentialsViewModel(enrollment: enrollment))
         _sessionsViewModel = StateObject(wrappedValue: SessionsViewModel(deviceSessions: deviceSessions))
@@ -98,7 +105,7 @@ struct AccountSettingsView: View {
         .onAppear { displayName = appState.currentSubject?.displayName ?? "" }
 
         // Passkey 管理セクション（ログイン済みで API クライアント有効時のみ表示）
-        if appState.apiClient != nil {
+        if isAPIAvailable() {
             Section("Passkey") {
                 // 登録ボタン
                 Button("Passkey を登録") { showPasskeyRegistration = true }

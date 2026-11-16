@@ -21,9 +21,11 @@ struct SettingsView: View {
     private let refreshStreak: @MainActor () async -> Void
     /// 設定の現在値の持ち主。値の読み取りと変更（`Binding(get:set:)` → command）はここを通す。
     @EnvironmentObject private var preferencesStore: PreferencesStore
+    /// API が使えるか（`ContentView` が渡す。呼ぶたびに読む）。
+    private let isAPIAvailable: () -> Bool
     /// RSS ソースの取得・追加・編集・削除を担う ViewModel。
     ///
-    /// apiClient は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
+    /// `isAPIAvailable` は `ContentView` から注入し、init で `StateObject` を一度だけ生成する
     /// （`FeedView` と同様、プレースホルダ生成 + 後差し替えのアンチパターンを避ける）。
     @StateObject private var viewModel: SettingsViewModel
 
@@ -58,6 +60,7 @@ struct SettingsView: View {
     /// - Parameters:
     ///   - appState: 共有の設定状態。
     ///   - engagement: 聴取ストリークの保持者。
+    ///   - isAPIAvailable: API が使えるか。
     ///   - refreshStreak: ストリークを更新する手順。
     ///   - library: 合成 root が作った保存庫（キャッシュの容量表示に使う）。
     ///   - downloads: ダウンロード use case（キャッシュの全削除に使う）。
@@ -71,6 +74,7 @@ struct SettingsView: View {
     init(
         appState: AppState,
         engagement: EngagementStore,
+        isAPIAvailable: @escaping () -> Bool,
         refreshStreak: @escaping @MainActor () async -> Void,
         library: OfflineLibrary,
         downloads: OfflineDownloads,
@@ -83,18 +87,19 @@ struct SettingsView: View {
     ) {
         self.appState = appState
         self.engagement = engagement
+        self.isAPIAvailable = isAPIAvailable
         self.refreshStreak = refreshStreak
         self.profile = profile
         self.deviceSessions = deviceSessions
         self.enrollment = enrollment
         self.administration = administration
-        _viewModel = StateObject(wrappedValue: SettingsViewModel(appState: appState, library: library, downloads: downloads, curation: curation, sources: sources))
+        _viewModel = StateObject(wrappedValue: SettingsViewModel(isAPIAvailable: isAPIAvailable, library: library, downloads: downloads, curation: curation, sources: sources))
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                AccountSettingsView(profile: profile, deviceSessions: deviceSessions, enrollment: enrollment, administration: administration)
+                AccountSettingsView(profile: profile, deviceSessions: deviceSessions, enrollment: enrollment, administration: administration, isAPIAvailable: isAPIAvailable)
                 feedSection
                 rssSourcesSection
                 featuredSitesSection
@@ -116,7 +121,7 @@ struct SettingsView: View {
                 EditSourceSheet(source: source, viewModel: viewModel)
             }
             .alert("エラー", isPresented: errorBinding) {
-                Button("OK") { viewModel.errorMessage = nil }
+                Button("OK") { viewModel.dismissError() }
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
@@ -208,7 +213,7 @@ struct SettingsView: View {
     ///
     /// 初回読み込み中は件数が確定していないため「(0)」の誤表示を避けて件数を省略する。
     private var rssSectionTitle: String {
-        guard appState.apiClient != nil, !isInitialLoadingSources else { return "購読中のRSSソース" }
+        guard isAPIAvailable(), !isInitialLoadingSources else { return "購読中のRSSソース" }
         return "購読中のRSSソース (\(viewModel.sources.count))"
     }
 
@@ -220,7 +225,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var rssSourcesSection: some View {
         Section(rssSectionTitle) {
-            if appState.apiClient == nil {
+            if !isAPIAvailable() {
                 Text("API URL とキーを設定すると RSS ソースを管理できます")
                     .font(DSFont.caption)
                     .foregroundStyle(DSColor.inkSecondary)
@@ -275,7 +280,7 @@ struct SettingsView: View {
     /// 再試行を出すため、`categorizedFeaturedSites` が空でも `featuredSitesLoadFailed` なら表示する。
     @ViewBuilder
     private var featuredSitesSection: some View {
-        if appState.apiClient != nil, !viewModel.categorizedFeaturedSites.isEmpty || viewModel.featuredSitesLoadFailed {
+        if isAPIAvailable(), !viewModel.categorizedFeaturedSites.isEmpty || viewModel.featuredSitesLoadFailed {
             ForEach(viewModel.categorizedFeaturedSites, id: \.category) { category, sites in
                 Section(category.label) {
                     ForEach(sites) { site in
@@ -325,7 +330,7 @@ struct SettingsView: View {
     /// 取得失敗時はインライン警告 + 再試行を出す。
     @ViewBuilder
     private var generationQuotaSection: some View {
-        if appState.apiClient != nil {
+        if isAPIAvailable() {
             Section("Podcast 生成") {
                 if let allowance = viewModel.generationAllowance {
                     if allowance.isUnlimited {
@@ -362,7 +367,7 @@ struct SettingsView: View {
     /// 取得失敗時はインライン警告 + 再試行を出す。
     @ViewBuilder
     private var listeningStreakSection: some View {
-        if appState.apiClient != nil {
+        if isAPIAvailable() {
             Section("聴取ストリーク") {
                 if let streak = engagement.streak {
                     if let lastListenedDay = streak.lastListenedDay {
@@ -521,7 +526,7 @@ struct SettingsView: View {
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { viewModel.errorMessage != nil },
-            set: { if !$0 { viewModel.errorMessage = nil } }
+            set: { if !$0 { viewModel.dismissError() } }
         )
     }
 }

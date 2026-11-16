@@ -26,9 +26,11 @@ struct StarredView: View {
     @State private var pendingUnstar: ArticleCardModel?
 
     /// ビューを生成する。
-    /// - Parameter starred: 一覧と Star 解除を持つ application。
-    init(starred: StarredArticles) {
-        _viewModel = StateObject(wrappedValue: StarredViewModel(starred: starred))
+    /// - Parameters:
+    ///   - starred: 一覧と Star 解除を持つ application。
+    ///   - networkMonitor: ネットワーク監視（`ContentView` が持つ 1 個）。
+    init(starred: StarredArticles, networkMonitor: NetworkMonitoring) {
+        _viewModel = StateObject(wrappedValue: StarredViewModel(starred: starred, networkMonitor: networkMonitor))
     }
 
     var body: some View {
@@ -163,13 +165,13 @@ struct StarredView: View {
 
 #if DEBUG
 #Preview("Starred / Light") {
-    StarredView(starred: PreviewSamples.starredArticles())
+    StarredView(starred: PreviewSamples.starredArticles(), networkMonitor: StubNetworkMonitor())
         .environmentObject(PreviewSamples.engagement())
         .environmentObject(PreviewSamples.preferencesStore())
 }
 
 #Preview("Starred / Dark") {
-    StarredView(starred: PreviewSamples.starredArticles())
+    StarredView(starred: PreviewSamples.starredArticles(), networkMonitor: StubNetworkMonitor())
         .environmentObject(PreviewSamples.engagement())
         .environmentObject(PreviewSamples.preferencesStore())
         .preferredColorScheme(.dark)

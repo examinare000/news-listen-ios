@@ -18,10 +18,14 @@ final class GrepOracleTests: XCTestCase {
     func testTT14_15_unauthorizedDetectionIsCentralizedAndAuthStatusIsRemoved() {
         let files = SourceGrep.swiftFiles()
 
-        // O-1: `.unauthorized` を扱うコード行は Networking/・AppState.swift・Auth/LoginViewModel.swift のみ。
+        // O-1: `.unauthorized` を扱うコード行は Networking/・AppState.swift・Auth/LoginViewModel.swift と、
+        // ios-dec-155 で exact path 1 件だけ許す FailureMessages.swift（401 の文言を返すだけで、失効の検知・離脱には関わらない）のみ。
         let unauthorizedHits = SourceGrep.matchingLines(pattern: #"^\s*([^/\s].*)?\.unauthorized"#, in: files)
         let allowedPrefixes = ["Networking/", "AppState.swift", "Auth/LoginViewModel.swift"]
-        let unauthorizedViolations = unauthorizedHits.filter { hit in !allowedPrefixes.contains { hit.path.hasPrefix($0) } }
+        let allowedExactPaths = ["Shared/Presentation/FailureMessages.swift"]
+        let unauthorizedViolations = unauthorizedHits.filter { hit in
+            !allowedPrefixes.contains { hit.path.hasPrefix($0) } && !allowedExactPaths.contains(hit.path)
+        }
         XCTAssertTrue(unauthorizedViolations.isEmpty, "許可範囲外で .unauthorized を扱っている: \(unauthorizedViolations)")
 
         // O-2: `authStatus` / `AuthStatus` のコード行は 0 件（AuthSession への一本化で廃止）。
@@ -41,14 +45,11 @@ final class GrepOracleTests: XCTestCase {
         for match in o8Matches { o8Counts[match, default: 0] += 1 }
         let expectedO8: [String: Int] = [
             "appState.completeLogin(": 1,
-            "appState.didRegisterDeviceToken(": 2,
-            "appState.handleNotificationPodcastId(": 2,
             "appState.logout(": 1,
-            "appState.refreshAuth(": 1,
             "appState.registerDownloads(": 1,
             "appState.registerPlaybackLifecycle(": 1,
+            "appState.resolve(": 1,
             "appState.retryResolve(": 1,
-            "appState.selectedPodcastId = ": 1,
             "appState.updateCurrentSubject(": 1,
         ]
         XCTAssertEqual(o8Counts, expectedO8, "主体ガード表 §3.1 の外部行と一致しない（表に無い書き手があれば RJ-5 により表を先に直す）")
@@ -247,10 +248,9 @@ final class GrepOracleTests: XCTestCase {
         var counts: [String: Int] = [:]
         for hit in hits { counts[hit.path, default: 0] += 1 }
 
-        // App の 1 個（合成 root）と、AppState の既定引数（Preview とテスト用）だけ。facade は既定引数で作らない。
+        // App の 1 個（合成 root）だけ。`AppState` も facade も既定引数で作らない。
         XCTAssertEqual(counts, [
             "NewsListenAppApp.swift": 1,
-            "AppState.swift": 1,
         ], "MediaPlayerNowPlaying( の生成箇所が想定と違う: \(hits)")
     }
 

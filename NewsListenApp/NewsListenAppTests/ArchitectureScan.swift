@@ -184,6 +184,145 @@ enum ArchitectureScan {
         return nil
     }
 
+    /// 文字列リテラルの中身を空白に置き換える。行数と各行の長さを保ち、区切りの `"` は残す（ios-dec-154）。
+    /// - `\"` などのエスケープはリテラルの中として空白にする。
+    /// - 補間 `\(…)` の中は式なので残す（括弧の入れ子を追う）。
+    /// - `"""` と `#"""` の中身は、行をまたいで空白にする。
+    /// - コメント（`//`・`/* */`）は変えない。単一行の `#"…"#` はマスクしない（数える側に倒れる）。
+    static func maskStringLiterals(_ lines: [String]) -> [String] {
+        enum Mode: Equatable {
+            case code
+            case string
+            case multiline(hashes: Int)
+            case blockComment
+        }
+        struct Frame {
+            let mode: Mode
+            let depth: Int
+        }
+        var mode = Mode.code
+        var depth = 0
+        var frames: [Frame] = []
+        var result: [String] = []
+
+        for line in lines {
+            let chars = Array(line)
+            var out = chars
+            var cursor = 0
+
+            func character(at position: Int) -> Character? { position < chars.count ? chars[position] : nil }
+            func isTripleQuote(at position: Int) -> Bool {
+                character(at: position) == "\"" && character(at: position + 1) == "\"" && character(at: position + 2) == "\""
+            }
+            func blank(_ position: Int) { if position < out.count { out[position] = " " } }
+
+            while cursor < chars.count {
+                let current = chars[cursor]
+                switch mode {
+                case .blockComment:
+                    if current == "*", character(at: cursor + 1) == "/" { mode = .code; cursor += 2 } else { cursor += 1 }
+
+                case .code:
+                    if current == "/", character(at: cursor + 1) == "/" {
+                        cursor = chars.count
+                    } else if current == "/", character(at: cursor + 1) == "*" {
+                        mode = .blockComment
+                        cursor += 2
+                    } else if current == "#" {
+                        var hashes = 0
+                        while character(at: cursor + hashes) == "#" { hashes += 1 }
+                        let quote = cursor + hashes
+                        if isTripleQuote(at: quote) {
+                            mode = .multiline(hashes: hashes)
+                            cursor = quote + 3
+                        } else if character(at: quote) == "\"" {
+                            // 単一行の生文字列は対象外。閉じる `"#…` まで、そのまま進める。
+                            cursor = quote + 1
+                            while cursor < chars.count {
+                                if chars[cursor] == "\"", (0..<hashes).allSatisfy({ character(at: cursor + 1 + $0) == "#" }) {
+                                    cursor += 1 + hashes
+                                    break
+                                }
+                                cursor += 1
+                            }
+                        } else {
+                            cursor = quote
+                        }
+                    } else if current == "\"" {
+                        if isTripleQuote(at: cursor) {
+                            mode = .multiline(hashes: 0)
+                            cursor += 3
+                        } else {
+                            mode = .string
+                            cursor += 1
+                        }
+                    } else {
+                        if !frames.isEmpty {
+                            if current == "(" {
+                                depth += 1
+                            } else if current == ")" {
+                                depth -= 1
+                                if depth == 0, let saved = frames.popLast() {
+                                    mode = saved.mode
+                                    depth = saved.depth
+                                }
+                            }
+                        }
+                        cursor += 1
+                    }
+
+                case .string:
+                    if current == "\\" {
+                        if character(at: cursor + 1) == "(" {
+                            frames.append(Frame(mode: .string, depth: depth))
+                            mode = .code
+                            depth = 1
+                            cursor += 2
+                        } else {
+                            blank(cursor)
+                            blank(cursor + 1)
+                            cursor += 2
+                        }
+                    } else if current == "\"" {
+                        mode = .code
+                        cursor += 1
+                    } else {
+                        blank(cursor)
+                        cursor += 1
+                    }
+
+                case .multiline(let hashes):
+                    if hashes == 0, current == "\\" {
+                        if character(at: cursor + 1) == "(" {
+                            frames.append(Frame(mode: mode, depth: depth))
+                            mode = .code
+                            depth = 1
+                            cursor += 2
+                        } else {
+                            blank(cursor)
+                            blank(cursor + 1)
+                            cursor += 2
+                        }
+                    } else if isTripleQuote(at: cursor), (0..<hashes).allSatisfy({ character(at: cursor + 3 + $0) == "#" }) {
+                        mode = .code
+                        cursor += 3 + hashes
+                    } else {
+                        blank(cursor)
+                        cursor += 1
+                    }
+                }
+            }
+            // 単一行のリテラルは行末で閉じる（閉じ忘れた状態を次の行へ持ち越さない）。
+            if mode == .string || frames.first?.mode == .string {
+                mode = .code
+                depth = 0
+                frames = []
+            }
+            result.append(String(out))
+        }
+        return result
+    }
+
     /// `#if DEBUG` の枝の中と `#Preview` ブロックの中の行（0 始まりの添字）。
     /// 全種類の `#if` の深さを追う（`#if canImport(UIKit)` などで範囲を取り違えない）。
     /// `#if DEBUG` の `#else` 側と、DEBUG 以外の条件の枝は除外しない。

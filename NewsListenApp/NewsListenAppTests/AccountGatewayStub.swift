@@ -3,7 +3,7 @@ import XCTest
 
 /// `AccountGateway` の test double。テストで `AccountGateway(...)` を直接組むのはこのファイルだけ。
 ///
-/// 16 の closure すべてに既定値を持つ。既定の closure は呼ばれたら `XCTFail` して投げるので、
+/// 18 の closure すべてに既定値を持つ。既定の closure は呼ばれたら `XCTFail` して投げるので、
 /// 「この操作では gateway を呼ばない」ことは何も渡さないことで表せる。
 struct UnexpectedGatewayCall: Error, Equatable {
     let name: String
@@ -58,6 +58,12 @@ extension AccountGateway {
         },
         deleteUser: @escaping (String) async throws -> Void = { _ in
             XCTFail("deleteUser は呼ばれない"); throw UnexpectedGatewayCall(name: "deleteUser")
+        },
+        fetchMe: @escaping () async throws -> Subject = {
+            XCTFail("fetchMe は呼ばれない"); throw UnexpectedGatewayCall(name: "fetchMe")
+        },
+        logout: @escaping () async throws -> Void = {
+            XCTFail("logout は呼ばれない"); throw UnexpectedGatewayCall(name: "logout")
         }
     ) -> AccountGateway {
         AccountGateway(
@@ -76,7 +82,9 @@ extension AccountGateway {
             listUsers: listUsers,
             createUser: createUser,
             updateUserRole: updateUserRole,
-            deleteUser: deleteUser
+            deleteUser: deleteUser,
+            fetchMe: fetchMe,
+            logout: logout
         )
     }
 }

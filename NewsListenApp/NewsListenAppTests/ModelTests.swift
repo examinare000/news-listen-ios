@@ -872,7 +872,7 @@ final class ModelTests: XCTestCase {
             XCTAssertFalse(content.showsSourceArticleList, "case=\(caseName)")
             XCTAssertEqual(
                 content.licenseNotice.map { String($0.characters) },
-                Podcast.ccBySaLicenseNoticePlainText,
+                LicenseNotice.ccBySaLicenseNoticePlainText,
                 "case=\(caseName)"
             )
         }
@@ -968,13 +968,13 @@ final class ModelTests: XCTestCase {
         }
     }
 
-    // MARK: - Podcast.ccBySaLicenseNotice（ADR-095 ライセンス文・issue #240）
+    // MARK: - LicenseNotice.ccBySaLicenseNotice（ADR-095 ライセンス文・issue #240）
 
     /// Markdown 記法を除去したプレーンテキストが web と同一文言と一致する
     /// （Markdown 記法が文字として残っていないことも含意する）。
     func testCcBySaLicenseNoticePlainTextMatchesWebCopy() {
-        let plain = String(Podcast.ccBySaLicenseNotice.characters)
-        XCTAssertEqual(plain, Podcast.ccBySaLicenseNoticePlainText)
+        let plain = String(LicenseNotice.ccBySaLicenseNotice.characters)
+        XCTAssertEqual(plain, LicenseNotice.ccBySaLicenseNoticePlainText)
         XCTAssertEqual(plain, "この音声コンテンツは CC BY-SA 4.0 で提供されます。")
     }
 
@@ -982,7 +982,7 @@ final class ModelTests: XCTestCase {
     /// ADR-095 のライセンス URL が付与される（`Text(String)` の verbatim 描画では
     /// この属性自体が存在しない）。
     func testCcBySaLicenseNoticeLinksOnlyLicenseName() throws {
-        let notice = Podcast.ccBySaLicenseNotice
+        let notice = LicenseNotice.ccBySaLicenseNotice
         let linkRuns = notice.runs.filter { $0.link != nil }
 
         XCTAssertEqual(linkRuns.count, 1)

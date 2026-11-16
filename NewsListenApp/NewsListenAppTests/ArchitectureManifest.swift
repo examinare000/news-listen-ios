@@ -73,6 +73,8 @@ enum ArchitectureManifest {
         "Feed/Application/FeedCuration.swift",
         "Settings/Application/SourceSubscriptions.swift",
         "Learning/Application/VocabularyBook.swift",
+        "Push/Application/PushRegistration.swift",
+        "Shared/Application/Connectivity.swift",
     ]
 
     /// domain の型だけを対象にするテストファイル（ios-check-08 の対象。`NewsListenAppTests/` からの相対）。
@@ -98,29 +100,22 @@ enum ArchitectureManifest {
 
     /// application の層の公開宣言の台帳（ios-check-15 (a)）。実コードと双方向に照合する。
     static let operationLedger: [OperationRow] = [
-        (file: "AppState.swift", type: "AppState", name: "apiBaseURL", kind: .query("ios-query-account-03")),
-        (file: "AppState.swift", type: "AppState", name: "apiKey", kind: .query("ios-query-account-03")),
         (file: "AppState.swift", type: "AppState", name: "session", kind: .query("ios-query-account-01")),
         (file: "AppState.swift", type: "AppState", name: "currentSubject", kind: .query("ios-query-account-01")),
         (file: "AppState.swift", type: "AppState", name: "subjectStamp", kind: .query("ios-query-account-01")),
         (file: "AppState.swift", type: "AppState", name: "isCurrentSubject(_:)", kind: .query("ios-query-account-01")),
-        (file: "AppState.swift", type: "AppState", name: "selectedPodcastId", kind: .query("ios-query-notify-01")),
         (file: "AppState.swift", type: "AppState", name: "lastCleanupIncomplete", kind: .query("ios-query-account-01")),
-        (file: "AppState.swift", type: "AppState", name: "apnsDeviceToken", kind: .internal),
-        (file: "AppState.swift", type: "AppState", name: "apiClient", kind: .query("ios-query-account-03")),
         (file: "AppState.swift", type: "AppState", name: "isConfigured", kind: .query("ios-query-account-01")),
         (file: "AppState.swift", type: "AppState", name: "completeLogin(_:)", kind: .command("ios-cmd-account-02")),
         (file: "AppState.swift", type: "AppState", name: "updateCurrentSubject(_:capturedAt:)", kind: .command("ios-cmd-account-10")),
         (file: "AppState.swift", type: "AppState", name: "retryResolve()", kind: .command("ios-cmd-account-04")),
         (file: "AppState.swift", type: "AppState", name: "handle(failure:sentToken:)", kind: .command("ios-cmd-account-04")),
-        (file: "AppState.swift", type: "AppState", name: "didRegisterDeviceToken(_:)", kind: .command("ios-cmd-notify-01")),
-        (file: "AppState.swift", type: "AppState", name: "registerDeviceTokenIfPossible()", kind: .command("ios-cmd-notify-01")),
-        (file: "AppState.swift", type: "AppState", name: "handleNotificationPodcastId(_:)", kind: .command("ios-cmd-notify-02")),
-        (file: "AppState.swift", type: "AppState", name: "refreshAuth()", kind: .command("ios-cmd-account-03")),
+        (file: "AppState.swift", type: "AppState", name: "sessionExpiryObserver(sentToken:)", kind: .command("ios-cmd-account-04")),
+        (file: "AppState.swift", type: "AppState", name: "resolve()", kind: .command("ios-cmd-account-03")),
         (file: "AppState.swift", type: "AppState", name: "logout()", kind: .command("ios-cmd-account-04")),
         (file: "AppState.swift", type: "AppState", name: "registerPlaybackLifecycle(_:)", kind: .command("ios-cmd-account-11")),
         (file: "AppState.swift", type: "AppState", name: "registerDownloads(_:)", kind: .command("ios-cmd-account-11")),
-        (file: "AppState.swift", type: "AppState", name: "init(sessionStore:apiClientOverride:apiClientFactory:refreshPreferences:clearSubjectPreferences:nowPlayingCenter:clearOfflineLibrary:bindOfflineSubject:reclaimOfflineLibrary:clearPositionRecords:reclaimPositionRecords:)", kind: .factory),
+        (file: "AppState.swift", type: "AppState", name: "init(sessionStore:accountGatewayFactory:isConfigured:clearSubjectPreferences:nowPlayingCenter:clearOfflineLibrary:bindOfflineSubject:reclaimOfflineLibrary:clearPositionRecords:reclaimPositionRecords:cancelPushRegistration:)", kind: .factory),
         (file: "Settings/Application/PreferencesStore.swift", type: "PreferencesStore", name: "defaultDifficulty", kind: .query("ios-query-prefs-01")),
         (file: "Settings/Application/PreferencesStore.swift", type: "PreferencesStore", name: "defaultPlaybackSpeed", kind: .query("ios-query-prefs-01")),
         (file: "Settings/Application/PreferencesStore.swift", type: "PreferencesStore", name: "weeklyGoal", kind: .query("ios-query-prefs-01")),
@@ -171,6 +166,18 @@ enum ArchitectureManifest {
         (file: "Auth/Application/Authentication.swift", type: "Authentication", name: "init(gateway:)", kind: .factory),
         (file: "Auth/Application/Authentication.swift", type: "Authentication", name: "login(username:password:)", kind: .command("ios-cmd-account-01")),
         (file: "Auth/Application/SessionStore.swift", type: "SessionStore", name: "token", kind: .port),
+        (file: "Push/Application/PushRegistration.swift", type: "PushGateway", name: "register", kind: .port),
+        (file: "Push/Application/PushRegistration.swift", type: "PushRegistration", name: "pendingEpisodeId", kind: .query("ios-query-notify-01")),
+        (file: "Push/Application/PushRegistration.swift", type: "PushRegistration", name: "init(gateway:isAuthenticated:subjectStamp:isCurrentSubject:)", kind: .factory),
+        (file: "Push/Application/PushRegistration.swift", type: "PushRegistration", name: "didReceiveDeviceToken(_:)", kind: .command("ios-cmd-notify-01")),
+        (file: "Push/Application/PushRegistration.swift", type: "PushRegistration", name: "registerIfPossible()", kind: .command("ios-cmd-notify-01")),
+        (file: "Push/Application/PushRegistration.swift", type: "PushRegistration", name: "cancelPendingRegistration()", kind: .internal),
+        (file: "Push/Application/PushRegistration.swift", type: "PushRegistration", name: "openEpisode(id:)", kind: .command("ios-cmd-notify-02")),
+        (file: "Push/Application/PushRegistration.swift", type: "PushRegistration", name: "consumePendingEpisode(id:)", kind: .command("ios-cmd-notify-02")),
+        (file: "Shared/Application/LaunchSequence.swift", type: "LaunchSequence", name: "init(refreshPreferences:registerPush:subjectStamp:isCurrentSubject:)", kind: .factory),
+        (file: "Shared/Application/LaunchSequence.swift", type: "LaunchSequence", name: "run()", kind: .command("ios-cmd-account-03")),
+        (file: "Shared/Application/Connectivity.swift", type: "NetworkMonitoring", name: "isOnline", kind: .port),
+        (file: "Shared/Application/Connectivity.swift", type: "NetworkMonitoring", name: "isOnlinePublisher", kind: .port),
         (file: "Auth/Application/AccountProfile.swift", type: "AccountGateway", name: "login", kind: .port),
         (file: "Auth/Application/AccountProfile.swift", type: "AccountGateway", name: "listSessions", kind: .port),
         (file: "Auth/Application/AccountProfile.swift", type: "AccountGateway", name: "revokeSession", kind: .port),
@@ -185,6 +192,8 @@ enum ArchitectureManifest {
         (file: "Auth/Application/AccountProfile.swift", type: "AccountGateway", name: "createUser", kind: .port),
         (file: "Auth/Application/AccountProfile.swift", type: "AccountGateway", name: "updateUserRole", kind: .port),
         (file: "Auth/Application/AccountProfile.swift", type: "AccountGateway", name: "deleteUser", kind: .port),
+        (file: "Auth/Application/AccountProfile.swift", type: "AccountGateway", name: "fetchMe", kind: .port),
+        (file: "Auth/Application/AccountProfile.swift", type: "AccountGateway", name: "logout", kind: .port),
         (file: "Passkey/Application/PasskeySignIn.swift", type: "PasskeySignIn", name: "init(gateway:provider:)", kind: .factory),
         (file: "Passkey/Application/PasskeySignIn.swift", type: "PasskeySignIn", name: "signIn()", kind: .command("ios-cmd-account-01")),
         (file: "Passkey/Application/PasskeyAuthorization.swift", type: "PasskeyAuthorizationProviding", name: "createCredential(_:)", kind: .port),
@@ -613,30 +622,9 @@ enum ArchitectureManifest {
         ("Admin/AdminUsersViewModel.swift", "newRole"),
     ]
 
-    /// 一時経路 ios-temp-10: 現状の違反の許可リスト `(規則 ID, path, 行数)`。実測と一致することを要求する。
-    /// 行番号は書かない（後の slice で動く）。減らした slice が同じ PR で一覧を減らす。
-    static let allowlist: [(rule: String, path: String, lines: Int)] = [
-        ("ios-dep-03", "AppState.swift", 9),
-        ("ios-dep-13", "AppState.swift", 4),
-        ("ios-dep-13", "Feed/FeedViewModel.swift", 1),
-        ("ios-dep-13", "Observability/CrashReporter.swift", 1),
-        ("ios-dep-13", "Starred/StarredViewModel.swift", 1),
-        ("ios-dep-04/DTO", "Podcast/AudioPlayerView.swift", 1),
-        ("ios-dep-04/DTO", "Podcast/PodcastRowView.swift", 2),
-        ("ios-dep-04/DTO", "Podcast/PodcastView.swift", 4),
-        ("ios-dep-04/DTO", "Settings/SettingsView.swift", 1),
-        ("ios-dep-05", "NewsListenAppApp.swift", 1),
-        ("ios-dep-05", "Settings/SettingsView.swift", 2),
-        ("ios-dep-04", "DesignSystem/PreviewSupport.swift", 2),
-        ("ios-dep-06", "Feed/FeedViewModel.swift", 1),
-        ("ios-dep-06", "Settings/SettingsViewModel.swift", 3),
-        ("ios-dep-06", "Starred/StarredViewModel.swift", 1),
-        ("ios-dep-12", "AppState.swift", 1),
-        ("ios-dep-12", "Settings/SettingsViewModel.swift", 1),
-        // ios-check-15 (b): query の契約テストがまだ無い ID（owner: ios-slice-closure-01）。
-        ("ios-check-15/verifies/ios-query-account-03", "AppState.swift", 3),
-        ("ios-check-15/verifies/ios-query-notify-01", "AppState.swift", 1),
-    ]
+    /// 現状の違反の許可リスト `(規則 ID, path, 行数)`。空であることを `testIosTemp10_allowlistIsEmpty` が検査する。
+    /// 検査が落ちたら違反を直す。ここへ足さない。
+    static let allowlist: [(rule: String, path: String, lines: Int)] = []
 
     /// `@AppStorage` は属性として照合する（`@AppStorage\b`）。ほかは単語境界の型名。
     static let uiFacility: Set<String> = [
