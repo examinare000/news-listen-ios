@@ -176,7 +176,7 @@ final class OfflineLibraryCallLog {
 /// 主体離脱（logout・401 失効）を伴うテストで使う `AppState` を、実機のキャッシュディレクトリや
 /// `MPNowPlayingInfoCenter` に触れない doubles 一式（NowPlayingCenter spy・空のキャッシュを模す MockFileManager）で組み立てる。
 /// - Parameters:
-///   - session: `apiClient`/`apiClientFactory` の通信に使う test double（未指定なら空応答の `MockURLSession`）。
+///   - session: `AppState` と設定の同期の通信に使う test double（未指定なら空応答の `MockURLSession`）。
 ///   - sessionStore: セッショントークンの保管（未指定ならインメモリ）。
 ///   - nowPlayingCenter: 未指定なら新規 `NowPlayingCenterSpy`。
 ///   - offlineFileManager: `AudioCacheManager` に注入する `FileManagerProtocol`
@@ -195,7 +195,7 @@ func makeSubjectAwareAppState(
     reclaimOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { _ in }
 ) -> AppState {
     let cache = AudioCacheManager(fileManager: offlineFileManager)
-    // 起動時の設定の同期（`refreshAuth` → `GET /settings/preferences`）を本番と同じ配線で保つため、store を後結合で結ぶ。
+    // 起動時の設定の同期（`LaunchSequence` → `GET /settings/preferences`）を本番と同じ配線で保つため、store を後結合で結ぶ。
     let wired = makeAppStateWithPreferences(
         session: session,
         sessionStore: sessionStore,
@@ -207,10 +207,123 @@ func makeSubjectAwareAppState(
     return wired.state
 }
 
+// MARK: - 合成 root と同じ配線の harness（ios-slice-closure-01）
+
+/// 本番の合成 root（`NewsListenAppApp`）と同じ形で、`AppState`・`PreferencesStore`・`PushRegistration`・
+/// `LaunchSequence` を後結合の箱（弱参照）で結ぶ。`AppState` は Account だけを持つので、設定の同期と
+/// 端末トークンの登録は、ここで root と同じ closure を渡して組む。
+/// - Important: `login(_:)` と `resolveAndLaunch()` の closure は、root の login の完了 closure と `.task` と同じ形に保つ。
+@MainActor
+final class AppStateHarness {
+    let state: AppState
+    let store: PreferencesStore
+    let push: PushRegistration
+    let launch: LaunchSequence
+    private let makeCurrentClient: () -> APIClient?
+
+    fileprivate init(
+        state: AppState, store: PreferencesStore, push: PushRegistration, launch: LaunchSequence,
+        currentClient: @escaping () -> APIClient?
+    ) {
+        self.state = state
+        self.store = store
+        self.push = push
+        self.launch = launch
+        self.makeCurrentClient = currentClient
+    }
+
+    /// 呼ぶたびに、その時点の保存トークンで作る client。401 は `sessionExpiryObserver` に届く（本番の `makeClient` と同じ形）。
+    func currentClient() -> APIClient? { makeCurrentClient() }
+
+    /// root の `.task` と同じ配線。`resolve()` が true のときだけ、非構造化 Task で `run()` を起こし、その Task を返す。
+    func resolveAndLaunch() async -> Task<Void, Never>? {
+        guard await state.resolve() else { return nil }
+        return Task { await launch.run() }
+    }
+
+    /// root の login の完了 closure と同じ形。登録の予約だけをして、設定の同期はしない。
+    func login(_ receipt: LoginReceipt) {
+        state.completeLogin(receipt)
+        Task { await push.registerIfPossible() }
+    }
+}
+
+/// `makeAppStateWithPreferences` と同じ引数で `AppStateHarness` を組む。
+@MainActor
+func makeAppStateHarness(
+    session: URLSessionProtocol = MockURLSession(data: Data("{}".utf8), statusCode: 200),
+    sessionStore: SessionStore = InMemorySessionStore(),
+    defaults: UserDefaults = UserDefaults(suiteName: "AppStateTestSupport.\(UUID().uuidString)")!,
+    nowPlayingCenter: NowPlayingCenterSpy = NowPlayingCenterSpy(),
+    clearOfflineLibrary: ((SubjectKey?) throws -> Void)? = nil,
+    bindOfflineSubject: @escaping (SubjectKey?) -> Void = { _ in },
+    reclaimOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { _ in },
+    gatewayOverride: PreferencesGateway? = nil
+) -> AppStateHarness {
+    final class Box { weak var state: AppState? }
+    let box = Box()
+    func makeClient(token: String?, onUnauthorized: @escaping @MainActor () -> Void) -> APIClient {
+        APIClient(
+            baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token,
+            session: session, onUnauthorized: onUnauthorized)
+    }
+    let currentClient: () -> APIClient? = {
+        let token = sessionStore.token
+        return makeClient(token: token, onUnauthorized: box.state?.sessionExpiryObserver(sentToken: token) ?? {})
+    }
+    let store = PreferencesStore(
+        gateway: gatewayOverride ?? .live(client: currentClient),
+        storage: .live(registry: PreferenceRegistry(defaults: defaults)),
+        isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false },
+        subjectStamp: { box.state!.subjectStamp },
+        isAuthenticated: { box.state?.currentSubject != nil }
+    )
+    let push = PushRegistration(
+        gateway: { currentClient().map { PushGateway.live(apiClient: $0) } },
+        isAuthenticated: { box.state?.currentSubject != nil },
+        subjectStamp: { box.state!.subjectStamp },
+        isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false }
+    )
+    let launch = LaunchSequence(
+        refreshPreferences: { await store.refreshFromServer() },
+        registerPush: { await push.registerIfPossible() },
+        subjectStamp: { box.state!.subjectStamp },
+        isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false }
+    )
+    let state = AppState(
+        sessionStore: sessionStore,
+        accountGatewayFactory: { token, onUnauthorized in
+            AccountGateway.live(apiClient: makeClient(token: token, onUnauthorized: onUnauthorized))
+        },
+        isConfigured: true,
+        clearSubjectPreferences: { store.clearSubjectScoped() },
+        nowPlayingCenter: nowPlayingCenter,
+        clearOfflineLibrary: clearOfflineLibrary ?? { _ in },
+        bindOfflineSubject: bindOfflineSubject,
+        reclaimOfflineLibrary: reclaimOfflineLibrary,
+        cancelPushRegistration: { push.cancelPendingRegistration() }
+    )
+    box.state = state
+    return AppStateHarness(state: state, store: store, push: push, launch: launch, currentClient: currentClient)
+}
+
+/// `ScriptedURLSession` に、`method` + `path` の request が `count` 件届くまで MainActor を明け渡して待つ。
+/// 届かなければ（実装の欠陥で）止まらないよう、上限の後に抜ける。呼出元が件数を assert する。
+@MainActor
+func waitForRequests(
+    _ session: ScriptedURLSession, method: String, path: String, count: Int = 1, maxYields: Int = 500
+) async {
+    for _ in 0..<maxYields {
+        let seen = session.sentRequests.filter { $0.httpMethod == method && $0.url?.path == path }.count
+        if seen >= count { return }
+        await Task.yield()
+    }
+}
+
 // MARK: - AppState と PreferencesStore を本番と同じ後結合で結ぶファクトリ（ios-dec-92）
 
-/// `AppState` と `PreferencesStore` を、本番の合成 root と同じ後結合の箱（弱参照）で結ぶ。
-/// `apiClientFactory` を必ず渡すので、`AppState.apiClient` が Info.plist の `APIBaseURL` へ落ちる経路は無い。
+/// `AppState` と `PreferencesStore` を、本番の合成 root と同じ後結合の箱（弱参照）で結ぶ（実体は `makeAppStateHarness`）。
+/// `accountGatewayFactory` を必ず渡すので、`AppState` が Info.plist の `APIBaseURL` へ落ちる経路は無い。
 /// - Parameters:
 ///   - session: gateway・`AppState` の通信に使う test double（未指定なら空応答 200 の `MockURLSession`）。
 ///   - defaults: store の保存先 `PreferenceRegistry(defaults:)` の `UserDefaults`。
@@ -227,27 +340,9 @@ func makeAppStateWithPreferences(
     reclaimOfflineLibrary: @escaping (SubjectKey?) throws -> Void = { _ in },
     gatewayOverride: PreferencesGateway? = nil
 ) -> (state: AppState, store: PreferencesStore) {
-    final class Box { weak var state: AppState? }
-    let box = Box()
-    let store = PreferencesStore(
-        gateway: gatewayOverride ?? .live(client: { box.state?.apiClient }),
-        storage: .live(registry: PreferenceRegistry(defaults: defaults)),
-        isCurrentSubject: { box.state?.isCurrentSubject($0) ?? false },
-        subjectStamp: { box.state!.subjectStamp },
-        isAuthenticated: { box.state?.currentSubject != nil }
-    )
-    let state = AppState(
-        sessionStore: sessionStore,
-        apiClientFactory: { token, onUnauthorized in
-            APIClient(baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token, session: session, onUnauthorized: onUnauthorized)
-        },
-        refreshPreferences: { await store.refreshFromServer() },
-        clearSubjectPreferences: { store.clearSubjectScoped() },
-        nowPlayingCenter: nowPlayingCenter,
-        clearOfflineLibrary: clearOfflineLibrary ?? { _ in },
-        bindOfflineSubject: bindOfflineSubject,
-        reclaimOfflineLibrary: reclaimOfflineLibrary
-    )
-    box.state = state
-    return (state, store)
+    let harness = makeAppStateHarness(
+        session: session, sessionStore: sessionStore, defaults: defaults, nowPlayingCenter: nowPlayingCenter,
+        clearOfflineLibrary: clearOfflineLibrary, bindOfflineSubject: bindOfflineSubject,
+        reclaimOfflineLibrary: reclaimOfflineLibrary, gatewayOverride: gatewayOverride)
+    return (harness.state, harness.store)
 }

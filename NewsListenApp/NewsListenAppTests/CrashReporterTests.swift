@@ -43,6 +43,16 @@ final class CrashReporterTests: XCTestCase {
         XCTAssertEqual(p.context?["exception_type"], "1")
     }
 
+    func testReportPassesPayloadToSendUnchanged() {
+        var received: [ClientErrorPayload] = []
+        let reporter = CrashReporter(send: { received.append($0) })
+        let payload = ClientErrorPayload(source: "ios", kind: "crash", message: "boom", context: ["signal": "11"])
+
+        reporter.report(payload)
+
+        XCTAssertEqual(received, [payload], "report は send を同期で 1 回、同じ payload で呼ぶ")
+    }
+
     func testReportClientErrorPostsToClientErrors() async throws {
         let session = MockURLSession(data: Data("{\"status\":\"ok\"}".utf8), statusCode: 202)
         let client = APIClient(

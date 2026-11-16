@@ -279,10 +279,11 @@ final class EngagementStoreTests: XCTestCase {
         let scripted = ScriptedURLSession()
         scripted.configurePending(method: "GET", path: "/users/me/listening-streak")
         scripted.configure(method: "POST", path: "/auth/logout", status: 200)
-        let appState = makeSubjectAwareAppState(session: scripted, sessionStore: store)
+        let harness = makeAppStateHarness(session: scripted, sessionStore: store)
+        let appState = harness.state
         appState.completeLogin(LoginReceipt(token: "tA", subject: alice))
         let engagement = EngagementStore(
-            gateway: .live(client: { appState.apiClient }),
+            gateway: .live(client: { harness.currentClient() }),
             seenStore: SeenSpy().store,
             subjectStamp: { appState.subjectStamp },
             isCurrentSubject: { appState.isCurrentSubject($0) }
@@ -401,10 +402,11 @@ final class EngagementStoreTests: XCTestCase {
         let scripted = ScriptedURLSession()
         scripted.configure(method: "GET", path: "/users/me/listening-streak", status: 200, body: streakJSON(days: 4))
         scripted.configure(method: "POST", path: "/auth/logout", status: 200)
-        let appState = makeSubjectAwareAppState(session: scripted, sessionStore: InMemorySessionStore(token: "tA"))
+        let harness = makeAppStateHarness(session: scripted, sessionStore: InMemorySessionStore(token: "tA"))
+        let appState = harness.state
         appState.completeLogin(LoginReceipt(token: "tA", subject: alice))
         let engagement = EngagementStore(
-            gateway: .live(client: { appState.apiClient }),
+            gateway: .live(client: { harness.currentClient() }),
             seenStore: SeenSpy().store,
             subjectStamp: { appState.subjectStamp },
             isCurrentSubject: { appState.isCurrentSubject($0) }

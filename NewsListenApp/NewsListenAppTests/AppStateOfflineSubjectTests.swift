@@ -26,13 +26,13 @@ final class AppStateOfflineSubjectTests: XCTestCase {
         return Data(#"{"username":"\#(username)","role":"user","display_name":"\#(username)"\#(idPart)}"#.utf8)
     }
 
-    private func makeState(
+    private func makeHarness(
         log: OfflineLibraryCallLog,
         session: URLSessionProtocol = MockURLSession(data: Data("{}".utf8), statusCode: 200),
         store: SessionStore = InMemorySessionStore(),
         nowPlaying: NowPlayingCenterSpy = NowPlayingCenterSpy()
-    ) -> AppState {
-        makeSubjectAwareAppState(
+    ) -> AppStateHarness {
+        makeAppStateHarness(
             session: session,
             sessionStore: store,
             nowPlayingCenter: nowPlaying,
@@ -40,6 +40,15 @@ final class AppStateOfflineSubjectTests: XCTestCase {
             bindOfflineSubject: log.bind,
             reclaimOfflineLibrary: log.reclaim
         )
+    }
+
+    private func makeState(
+        log: OfflineLibraryCallLog,
+        session: URLSessionProtocol = MockURLSession(data: Data("{}".utf8), statusCode: 200),
+        store: SessionStore = InMemorySessionStore(),
+        nowPlaying: NowPlayingCenterSpy = NowPlayingCenterSpy()
+    ) -> AppState {
+        makeHarness(log: log, session: session, store: store, nowPlaying: nowPlaying).state
     }
 
     /// 取得を保留できる `OfflineDownloads`。保留中の取得は cancel を見ないので、cancel されたかは
@@ -173,9 +182,10 @@ final class AppStateOfflineSubjectTests: XCTestCase {
     func testLogoutDoesNotSendDeviceTokenUnregister() async {
         let scripted = ScriptedURLSession()
         let log = OfflineLibraryCallLog()
-        let appState = makeState(log: log, session: scripted, store: InMemorySessionStore(token: "tok-1"))
-        appState.completeLogin(receipt("tok-1", subject("alice", key: subjectA)))
-        appState.didRegisterDeviceToken("apns-1")
+        let harness = makeHarness(log: log, session: scripted, store: InMemorySessionStore(token: "tok-1"))
+        let appState = harness.state
+        harness.login(receipt("tok-1", subject("alice", key: subjectA)))
+        harness.push.didReceiveDeviceToken("apns-1")
         await scripted.waitUntilRequested(method: "POST", path: "/notifications/device-tokens")
 
         await appState.logout()
@@ -219,11 +229,11 @@ final class AppStateOfflineSubjectTests: XCTestCase {
     // verifies: ios-contract-20.9（401 の離脱でも離脱主体の key が渡る）
     func testUnauthorizedLeaveClearsDepartingSubject() async {
         let log = OfflineLibraryCallLog()
-        let appState = makeState(log: log, session: MockURLSession(data: Data(), statusCode: 401), store: InMemorySessionStore(token: "tA"))
+        let harness = makeHarness(log: log, session: MockURLSession(data: Data(), statusCode: 401), store: InMemorySessionStore(token: "tA"))
+        let appState = harness.state
         appState.completeLogin(receipt("tA", subject("alice", key: subjectA)))
 
-        appState.didRegisterDeviceToken("devicetokenhex")
-        await appState.registerDeviceTokenIfPossible() // 保存トークン付きの任意 API が 401（離脱の契機）
+        _ = try? await harness.currentClient()?.fetchListeningStreak() // 保存トークン付きの任意 API が 401（離脱の契機）
 
         guard case .anonymous = appState.session else { return XCTFail("anonymous になるべき") }
         XCTAssertEqual(log.clearCalls, [subjectA])
@@ -364,7 +374,7 @@ final class AppStateOfflineSubjectTests: XCTestCase {
         scripted.configure(method: "GET", path: "/auth/me", status: 503)
         let appState = makeState(log: log, session: scripted, store: InMemorySessionStore(token: "tA"))
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .unavailable = appState.session else { return XCTFail("前提: unavailable") }
         XCTAssertTrue(log.reclaimCalls.isEmpty, "unavailable の間は回収しない")
@@ -372,7 +382,7 @@ final class AppStateOfflineSubjectTests: XCTestCase {
         scripted.configure(method: "GET", path: "/auth/me", status: 200, body: meJSON(userId: "user-a"))
         appState.retryResolve()
         XCTAssertTrue(log.reclaimCalls.isEmpty, "resolving の間も回収しない")
-        await appState.refreshAuth()
+        await appState.resolve()
 
         XCTAssertEqual(log.reclaimCalls, [subjectA], "確定した時点で 1 回")
     }
@@ -386,7 +396,7 @@ final class AppStateOfflineSubjectTests: XCTestCase {
         let scripted = ScriptedURLSession()
         scripted.configure(method: "GET", path: "/auth/me", status: 503)
         let appState = makeState(log: log, session: scripted, store: InMemorySessionStore(token: "tA"))
-        await appState.refreshAuth()
+        await appState.resolve()
         guard case .unavailable = appState.session else { return XCTFail("前提: unavailable") }
         XCTAssertTrue(log.reclaimCalls.isEmpty)
 
@@ -405,7 +415,7 @@ final class AppStateOfflineSubjectTests: XCTestCase {
         let scripted = ScriptedURLSession()
         scripted.configure(method: "GET", path: "/auth/me", status: 200, body: meJSON(userId: "user-a"))
         let appState = makeState(log: log, session: scripted, store: InMemorySessionStore(token: "tA"))
-        await appState.refreshAuth()
+        await appState.resolve()
         XCTAssertEqual(log.reclaimCalls, [subjectA], "前提: (ii) で 1 回")
 
         await appState.logout()
@@ -425,7 +435,7 @@ final class AppStateOfflineSubjectTests: XCTestCase {
             scripted.configure(method: "GET", path: "/auth/me", status: 200, body: meJSON(userId: userId))
             let appState = makeState(log: log, session: scripted, store: InMemorySessionStore(token: "tA"))
 
-            await appState.refreshAuth()
+            await appState.resolve()
 
             guard case .authenticated = appState.session else { return XCTFail("認証は成功する: \(String(describing: userId))") }
             XCTAssertNil(appState.currentSubject?.key)
@@ -441,7 +451,7 @@ final class AppStateOfflineSubjectTests: XCTestCase {
         let log = OfflineLibraryCallLog()
         let appState = makeState(log: log)
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .anonymous = appState.session else { return XCTFail("anonymous になるべき") }
         XCTAssertEqual(log.reclaimCalls, [nil])
@@ -455,7 +465,7 @@ final class AppStateOfflineSubjectTests: XCTestCase {
         scripted.configure(method: "GET", path: "/auth/me", status: 200, body: meJSON(userId: "user-a"))
         let appState = makeState(log: log, session: scripted, store: InMemorySessionStore(token: "tA"))
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         XCTAssertEqual(log.events, [.bind(subjectA), .reclaim(subjectA)], "束縛の後に 1 回")
     }
@@ -466,7 +476,7 @@ final class AppStateOfflineSubjectTests: XCTestCase {
         let appState = makeState(
             log: log, session: MockURLSession(data: Data(), statusCode: 401), store: InMemorySessionStore(token: "tA"))
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .anonymous = appState.session else { return XCTFail("anonymous になるべき") }
         XCTAssertEqual(log.reclaimCalls, [nil])
@@ -482,7 +492,7 @@ final class AppStateOfflineSubjectTests: XCTestCase {
         scripted.configure(method: "GET", path: "/auth/me", status: 200, body: meJSON(userId: "user-a"))
         let appState = makeState(log: log, session: scripted, store: InMemorySessionStore(token: "tA"))
 
-        await appState.refreshAuth()
+        await appState.resolve()
 
         guard case .authenticated = appState.session else { return XCTFail("回収の失敗で認証は止まらない") }
         XCTAssertEqual(appState.lastCleanupIncomplete?.failedParts, [.offlineLibrary])

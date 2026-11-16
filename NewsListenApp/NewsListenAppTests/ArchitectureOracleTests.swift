@@ -88,21 +88,24 @@ final class ArchitectureOracleTests: XCTestCase {
 
     /// 行ごとに照合する。`excludeComments`: コメント行（先頭の空白の後が `//`）を除く（`SourceGrep.matchingLines` は除かないので自前で除く）。
     /// `excludeConditional`: `#if DEBUG` と `#Preview` の中を除く。結果は path・行の順。
+    /// `maskLiterals`: 照合の前に文字列リテラルの中身を空白にする（ios-dec-154。報告する `text` は元の行のまま）。
     private func collectHits(
         in files: [URL],
         excludeComments: Bool = true,
         excludeConditional: Bool = false,
+        maskLiterals: Bool = false,
         where isHit: (String) -> Bool
     ) -> [ScanHit] {
         var hits: [ScanHit] = []
         for file in files {
             let path = SourceGrep.relativePath(file)
             let lines = SourceGrep.content(of: file).components(separatedBy: "\n")
+            let matched = maskLiterals ? ArchitectureScan.maskStringLiterals(lines) : lines
             let skipped = excludeConditional ? ArchitectureScan.debugAndPreviewExcludedLines(lines) : []
             for (offset, line) in lines.enumerated() {
                 if excludeComments && SourceGrep.isCommentLine(line) { continue }
                 if skipped.contains(offset) { continue }
-                if isHit(line) { hits.append(ScanHit(path: path, line: offset + 1, text: line)) }
+                if isHit(matched[offset]) { hits.append(ScanHit(path: path, line: offset + 1, text: line)) }
             }
         }
         return hits.sorted { ($0.path, $0.line) < ($1.path, $1.line) }
@@ -296,6 +299,14 @@ final class ArchitectureOracleTests: XCTestCase {
         }
     }
 
+    // verifies: ios-temp-10
+    func testIosTemp10_allowlistIsEmpty() {
+        XCTAssertTrue(
+            ArchitectureManifest.allowlist.isEmpty,
+            "許可リストが空であること（残りの行: \(ArchitectureManifest.allowlist.map { "\($0.rule) \($0.path) \($0.lines)" })）"
+        )
+    }
+
     // verifies: ios-check-01（ios-dep-01）
     func testIosTest054_domainImportsOnlyFoundationAndNamesNoAdapterOrPersistence() throws {
         let patterns = [
@@ -333,8 +344,10 @@ final class ArchitectureOracleTests: XCTestCase {
         let application = filesInLayer(.application)
         assertNonEmptyContents(application, "application")
         assertContains(application, ["AppState.swift"], "application")
+        // 対の対照（合成の行。実 file の観測数に頼らない）: adapter の生成は当たり、port の型名だけの行は当たらない。
+        XCTAssertTrue(isViolation("    let s = KeychainSessionStore()"), "application の層の adapter の生成が検出されない")
+        XCTAssertFalse(isViolation("    let s: SessionStore"))
         let hits = collectHits(in: application, where: isViolation)
-        assertContainsHit(hits, path: "AppState.swift", fragment: "KeychainSessionStore()", "ios-dep-03")
         assertAllowlistMatches(rule: "ios-dep-03", measured: hits)
     }
 
@@ -403,15 +416,17 @@ final class ArchitectureOracleTests: XCTestCase {
         let targets = production.filter { ArchitectureManifest.layer(of: SourceGrep.relativePath($0)) != .compositionRoot }
         let beforeExclusion = collectHits(in: targets, where: isConstruction)
         XCTAssertTrue(beforeExclusion.contains { $0.path == "DesignSystem/PreviewSupport.swift" }, "PreviewSupport の行が除外の前の集合に無い")
-        // 負の対照: コメント除外の前の集合に `///` で始まり生成の形を含む行があり、除外の後には同じファイルの `///` の行が無い。
-        let withComments = collectHits(in: targets, excludeComments: false, where: isConstruction)
-        XCTAssertTrue(
-            withComments.contains { $0.path == "AppState.swift" && $0.text.trimmingCharacters(in: .whitespaces).hasPrefix("///") && $0.text.contains("AudioCacheManager()") },
-            "doc コメントの対照が除外の前の集合に無い"
-        )
-        XCTAssertFalse(
-            hits.contains { $0.path == "AppState.swift" && $0.text.trimmingCharacters(in: .whitespaces).hasPrefix("///") },
-            "doc コメントが数えられている"
+        // 負の対照（合成テキスト）: `///` の行は生成として数えず、通常の行だけを数える。除外の前には `///` の行も当たる。
+        let docSynthetic = [SourceFile(
+            path: "Fixture/Application/Doc.swift",
+            text: ["/// let a = AudioCacheManager()", "let b = AudioCacheManager()"].joined(separator: "\n"))]
+        let docInventory = AdapterInventory(concrete: ["AudioCacheManager"], dto: [], pureValue: [], excludedPrivate: [], aliases: [:], factories: [])
+        let isDocConstruction = try matcher([constructionPattern(docInventory.concrete)])
+        XCTAssertTrue(isDocConstruction("/// let a = AudioCacheManager()"), "doc コメントの対照が除外の前の集合に無い")
+        XCTAssertEqual(
+            ArchitectureScan.adapterConstructionHits(docSynthetic, inventory: docInventory).map(\.text),
+            ["let b = AudioCacheManager()"],
+            "doc コメントが数えられている、または通常の行が数えられていない"
         )
         assertAllowlistMatches(rule: "ios-dep-13", measured: hits)
     }
@@ -443,9 +458,23 @@ final class ArchitectureOracleTests: XCTestCase {
         let viewModels = viewModelFiles
         assertNonEmptyContents(views, "View ファイル")
         assertNonEmptyContents(viewModels, "ViewModel ファイル")
-        let viewHits = collectHits(in: views, where: isDTO)
-        let viewModelHits = collectHits(in: viewModels, where: isDTO)
-        XCTAssertTrue(viewHits.contains { $0.path == "Podcast/PodcastView.swift" }, "View の DTO の行が集合に無い")
+        let viewHits = collectHits(in: views, maskLiterals: true, where: isDTO)
+        let viewModelHits = collectHits(in: viewModels, maskLiterals: true, where: isDTO)
+        // 対の対照（合成の行。リテラルの中身を無効にした後で照合する）。実 file の観測数に頼らない。
+        func hitsAfterMask(_ lines: [String]) -> [Bool] { ArchitectureScan.maskStringLiterals(lines).map(isDTO) }
+        let podcastCases: [(lines: [String], expected: [Bool], label: String)] = [
+            (["let p: Podcast"], [true], "型名の宣言・参照"),
+            (["Text(\"Podcast\")"], [false], "単一行のリテラルの中身"),
+            ([#"Text("価格 \(Podcast.self)")"#], [true], "補間の中は式"),
+            (["let s = \"a\" + Podcast.title"], [true], "リテラルが閉じた後"),
+            ([#"let s = "say \"Podcast\"""#], [false], "エスケープした引用符はリテラルの中"),
+            (["let t = \"\"\"", "  Podcast と書く", "  \"\"\"", "let u: Podcast"], [false, false, false, true], "複数行リテラルの中と外"),
+            (["#Preview(\"Podcast List\") {"], [false], "#Preview のタイトル"),
+            (["let a = 1 // Podcast"], [true], "行末のコメントは従来どおり数える"),
+        ]
+        for testCase in podcastCases {
+            XCTAssertEqual(hitsAfterMask(testCase.lines), testCase.expected, testCase.label)
+        }
         XCTAssertTrue(isDTO("let response: QuizAnswerResponse"), "DTO 名を書いた行は検出される")
         assertAllowlistMatches(rule: "ios-dep-04/DTO", measured: viewHits)
         assertAllowlistMatches(rule: "ios-dep-06/DTO", measured: viewModelHits)
@@ -555,7 +584,6 @@ final class ArchitectureOracleTests: XCTestCase {
         assertNonEmptyContents(targets, "View ファイル＋合成 root")
         assertContains(targets, ["NewsListenAppApp.swift", "Settings/SettingsView.swift"], "View ファイル＋合成 root")
         let hits = collectHits(in: targets, where: isAssignment)
-        assertContainsHit(hits, path: "NewsListenAppApp.swift", fragment: "appState.selectedPodcastId = nil", "ios-dep-05")
         assertAllowlistMatches(rule: "ios-dep-05", measured: hits)
     }
 
@@ -574,7 +602,9 @@ final class ArchitectureOracleTests: XCTestCase {
         )
         let viewHits = collectHits(in: views, where: viewMatcher)
         let viewModelHits = collectHits(in: viewModels, where: viewModelMatcher)
-        assertContainsHit(viewHits, path: "DesignSystem/PreviewSupport.swift", fragment: "APIClient", "ios-dep-04")
+        // 対の対照（合成の行）: View の層の adapter の型名は当たり、無関係な型は当たらない。
+        XCTAssertTrue(viewMatcher("    let client: APIClient"), "View の層の APIClient が検出されない")
+        XCTAssertFalse(viewMatcher("    let ok: Bool"))
         XCTAssertFalse(viewHits.contains { $0.path == "Settings/SettingsView.swift" }, "SettingsView は @AppStorage・APIClient 等を書かない")
         assertAllowlistMatches(rule: "ios-dep-04", measured: viewHits)
         assertAllowlistMatches(rule: "ios-dep-06", measured: viewModelHits)
@@ -618,7 +648,10 @@ final class ArchitectureOracleTests: XCTestCase {
                 return !drafts.contains(path + "\u{0}" + name)
             }
         }
-        XCTAssertTrue(applicationHits.contains { $0.path == "AppState.swift" }, "AppState の @Published が集合に無い")
+        // 対の対照（application の合成の行）: 書き込める `@Published` は当たり、`private(set)` は当たらない。
+        XCTAssertEqual(
+            ["    @Published var title = \"\"", "    @Published private(set) var session = 0"].compactMap(publishedName),
+            ["title"])
         assertAllowlistMatches(rule: "ios-dep-12", measured: applicationHits + viewModelHits)
     }
 
@@ -675,7 +708,7 @@ final class ArchitectureOracleTests: XCTestCase {
     private var applicationSources: [SourceFile] { sources(inLayer: .application) }
 
     private let applicationFileCounts: [(path: String, count: Int)] = [
-        ("AppState.swift", 23),
+        ("AppState.swift", 16),
         ("Settings/Application/SourceSubscriptions.swift", 22),
         ("Onboarding/Application/OnboardingProgress.swift", 4),
         ("Settings/Application/PreferencesStore.swift", 33),
@@ -695,7 +728,10 @@ final class ArchitectureOracleTests: XCTestCase {
         ("Podcast/Playback/OfflineDownloads.swift", 7),
         ("Catalog/Application/EpisodeCatalog.swift", 6),
         ("Catalog/Application/EpisodeRow.swift", 7),
-        ("Auth/Application/AccountProfile.swift", 19),
+        ("Auth/Application/AccountProfile.swift", 21),
+        ("Push/Application/PushRegistration.swift", 8),
+        ("Shared/Application/LaunchSequence.swift", 2),
+        ("Shared/Application/Connectivity.swift", 2),
         ("Auth/Application/Authentication.swift", 4),
         ("Auth/Application/SessionStore.swift", 1),
         ("Sessions/Application/DeviceSessions.swift", 9),
@@ -780,7 +816,7 @@ final class ArchitectureOracleTests: XCTestCase {
         for expected in applicationFileCounts {
             XCTAssertEqual(perFile[expected.path] ?? 0, expected.count, expected.path)
         }
-        XCTAssertEqual(result.declared.count, 398)
+        XCTAssertEqual(result.declared.count, 405)
         XCTAssertTrue(result.unsupported.isEmpty, "未対応の宣言: \(result.unsupported)")
     }
 
@@ -791,12 +827,12 @@ final class ArchitectureOracleTests: XCTestCase {
 
         let mismatches = ArchitectureScan.ledgerMismatches(declared: declared, ledger: ledger, specIDs: ArchitectureManifest.specOperationIDs)
 
-        XCTAssertEqual(declared.count, 398)
-        XCTAssertEqual(ledger.count, 398)
+        XCTAssertEqual(declared.count, 405)
+        XCTAssertEqual(ledger.count, 405)
         XCTAssertTrue(mismatches.isEmpty, "台帳と実コードの不一致:\n\(mismatches.map { "\($0.kind) \($0.file) \($0.type).\($0.name)" }.joined(separator: "\n"))")
         XCTAssertEqual(
             kindCounts(ledger),
-            ["command": 82, "query": 61, "port": 69, "internal": 32, "readModel": 129, "factory": 25]
+            ["command": 85, "query": 58, "port": 74, "internal": 32, "readModel": 129, "factory": 27]
         )
         let ledgerIDs = Set(ledger.compactMap { row -> String? in
             switch row.kind {
@@ -823,7 +859,7 @@ final class ArchitectureOracleTests: XCTestCase {
             if case .query(let id) = row.kind { return id }
             return nil
         })
-        XCTAssertEqual(queryIDs.count, 26, "台帳の query ID は 26 個")
+        XCTAssertEqual(queryIDs.count, 25, "台帳の query ID は 25 個")
 
         let uncovered = ArchitectureScan.uncoveredQueryRows(
             ledger: ledger,
@@ -831,7 +867,7 @@ final class ArchitectureOracleTests: XCTestCase {
             doubleTypeNames: RecordingPorts.doubleTypeNames
         )
 
-        XCTAssertEqual(Set(uncovered.keys), ["ios-query-account-03", "ios-query-notify-01"], "受けられていない query ID")
+        XCTAssertEqual(uncovered.count, 0, "受けられていない query ID: \(uncovered.keys.sorted())")
         XCTAssertNil(uncovered["ios-query-account-01"], "本 slice で契約テストを書く query は受けられている")
         let prefix = "ios-check-15/verifies/"
         let allowedIDs = Set(ArchitectureManifest.allowlist.filter { $0.rule.hasPrefix(prefix) }.map { String($0.rule.dropFirst(prefix.count)) })

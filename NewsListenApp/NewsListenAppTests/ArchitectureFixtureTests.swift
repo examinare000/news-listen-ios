@@ -539,4 +539,60 @@ final class ArchitectureFixtureTests: XCTestCase {
             "正の対照: 同じ参照だけの組は返る"
         )
     }
+
+    // MARK: - 文字列リテラルの中身の無効化（ios-dec-154）
+
+    private func masked(_ lines: String...) -> [String] {
+        ArchitectureScan.maskStringLiterals(lines)
+    }
+
+    func testMaskStringLiteralsKeepsLineCountAndBlanksLiteralContents() {
+        let input = ["let a = Text(\"Podcast\")", "let b = 1", "let c = \"Podcast\" + Podcast.id"]
+
+        let result = ArchitectureScan.maskStringLiterals(input)
+
+        XCTAssertEqual(result.count, input.count, "行数と行の対応を保つ")
+        XCTAssertFalse(result[0].contains("Podcast"), "リテラルの中身は空白にする")
+        XCTAssertTrue(result[0].contains("\"") && result[0].hasPrefix("let a = Text("), "区切りの引用符とリテラルの外は残す")
+        XCTAssertEqual(result[1], input[1])
+        XCTAssertTrue(result[2].contains("Podcast.id"), "リテラルの後ろのコードは残す")
+        XCTAssertEqual(result[2].components(separatedBy: "Podcast").count - 1, 1, "リテラルの中の Podcast だけが消える")
+    }
+
+    func testMaskStringLiteralsTreatsEscapedQuoteAsContent() {
+        let result = masked(#"let s = "a \"Podcast\" b"; let p: Podcast"#)
+
+        XCTAssertEqual(result[0].components(separatedBy: "Podcast").count - 1, 1, "エスケープした引用符の中身もリテラルの中")
+        XCTAssertTrue(result[0].hasSuffix("let p: Podcast"))
+    }
+
+    func testMaskStringLiteralsKeepsInterpolationCode() {
+        let result = masked(#"let s = "value \(Podcast.id) tail Podcast""#)
+
+        XCTAssertTrue(result[0].contains("Podcast.id"), "補間の中はコードなので残す")
+        XCTAssertEqual(result[0].components(separatedBy: "Podcast").count - 1, 1, "補間の外のリテラルの Podcast は消える")
+    }
+
+    func testMaskStringLiteralsHandlesMultilineLiteralsAcrossLines() {
+        let result = masked(
+            "let before: Podcast",
+            "let text = \"\"\"",
+            "  Podcast inside",
+            "  \"\"\"",
+            "let after: Podcast"
+        )
+
+        XCTAssertEqual(result.count, 5)
+        XCTAssertTrue(result[0].contains("Podcast"), "複数行の外（前）は残す")
+        XCTAssertFalse(result[2].contains("Podcast"), "複数行の中は消す")
+        XCTAssertTrue(result[4].contains("Podcast"), "複数行の外（後）は残す")
+    }
+
+    func testMaskStringLiteralsLeavesTrailingCommentAndPreviewTitleDistinct() {
+        let comment = masked(#"let p = 1 // Podcast を使う"#)
+        XCTAssertTrue(comment[0].contains("Podcast"), "コメントは変えない")
+
+        let preview = masked(#"#Preview("Podcast List") {"#)
+        XCTAssertFalse(preview[0].contains("Podcast"), "#Preview のタイトル文字列は消える")
+    }
 }

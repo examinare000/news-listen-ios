@@ -67,10 +67,10 @@ final class PositionSyncSubjectTests: XCTestCase {
             let positionReclaims = self.positionReclaims
             state = AppState(
                 sessionStore: InMemorySessionStore(token: token),
-                apiClientFactory: { token, onUnauthorized in
-                    APIClient(
+                accountGatewayFactory: { token, onUnauthorized in
+                    AccountGateway.live(apiClient: APIClient(
                         baseURL: URL(string: "https://api.example.com")!, apiKey: "key", sessionToken: token,
-                        session: session, onUnauthorized: onUnauthorized)
+                        session: session, onUnauthorized: onUnauthorized))
                 },
                 nowPlayingCenter: NowPlayingCenterSpy(),
                 clearOfflineLibrary: { key in
@@ -210,7 +210,7 @@ final class PositionSyncSubjectTests: XCTestCase {
         scripted.configure(method: "GET", path: "/auth/me", status: 200, body: meJSON(userId: "user-a"))
         let harness = Harness(session: scripted, token: "tA", positionReclaimError: Failure())
 
-        await harness.state.refreshAuth()
+        await harness.state.resolve()
 
         XCTAssertEqual(harness.state.lastCleanupIncomplete?.failedParts, [.positionRecords])
         XCTAssertEqual(harness.offlineReclaims.calls, [subjectA], "音声の回収は走る")
@@ -224,7 +224,7 @@ final class PositionSyncSubjectTests: XCTestCase {
         let harness = Harness(
             session: scripted, token: "tA", offlineReclaimError: Failure(), positionReclaimError: Failure())
 
-        await harness.state.refreshAuth()
+        await harness.state.resolve()
 
         XCTAssertEqual(harness.state.lastCleanupIncomplete?.failedParts, [.offlineLibrary, .positionRecords])
     }
@@ -238,7 +238,7 @@ final class PositionSyncSubjectTests: XCTestCase {
             session: scripted, token: "tA",
             seed: [(subjectA, [unsentRecord(subjectA, "ea")]), (subjectB, [unsentRecord(subjectB, "eb")])])
 
-        await harness.state.refreshAuth()
+        await harness.state.resolve()
         let sent = await harness.resendAndCountSends()
 
         XCTAssertEqual(harness.store.subjectNames, [subjectA.rawValue], "B の記録は消え、A の記録は残る")
@@ -253,12 +253,12 @@ final class PositionSyncSubjectTests: XCTestCase {
             (subjectA, [unsentRecord(subjectA, "ea")]), (subjectB, [unsentRecord(subjectB, "eb")]),
         ]
         let noToken = Harness(seed: seed)
-        await noToken.state.refreshAuth()
+        await noToken.state.resolve()
         XCTAssertTrue(noToken.store.subjectNames.isEmpty, "トークン無し")
 
         let unauthorized = Harness(
             session: MockURLSession(data: Data(), statusCode: 401), token: "tA", seed: seed)
-        await unauthorized.state.refreshAuth()
+        await unauthorized.state.resolve()
         XCTAssertTrue(unauthorized.store.subjectNames.isEmpty, "401")
     }
 
@@ -269,7 +269,7 @@ final class PositionSyncSubjectTests: XCTestCase {
         let unavailable = Harness(
             session: MockURLSession(mode: .transportError(URLError(.notConnectedToInternet))),
             token: "tA", seed: seed)
-        await unavailable.state.refreshAuth()
+        await unavailable.state.resolve()
         guard case .unavailable = unavailable.state.session else { return XCTFail("unavailable になるべき") }
 
         XCTAssertEqual(unavailable.store.reclaimCount, 0)
@@ -283,7 +283,7 @@ final class PositionSyncSubjectTests: XCTestCase {
         let scripted = ScriptedURLSession()
         scripted.configure(method: "GET", path: "/auth/me", status: 200, body: meJSON(userId: "user-a"))
         let resolved = Harness(session: scripted, token: "tA", seed: seed)
-        await resolved.state.refreshAuth()
+        await resolved.state.resolve()
         XCTAssertNotNil(resolved.records.record(episodeId: "f", seconds: 1, at: recordedAt))
         XCTAssertEqual(resolved.store.writeCount, 1)
         XCTAssertEqual(Set(resolved.records.unsent().map(\.episodeId)), ["ea", "f"])
@@ -304,13 +304,13 @@ final class PositionSyncSubjectTests: XCTestCase {
         assertRefused(resolving, "resolving")
 
         let anonymous = Harness(seed: seed)
-        await anonymous.state.refreshAuth()
+        await anonymous.state.resolve()
         assertRefused(anonymous, "anonymous")
 
         let unavailable = Harness(
             session: MockURLSession(mode: .transportError(URLError(.notConnectedToInternet))),
             token: "tA", seed: seed)
-        await unavailable.state.refreshAuth()
+        await unavailable.state.resolve()
         assertRefused(unavailable, "unavailable")
 
         let loggedOut = Harness(seed: seed)
@@ -324,7 +324,7 @@ final class PositionSyncSubjectTests: XCTestCase {
             let scripted = ScriptedURLSession()
             scripted.configure(method: "GET", path: "/auth/me", status: 200, body: meJSON(userId: userId))
             let keyless = Harness(session: scripted, token: "tA", seed: seed)
-            await keyless.state.refreshAuth()
+            await keyless.state.resolve()
             guard case .authenticated = keyless.state.session else { return XCTFail("認証は成功する") }
             assertRefused(keyless, "key なし: \(String(describing: userId))")
         }
@@ -333,7 +333,7 @@ final class PositionSyncSubjectTests: XCTestCase {
         let scripted = ScriptedURLSession()
         scripted.configure(method: "GET", path: "/auth/me", status: 200, body: meJSON(userId: "user-a"))
         let keyed = Harness(session: scripted, token: "tA", seed: seed)
-        await keyed.state.refreshAuth()
+        await keyed.state.resolve()
         XCTAssertNotNil(keyed.records.record(episodeId: "f", seconds: 1, at: recordedAt))
         XCTAssertEqual(keyed.store.writeCount, 1)
     }
