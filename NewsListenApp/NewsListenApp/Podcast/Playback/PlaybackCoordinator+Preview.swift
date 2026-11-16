@@ -13,28 +13,30 @@ extension PlaybackCoordinator {
     static func previewParts(
         session: PlaybackState,
         queue: PlaybackQueue<Episode>
-    ) -> (coordinator: PlaybackCoordinator, reporter: PositionReporter, library: OfflineLibrary) {
+    ) -> (coordinator: PlaybackCoordinator, reporter: PositionReporter, library: OfflineLibrary, positionRecords: PositionRecords) {
         let library = OfflineLibrary(store: previewStore)
+        let positionRecords = PositionRecords(store: previewPositionStore)
         let reporter = PositionReporter(
             updatePosition: { _, _, _ in throw CancellationError() },
             markCompleted: { _ in },
             onPositionSaved: { _ in },
             onCompletionRecorded: {},
             beginBackgroundTask: { {} },
-            records: PositionRecords(store: previewPositionStore),
+            records: positionRecords,
             connectivity: Empty<Bool, Never>().eraseToAnyPublisher())
         let coordinator = PlaybackCoordinator(
             engine: IdleAudioEngine(),
             nowPlayingCenter: IdleNowPlayingCenter(),
             library: library,
             reporter: reporter,
+            positionRecords: positionRecords,
             fetchEpisode: { _ in throw CancellationError() },
             isOnline: { false },
             defaultSpeed: { 1.0 },
             lockScreenSubtitle: { $0 },
             beginBackgroundTask: { {} })
         coordinator.previewSet(session: session, queue: queue)
-        return (coordinator, reporter, library)
+        return (coordinator, reporter, library, positionRecords)
     }
 
     /// 何も保存しない記録の保存先。`PositionRecordFiles(` は合成 root 以外で作れないので closure だけで組む。

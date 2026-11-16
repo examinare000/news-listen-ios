@@ -91,6 +91,13 @@ final class PositionReporter: ObservableObject {
         sendPosition(id: id, seconds: currentPosition)
     }
 
+    /// 今の位置を今の時刻で記録して送る。同じ位置でも記録する（取り込みで置き換わった記録を、この端末の位置で上書きするため）。
+    func recordNow() {
+        guard phase == .playing || phase == .buffering || phase == .paused, let id = currentId else { return }
+        lastRecordedPosition = nil
+        sendPosition(id: id, seconds: currentPosition)
+    }
+
     /// 呼ばれた時点の未送信（送信中を除く）を、1 件ずつ順に送る。走査は 1 回で、再送が再送を起動しない。
     func resendUnsent() {
         let snapshot = records.unsent().filter { !inFlight.contains(InFlightKey($0)) }

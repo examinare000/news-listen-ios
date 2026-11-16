@@ -43,6 +43,7 @@ struct MiniPlayerView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("再生中: \(vm.nowPlaying()?.displayTitle ?? "")")
         .accessibilityHint("タップでプレイヤーを開きます")
+        .resumeChoiceDialog(vm, isActive: vm.presentation == .mini)
     }
 
     /// 上端の極細再生プログレス。シーク操作はフルプレイヤーに委ねる表示専用バー。

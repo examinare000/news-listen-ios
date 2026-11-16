@@ -61,6 +61,12 @@ enum PositionSyncRules {
         return lhs > rhs
     }
 
+    /// 再開位置の候補。サーバーが厳密に新しいときだけサーバー、それ以外（時刻なし・同時刻）は端末の記録（shared-dec-32）。
+    static func candidate(device: PositionRecord?, server: RecordedPosition) -> RecordedPosition {
+        guard let device, !isNewer(server.recordedAt, than: device.recordedAt) else { return server }
+        return RecordedPosition(seconds: device.seconds, recordedAt: device.recordedAt)
+    }
+
     static func shouldAbsorb(_ response: RecordedPosition, over record: PositionRecord?) -> Bool {
         guard let record else { return false }
         return isNewer(response.recordedAt, than: record.recordedAt)

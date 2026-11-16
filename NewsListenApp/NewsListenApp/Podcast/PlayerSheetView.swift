@@ -24,6 +24,7 @@ struct PlayerSheetView: View {
         .dsScreenBackground()
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .resumeChoiceDialog(vm, isActive: vm.presentation == .expanded)
     }
 }
 
