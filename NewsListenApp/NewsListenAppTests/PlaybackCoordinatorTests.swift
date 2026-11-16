@@ -130,13 +130,14 @@ final class PlaybackCoordinatorTests: XCTestCase {
             let fetch = self.fetch
             let environment = self.environment
             let clock = self.clock
+            let records = makeBoundPositionRecords()
             reporter = PositionReporter(
                 updatePosition: { id, seconds, _ in gateway.updatePosition(id, seconds) },
                 markCompleted: { id in gateway.markCompleted(id) },
                 onPositionSaved: { _ in },
                 onCompletionRecorded: {},
                 beginBackgroundTask: { environment.beginBackground() },
-                records: makeBoundPositionRecords(),
+                records: records,
                 connectivity: makeSilentConnectivity(),
                 now: { clock.now }
             )
@@ -145,6 +146,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
                 nowPlayingCenter: spy,
                 library: library,
                 reporter: reporter,
+                positionRecords: records,
                 fetchEpisode: { id in try await fetch.fetch(id) },
                 isOnline: { environment.online },
                 defaultSpeed: { environment.speed },

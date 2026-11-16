@@ -46,4 +46,35 @@ final class PositionSyncRulesTests: XCTestCase {
         XCTAssertFalse(PositionSyncRules.shouldAbsorb(RecordedPosition(seconds: 20, recordedAt: nil), over: record))
         XCTAssertFalse(PositionSyncRules.shouldAbsorb(RecordedPosition(seconds: 20, recordedAt: u), over: nil))
     }
+
+    // verifies: shared-dec-32, shared-resume-08, shared-resume-09, shared-resume-11
+    // kills: 端末の記録が新しいのにサーバーの値を選ぶ／同時刻でサーバーの値を選ぶ／サーバーが新しいのに端末の記録を選ぶ
+    func testCandidatePrefersTheDeviceRecordWhenNewerOrEqualAndTheServerWhenNewer() {
+        let record = PositionRecord(subject: subjectA, episodeId: "e", seconds: 100, recordedAt: u, isSent: false)
+        let device = RecordedPosition(seconds: 100, recordedAt: record.recordedAt)
+
+        XCTAssertEqual(
+            PositionSyncRules.candidate(device: record, server: RecordedPosition(seconds: 30, recordedAt: t)), device,
+            "端末の記録の方が新しい")
+        XCTAssertEqual(
+            PositionSyncRules.candidate(device: record, server: RecordedPosition(seconds: 30, recordedAt: u)), device,
+            "同時刻は端末の記録（端末を変えない）")
+        let newer = RecordedPosition(seconds: 30, recordedAt: u.addingTimeInterval(1))
+        XCTAssertEqual(PositionSyncRules.candidate(device: record, server: newer), newer, "対照: サーバーが新しければサーバー")
+    }
+
+    // verifies: shared-dec-32, shared-resume-10, shared-resume-12
+    // kills: 時刻の無いサーバーの値を新しいとみなす／端末の記録が無いのに nil や 0 を返す／記録が無いとき時刻を落とす
+    func testCandidateTreatsAMissingServerTimeAsOldestAndAMissingRecordAsServer() {
+        let record = PositionRecord(subject: subjectA, episodeId: "e", seconds: 100, recordedAt: u, isSent: false)
+
+        XCTAssertEqual(
+            PositionSyncRules.candidate(device: record, server: RecordedPosition(seconds: 30, recordedAt: nil)),
+            RecordedPosition(seconds: 100, recordedAt: record.recordedAt),
+            "時刻の無いサーバーの値は最古なので端末の記録")
+        let untimed = RecordedPosition(seconds: 30, recordedAt: nil)
+        XCTAssertEqual(PositionSyncRules.candidate(device: nil, server: untimed), untimed, "記録が無ければ時刻なしでもサーバー")
+        let timed = RecordedPosition(seconds: 30, recordedAt: t)
+        XCTAssertEqual(PositionSyncRules.candidate(device: nil, server: timed), timed, "記録が無ければサーバー（時刻も保つ）")
+    }
 }
