@@ -2,7 +2,7 @@
 //  ResumeChoiceView.swift
 //  NewsListenApp
 //
-//  再開時の確認（別の端末の位置から続けるか、この端末の位置から続けるか）。文言はこのファイルの 1 か所に置く（shared-dec-42）。
+//  再開時の確認（別の端末の位置から続けるか、この端末の位置から続けるか）。文言と書式は `ResumeChoicePrompt` の 1 か所に置く（shared-dec-42）。
 //
 
 import SwiftUI
@@ -14,15 +14,17 @@ struct ResumeChoiceModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.confirmationDialog(
-            "どちらの位置から続けますか",
+            ResumeChoicePrompt.title,
             isPresented: isPresented,
             titleVisibility: .visible,
             presenting: vm.resumeChoice
         ) { _ in
-            Button("別の端末の位置から") { vm.resolveResume(.otherDevice) }
-            Button("この端末の位置から") { vm.resolveResume(.thisDevice) }
+            ForEach(ResumeChoicePrompt.options) { option in
+                Button(option.label) { vm.resolveResume(option.selection) }
+            }
         } message: { choice in
-            Text("別の端末: \(Self.clock(choice.otherDeviceSeconds)) ／ この端末: \(Self.clock(choice.thisDeviceSeconds))")
+            Text(ResumeChoicePrompt.message(
+                otherDeviceSeconds: choice.otherDeviceSeconds, thisDeviceSeconds: choice.thisDeviceSeconds))
         }
     }
 
@@ -35,11 +37,6 @@ struct ResumeChoiceModifier: ViewModifier {
                 guard !presented else { return }
                 DispatchQueue.main.async { vm.resolveResume(nil) }
             })
-    }
-
-    private static func clock(_ seconds: Double) -> String {
-        let total = Int(max(0, seconds))
-        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }
 
