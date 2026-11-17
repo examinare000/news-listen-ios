@@ -473,6 +473,37 @@ final class PositionReporterRecordingTests: XCTestCase {
         XCTAssertEqual(rig.gateway.updates.first?.seconds, 12)
     }
 
+    // verifies: shared-sync-05, shared-dec-34
+    // kills: 失敗の後にタイマーで自動再送する／接続の復帰で再送しない／再送で記録時刻を取り直す
+    func testFailedSendIsNotRetriedByTimeAloneButAConnectivityTriggerStillResends() async throws {
+        let rig = Rig()
+        rig.connectivity.send(true)  // 起動時の初期値。送らない。
+        await settle()
+        rig.gateway.updateError = ApiFailure.network(URLError(.notConnectedToInternet))
+        await rig.play("a", at: 10)
+        rig.reporter.flush()
+        await waitForUpdates(rig, 1)
+        await settle()
+        let firstRecordedAt = try XCTUnwrap(rig.gateway.updates.first?.recordedAt)
+
+        // 契機が無いまま時間だけが進んでも、送らない。
+        rig.clock.advance(3600)
+        await settle()
+        XCTAssertEqual(rig.gateway.updates.count, 1, "時間だけでは再送しない")
+        XCTAssertEqual(unsentSummary(rig), ["a:10"], "失敗した記録は未送信のまま")
+
+        // 対照: 接続の復帰（false → true）という契機では、同じ記録（同じ記録時刻）を 1 回送る。
+        rig.gateway.updateError = nil
+        rig.connectivity.send(false)
+        await settle()
+        rig.connectivity.send(true)
+        await waitForUpdates(rig, 2)
+        await settle()
+        XCTAssertEqual(rig.gateway.updates.count, 2)
+        XCTAssertEqual(rig.gateway.updates[1], Update(id: "a", seconds: 10, recordedAt: firstRecordedAt))
+        XCTAssertTrue(rig.records.unsent().isEmpty, "再送が成功して未送信が空になる")
+    }
+
     // verifies: ios-cmd-playback-25, shared-leave-13
     // kills: 別主体の記録を現在の主体で送る
     func testStartupResendSendsOnlyTheBoundSubjectsRecords() async throws {

@@ -77,4 +77,86 @@ final class PositionSyncRulesTests: XCTestCase {
         let timed = RecordedPosition(seconds: 30, recordedAt: t)
         XCTAssertEqual(PositionSyncRules.candidate(device: nil, server: timed), timed, "記録が無ければサーバー（時刻も保つ）")
     }
+
+    // MARK: - 記録時刻の読み（parse）
+
+    /// `2026-11-17T01:02:03Z` の epoch 秒。
+    private let baseEpochSeconds: Int64 = 1_794_877_323
+
+    private func epochMilliseconds(_ date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1000).rounded())
+    }
+
+    // verifies: shared-sync-09, shared-dec-35
+    // kills: 小数を四捨五入する／小数の桁数に上限を付ける／特定の桁数だけを拒む／小数 0 桁を読まない
+    func testParseAcceptsZeroToNineFractionDigitsAndTruncatesToMilliseconds() {
+        // (小数部, 期待するミリ秒の端数)。`9…9` の境界は、四捨五入すると次の秒へ繰り上がる。
+        let cases: [(fraction: String, milliseconds: Int64)] = [
+            ("", 0),
+            ("1", 100),
+            ("12", 120),
+            ("123", 123),
+            ("1239", 123),
+            ("12345", 123), ("99999", 999),
+            ("123456", 123), ("999999", 999),
+            ("1234567", 123), ("9999999", 999),
+            ("12345678", 123), ("99999999", 999),
+            ("123456789", 123), ("999999999", 999),
+        ]
+        for (fraction, milliseconds) in cases {
+            let input = "2026-11-17T01:02:03" + (fraction.isEmpty ? "" : "." + fraction) + "Z"
+            guard let date = PositionSyncRules.parse(input) else {
+                XCTFail("読めるはずの値が nil: \(input)")
+                continue
+            }
+            XCTAssertEqual(epochMilliseconds(date), baseEpochSeconds * 1000 + milliseconds, input)
+        }
+    }
+
+    // verifies: shared-sync-09, shared-dec-35
+    // kills: offset の符号を逆にする／offset の分の部分を換算しない／+00:00・-00:00 を Z と違う値にする
+    func testParseAppliesOffsets() {
+        let cases: [(input: String, expected: Int64)] = [
+            ("2026-11-17T10:00:00.500Z", 1_794_909_600_500),
+            ("2026-11-17T10:00:00.500+00:00", 1_794_909_600_500),
+            ("2026-11-17T10:00:00.500-00:00", 1_794_909_600_500),
+            ("2026-11-17T10:00:00.500+09:00", 1_794_877_200_500),
+            ("2026-11-17T10:00:00.500-05:30", 1_794_929_400_500),
+        ]
+        for (input, expected) in cases {
+            guard let date = PositionSyncRules.parse(input) else {
+                XCTFail("読めるはずの値が nil: \(input)")
+                continue
+            }
+            XCTAssertEqual(epochMilliseconds(date), expected, input)
+        }
+    }
+
+    // verifies: shared-sync-09, shared-dec-35
+    // kills: 読めない値で epoch 0 などの既定値を返す／暦に無い日を読む／末尾の余りや区切りの違いを読む
+    func testParseReturnsNilForUnreadableValues() {
+        let unreadable: [String?] = [
+            nil,
+            "",
+            "not-a-date",
+            "2026-11-17",
+            "2026-11-17T01:02:03",
+            "2026-11-17T01:02:03.Z",
+            "2026-11-17 01:02:03Z",
+            "2026-11-17T1:02:03Z",
+            "2026-11-17T01:02:03+0900",
+            "2026-02-30T00:00:00Z",
+            "2026-11-31T00:00:00Z",
+            "2026-11-17T01:02:03Zx",
+        ]
+        for input in unreadable {
+            XCTAssertNil(PositionSyncRules.parse(input), "読めない値は nil のはず: \(input ?? "nil")")
+        }
+
+        // 対照: 通常の値と、暦にあるうるう日は読む。
+        XCTAssertEqual(
+            PositionSyncRules.parse("2026-11-17T01:02:03Z").map(epochMilliseconds), baseEpochSeconds * 1000)
+        XCTAssertEqual(
+            PositionSyncRules.parse("2028-02-29T00:00:00Z").map(epochMilliseconds), 1_835_395_200_000)
+    }
 }
