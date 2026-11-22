@@ -340,6 +340,7 @@ final class ArchitectureOracleTests: XCTestCase {
         XCTAssertFalse(isViolation("import Combine"))
         XCTAssertFalse(isViolation("import os"))
         XCTAssertTrue(isViolation("import SwiftUI"))
+        XCTAssertTrue(isViolation("    let t = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { _ in }"))
 
         let application = filesInLayer(.application)
         assertNonEmptyContents(application, "application")

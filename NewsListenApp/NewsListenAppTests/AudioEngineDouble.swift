@@ -247,6 +247,8 @@ final class AudioEngineDouble: AudioEngine {
     private(set) var hasStartedPlayback = false
     private(set) var rate: Float = 0
     private(set) var lastSeekSeconds: Double?
+    private(set) var seekLog: [Double] = []
+    private(set) var opLog: [String] = []
 
     func load(url: URL) -> String? {
         currentChannel?.finish()
@@ -256,6 +258,8 @@ final class AudioEngineDouble: AudioEngine {
         hasStartedPlayback = false
         rate = 0
         lastSeekSeconds = nil
+        seekLog = []
+        opLog = []
         let warning = nextLoadWarning
         nextLoadWarning = nil
         return warning
@@ -263,6 +267,7 @@ final class AudioEngineDouble: AudioEngine {
 
     func play() {
         guard isLoaded else { return }
+        opLog.append("play")
         hasStartedPlayback = true
         // 実 adapter（AVPlayer.play()）と同じく、再生開始は速度を 1.0 に戻す。
         rate = 1.0
@@ -270,16 +275,20 @@ final class AudioEngineDouble: AudioEngine {
 
     func pause() {
         guard isLoaded else { return }
+        opLog.append("pause")
         rate = 0
     }
 
     func seek(to seconds: Double) {
         guard isLoaded else { return }
+        seekLog.append(seconds)
+        opLog.append("seek")
         lastSeekSeconds = seconds
     }
 
     func setRate(_ rate: Float) {
         guard isLoaded else { return }
+        opLog.append("setRate")
         self.rate = rate
     }
 
@@ -289,6 +298,8 @@ final class AudioEngineDouble: AudioEngine {
         hasStartedPlayback = false
         rate = 0
         lastSeekSeconds = nil
+        seekLog = []
+        opLog = []
         currentChannel?.finish()
     }
 

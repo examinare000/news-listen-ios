@@ -595,4 +595,13 @@ final class ArchitectureFixtureTests: XCTestCase {
         let preview = masked(#"#Preview("Podcast List") {"#)
         XCTAssertFalse(preview[0].contains("Podcast"), "#Preview のタイトル文字列は消える")
     }
+    // verifies: ios-test-084（Playback 外の currentPodcast 代入を検出する fixture）
+    func testCurrentPodcastAssignmentFixtureHonorsPlaybackBoundary() {
+        let outside = source("Podcast/PodcastViewModel.swift", "private var currentPodcast = 0")
+        let inside = source("Podcast/Playback/Fixture.swift", "currentPodcast = nil")
+        let untouched = source("Podcast/Other.swift", "let current = queue.current", "// currentPodcast = nil")
+        XCTAssertEqual(GrepOracleTests.currentPodcastAssignments(in: [outside, inside, untouched]), ["Podcast/PodcastViewModel.swift: private var currentPodcast = 0"])
+        XCTAssertEqual(GrepOracleTests.currentPodcastAssignments(in: [inside, untouched]), [])
+    }
+
 }

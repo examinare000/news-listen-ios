@@ -398,5 +398,24 @@ final class GrepOracleTests: XCTestCase {
         let hits = codeHits(#"markAchievementsSeen\([^)]*achievements\.map\(\\\.id\)"#, in: viewModel)
 
         XCTAssertEqual(hits.count, 1, "解錠済みの全 id（achievements.map(\\.id)）を既読として渡す")
+    }    /// 実ソースと fixture が同じパス境界・非コメント行の判定を使う。
+    static func currentPodcastAssignments(in files: [SourceFile]) -> [String] {
+        files.filter { !$0.path.hasPrefix("Podcast/Playback/") }.flatMap { file in
+            file.lines.filter {
+                !SourceGrep.isCommentLine($0) && $0.range(of: #"currentPodcast\s*="#, options: .regularExpression) != nil
+            }.map { "\(file.path): \($0)" }
+        }
     }
+
+    // verifies: ios-contract-12, ios-test-084（currentPodcast への代入は Playback の外に無い）
+    func testCurrentPodcastIsAssignedNowhereOutsidePlayback() {
+        let files = SourceGrep.swiftFiles().map {
+            SourceFile(path: SourceGrep.relativePath($0), text: SourceGrep.content(of: $0))
+        }
+        XCTAssertFalse(files.isEmpty, "走査対象が空でない")
+        XCTAssertTrue(files.allSatisfy { !$0.text.isEmpty }, "走査対象がすべて読める")
+        XCTAssertEqual(Self.currentPodcastAssignments(in: files), [])
+    }
+
+
 }
