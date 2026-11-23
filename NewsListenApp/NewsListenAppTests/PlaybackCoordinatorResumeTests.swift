@@ -61,7 +61,7 @@ final class PlaybackCoordinatorResumeTests: XCTestCase {
 
     // MARK: - 取得の取り込み
 
-    // verifies: ios-cmd-playback-26, ios-rule-playback-09
+    // verifies: ios-cmd-playback-26, ios-rule-playback-09, shared-sync-06
     // kills: 取り込みがセッションの位置を動かす／取り込みで engine を seek する
     func testAbsorbNeverMovesTheLiveSessionPosition() async throws {
         let rig = PlaybackEntryRig()
@@ -305,7 +305,7 @@ final class PlaybackCoordinatorResumeTests: XCTestCase {
 
     // MARK: - 確認の保留の解除
 
-    // verifies: ios-dec-141, ios-contract-12
+    // verifies: ios-dec-141, ios-contract-12, shared-sync-15
     // kills: stop・別のエピソードの開始・ログアウトで確認が残る
     func testChoiceIsClearedByStopSwitchAndLeave() async throws {
         let stopped = try await askingRig()
@@ -322,7 +322,7 @@ final class PlaybackCoordinatorResumeTests: XCTestCase {
         XCTAssertNil(loggedOut.coordinator.resumeChoice, "ログアウトで消える")
     }
 
-    // verifies: ios-dec-141, ios-contract-12
+    // verifies: ios-dec-141, ios-contract-12, shared-sync-15
     // kills: 確認中に別の入口で再生が始まっても確認が残る（選んでも何も起きない確認が残る）／
     //        一時停止中の engine の失敗の保留を、確認の解除とみなす
     func testChoiceIsClearedWhenTheSessionLeavesPausedByAnotherEntry() async throws {
@@ -359,7 +359,7 @@ final class PlaybackCoordinatorResumeTests: XCTestCase {
         XCTAssertNil(failing.coordinator.resumeChoice, "再生の通知で消える")
     }
 
-    // verifies: ios-dec-141, ios-cmd-playback-28
+    // verifies: ios-dec-141, ios-cmd-playback-28, shared-sync-15
     // kills: 確認中の seek（同じエピソードの一時停止の通知）で確認を消す／消した後に選択が効かない
     func testChoiceSurvivesASeekWhilePausedAndTheSelectionStillApplies() async throws {
         let rig = try await askingRig()

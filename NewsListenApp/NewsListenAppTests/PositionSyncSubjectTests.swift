@@ -262,7 +262,7 @@ final class PositionSyncSubjectTests: XCTestCase {
         XCTAssertTrue(unauthorized.store.subjectNames.isEmpty, "401")
     }
 
-    // verifies: ios-dec-134, shared-leave-13
+    // verifies: ios-dec-134, shared-leave-13, shared-sync-02
     // kills: unavailable の間に回収する・記録する／対照（認証が確定すれば記録できる）
     func testUnavailableDoesNotReclaimOrResend() async throws {
         let seed: [(SubjectKey, [PositionRecord])] = [(subjectA, [unsentRecord(subjectA, "ea")])]
@@ -289,7 +289,7 @@ final class PositionSyncSubjectTests: XCTestCase {
         XCTAssertEqual(Set(resolved.records.unsent().map(\.episodeId)), ["ea", "f"])
     }
 
-    // verifies: ios-dec-133, shared-dec-36
+    // verifies: ios-dec-133, shared-dec-36, shared-sync-02
     // kills: 認証が確定していない間（または key が無い間）に束縛が残り、記録・送信ができる
     func testBindingIsNilWheneverSessionIsNotAuthenticated() async throws {
         let seed: [(SubjectKey, [PositionRecord])] = [(subjectA, [unsentRecord(subjectA, "ea")])]
@@ -340,7 +340,7 @@ final class PositionSyncSubjectTests: XCTestCase {
 
     // MARK: - 合成 root
 
-    // verifies: ios-dec-133
+    // verifies: ios-dec-133, shared-sync-03
     // kills: 合成 root が位置の記録を配線しない（束縛・離脱・回収・Reporter・起動時の再送）
     func testCompositionRootWiresPositionRecords() throws {
         let appURL = SourceGrep.appRoot.appendingPathComponent("NewsListenAppApp.swift")

@@ -56,6 +56,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.upNext.map { $0.id }, ["c"])
     }
 
+    // verifies: shared-queue-05
     func testQ05_setQueueClampsNegativeStartAtToZero() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: -5)
@@ -64,6 +65,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.current?.id, "a")
     }
 
+    // verifies: shared-queue-06
     func testQ06_setQueueClampsOverflowingStartAtToLastIndex() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 10)
@@ -112,6 +114,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.upNext.map { $0.id }, ["d", "c"])
     }
 
+    // verifies: shared-queue-11
     func testQ11_playNextMovesExistingDuplicateAfterCurrent() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 0)
@@ -122,6 +125,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.upNext.map { $0.id }, ["c", "b"])
     }
 
+    // verifies: shared-queue-12
     func testQ12_playNextForCurrentEpisodeIsNoOp() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 0)
@@ -167,6 +171,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.currentIndex, 0)
     }
 
+    // verifies: shared-queue-17
     func testQ17_advanceMovesToNextItem() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 0)
@@ -176,6 +181,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.currentIndex, 1)
     }
 
+    // verifies: shared-queue-18
     func testQ18_advanceAtTailStopsAndKeepsCurrent() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 2)
@@ -201,6 +207,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.current?.id, "c")
     }
 
+    // verifies: shared-queue-21
     func testQ21_removeCurrentItemPromotesNext() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 1)
@@ -210,6 +217,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.current?.id, "c")
     }
 
+    // verifies: shared-queue-22
     func testQ22_removeCurrentAtTailClampsToNewTail() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 2)
@@ -219,6 +227,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.current?.id, "b")
     }
 
+    // verifies: shared-queue-23
     func testQ23_removeItemAfterCurrentLeavesCurrentUnaffected() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 0)
@@ -228,6 +237,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.current?.id, "a")
     }
 
+    // verifies: shared-queue-24
     func testQ24_removeMissingIdIsNoOp() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c")], startAt: 1)
@@ -262,6 +272,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.current?.id, "a")
     }
 
+    // verifies: shared-queue-27
     func testQ27_moveUpNextBackwardMatchesBothSemantics() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c"), podcast("d")], startAt: 0)
@@ -281,6 +292,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.items.map { $0.id }, ["a", "c", "d", "b"])
     }
 
+    // verifies: shared-queue-29
     func testQ29_moveUpNextWithOutOfRangeToOffsetIsNoOp() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c"), podcast("d")], startAt: 0)
@@ -291,6 +303,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.items.map { $0.id }, ["a", "b", "c", "d"])
     }
 
+    // verifies: shared-queue-30
     func testQ30_moveUpNextWithOutOfRangeFromIsNoOp() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c"), podcast("d")], startAt: 0)
@@ -301,6 +314,7 @@ final class PlaybackQueueConformanceTests: XCTestCase {
         XCTAssertEqual(q.items.map { $0.id }, ["a", "b", "c", "d"])
     }
 
+    // verifies: shared-queue-31
     func testQ31_moveUpNextToSamePositionIsNoOp() {
         var q = PlaybackQueue<Podcast>()
         q.setQueue([podcast("a"), podcast("b"), podcast("c"), podcast("d")], startAt: 0)

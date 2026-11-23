@@ -108,7 +108,7 @@ final class PlaybackQueueIosContractTests: XCTestCase {
         XCTAssertNil(empty.currentIndex)
     }
 
-    // verifies: ios-contract-14
+    // verifies: ios-contract-14, shared-queue-33
     func testSharedQueue33_setQueueClampsOnOriginalInputThenFollowsId() {
         var queue = PlaybackQueue<Podcast>()
         queue.setQueue([podcast("a"), podcast("b"), podcast("a"), podcast("c")], startAt: 2)
@@ -116,6 +116,16 @@ final class PlaybackQueueIosContractTests: XCTestCase {
         XCTAssertEqual(ids(queue), ["a", "b", "c"])
         XCTAssertEqual(queue.current?.id, "a", "元の入力の 2 番目（a）を指し続ける")
         XCTAssertEqual(queue.currentIndex, 0)
+    }
+
+    // verifies: shared-queue-33
+    func testSharedQueue33_setQueueDeduplicatesAndKeepsTheExpectedUpNext() {
+        var queue = PlaybackQueue<Podcast>()
+        queue.setQueue([podcast("a"), podcast("b"), podcast("a"), podcast("c")], startAt: 2)
+
+        XCTAssertEqual(ids(queue), ["a", "b", "c"])
+        XCTAssertEqual(queue.current?.id, "a")
+        XCTAssertEqual(queue.upNext.map(\.id), ["b", "c"], "重複を除いた後の待機列は、現在の a の後ろの b・c")
     }
 
     // MARK: - 待機列の複数要素の並べ替え

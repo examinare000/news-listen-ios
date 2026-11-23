@@ -27,7 +27,7 @@ final class PositionRecordsTests: XCTestCase {
         PositionRecord(subject: subject, episodeId: id, seconds: seconds, recordedAt: at, isSent: sent)
     }
 
-    // verifies: ios-cmd-playback-23
+    // verifies: ios-cmd-playback-23, shared-sync-01
     // kills: 同じエピソードの記録が増える／時刻の大小で置換を拒む／保存せずメモリだけに持つ
     func testRecordKeepsOnlyTheLatestPerSubjectAndEpisodeAndPersistsEachWrite() {
         let store = InMemoryPositionStore()
@@ -61,7 +61,7 @@ final class PositionRecordsTests: XCTestCase {
         XCTAssertEqual(records.unsent().map(\.episodeId), ["e"], "A に戻すと A の記録だけが見える")
     }
 
-    // verifies: ios-cmd-playback-23
+    // verifies: ios-cmd-playback-23, shared-sync-02
     // kills: 束縛なしで記録を作る・保存する
     func testRecordDoesNothingWithoutABoundSubject() {
         let store = InMemoryPositionStore()
@@ -101,7 +101,7 @@ final class PositionRecordsTests: XCTestCase {
         XCTAssertEqual(relaunched.unsent().first?.seconds, 10)
     }
 
-    // verifies: ios-cmd-playback-24
+    // verifies: ios-cmd-playback-24, shared-sync-04
     // kills: 保存中の記録が引数と違うのに送信済みにする
     func testSettleMarksSentOnlyWhenTheStoredRecordIsTheSentOne() throws {
         let store = InMemoryPositionStore()
@@ -133,7 +133,7 @@ final class PositionRecordsTests: XCTestCase {
         XCTAssertEqual(records.unsent(), [newer], "古い記録への拒否で新しい記録は変わらない")
     }
 
-    // verifies: ios-cmd-playback-24
+    // verifies: ios-cmd-playback-24, shared-sync-06
     // kills: 同時刻・古い・時刻なしの応答で置き換える／記録の無いエピソードに記録を作る
     func testSettleAbsorbsOnlyAStrictlyNewerResponseAndDoesNotAbsorbEqualOrMissing() throws {
         let store = InMemoryPositionStore()
@@ -234,10 +234,10 @@ final class PositionRecordsTests: XCTestCase {
         EntryFixture.playableValue(id, serverPosition: position, serverRecordedAt: recordedAt)
     }
 
-    // verifies: ios-cmd-playback-26, ios-query-playback-08, shared-sync-07
+    // verifies: ios-cmd-playback-26, ios-query-playback-08, shared-sync-07, shared-sync-06
     // kills: 同時刻・古い・時刻なしの値で置き換える／置き換えた記録を未送信のままにする／印を立てない／
     //        record・bind・remove・reclaim で印を外さない
-    func testAbsorbReplacesRecordOnlyForStrictlyNewerListOrDetailValues() throws {
+    func testSharedSync06_absorbReplacesRecordOnlyForStrictlyNewerListOrDetailValues() throws {
         let store = InMemoryPositionStore()
         let records = makeRecords(store)
         records.record(episodeId: "e", seconds: 100, at: t1)
@@ -282,7 +282,7 @@ final class PositionRecordsTests: XCTestCase {
         XCTAssertEqual(store.stored(for: subjectA).first?.seconds, 230, "keeping の記録は残っている")
     }
 
-    // verifies: ios-cmd-playback-26, ios-query-playback-07
+    // verifies: ios-cmd-playback-26, ios-query-playback-07, shared-sync-06
     // kills: 記録の無いエピソードに記録を作る（未送信の記録を作って送ってしまう）／印を立てる／サーバーの値を候補にしない
     func testAbsorbCreatesNoRecordForEpisodesWithoutOne() {
         let store = InMemoryPositionStore()

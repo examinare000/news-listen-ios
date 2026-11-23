@@ -100,7 +100,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
     }
 
     func testSharedSession02_manualRetryResolvesFailedEpisodeAgain() async throws {
-        // verifies: ios-contract-11
+        // verifies: ios-contract-11, shared-session-02
         let rig = try await makeAutoAdvanceIntoUnresolvedNext()
         await rig.engine.send(.failed(description: "boom"))
         XCTAssertEqual(rig.viewModel.session.kind, "errored")
@@ -117,7 +117,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
     }
 
     func testSharedSession03_offlineUncachedNextDoesNotFetch() async throws {
-        // verifies: ios-contract-11
+        // verifies: ios-contract-11, shared-session-03
         let rig = PlaybackEntryRig()
         try await rig.play("a")
         try await rig.seed([EntryFixture.podcast("b")])
@@ -241,7 +241,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
     }
 
     func testSharedSession06_pauseSendsOnceAndNoPeriodicWhilePaused() async throws {
-        // verifies: ios-contract-13
+        // verifies: ios-contract-13, shared-session-06
         let rig = PlaybackEntryRig()
         try await rig.play("a")
         await rig.engine.send(.timeUpdate(seconds: 10, duration: 300))
@@ -338,7 +338,7 @@ final class PlaybackEntryConformanceTests: XCTestCase {
     }
 
     func testSharedSession09_partialFailedWithAudioIsNotPlayable() async throws {
-        // verifies: ios-contract-17
+        // verifies: ios-contract-17, shared-session-09
         let rig = PlaybackEntryRig()
         try await rig.play("base")
         try await assertTapIsRejected(rig, EntryFixture.podcast("pf", status: "partial_failed"), badge: .failed(detail: ""))

@@ -198,7 +198,7 @@ final class PlaybackContractOracleTests: XCTestCase {
 
     // MARK: - shared-session-07（sync-043）
 
-    // verifies: shared-session-07（完聴の値は engine の総時間 > DTO の総時間 > 現在位置の順）
+    // verifies: shared-session-07（完聴の値は engine の総時間 > DTO の総時間 > 現在位置の順）, shared-sync-08
     // kills: 現在位置を先に使う／DTO の値を無視する／engine の値を無視する
     func testCompletionValueFollowsEngineThenDtoThenPosition() async throws {
         func completionSeconds(engineDuration: Double, dtoDuration: Int, position: Double) async throws -> Double? {
@@ -252,7 +252,7 @@ final class PlaybackContractOracleTests: XCTestCase {
     }
 
     // verifies: shared-sync-08（完聴の位置も失敗したら同じ記録を再送する）
-    func testFailedCompletionPositionWriteStaysUnsentAndIsResentOnTheNextTrigger() async throws {
+    func testSharedSync08_failedCompletionPositionWriteStaysUnsentAndIsResentOnTheNextTrigger() async throws {
         var shouldFail = true
         let rig = PlaybackEntryRig(updatePosition: { id, seconds, _ in
             if shouldFail { throw ApiFailure.network(URLError(.notConnectedToInternet)) }
