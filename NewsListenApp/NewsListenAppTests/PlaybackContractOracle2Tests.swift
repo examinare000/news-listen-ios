@@ -42,7 +42,7 @@ final class PlaybackContractOracle2Tests: XCTestCase {
 
     // verifies: shared-sync-15（閉じた確認の選択は位置を記録・送信しない）
     // kills: 閉じた確認の .thisDevice で recordNow する
-    func testSelectionOfAnAlreadyClosedChoiceRecordsNothing() async throws {
+    func testSharedSync15_selectionOfAnAlreadyClosedChoiceRecordsNothing() async throws {
         let rig = PlaybackEntryRig()
         try await rig.pausedWithOtherDevice("e", thisDevice: 100, otherDevice: 200)
         rig.coordinator.toggleFromScreen()

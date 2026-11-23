@@ -231,9 +231,9 @@ final class PositionReporterRecordingTests: XCTestCase {
 
     // MARK: - 契機と記録の時刻
 
-    // verifies: ios-rule-playback-07, ios-cmd-playback-23
+    // verifies: ios-rule-playback-07, ios-cmd-playback-23, shared-sync-01
     // kills: 記録の時刻を送信の時点で取る／送信の時刻と記録の時刻が違う
-    func testPeriodicTickRecordsWithTheClockTimeAtTheTrigger() async throws {
+    func testSharedSync01_periodicTickRecordsWithTheClockTimeAtTheTrigger() async throws {
         let rig = Rig()
         await rig.startPlaying("a")
 
@@ -258,7 +258,7 @@ final class PositionReporterRecordingTests: XCTestCase {
         rig.gateway.release(1)
     }
 
-    // verifies: ios-rule-playback-07
+    // verifies: ios-rule-playback-07, shared-sync-01
     // kills: engine 起因の一時停止・buffering からの一時停止を記録しない／二重に記録する
     func testPauseTransitionRecordsOnceIncludingEngineInitiatedPause() async throws {
         let userPause = Rig()
@@ -285,7 +285,7 @@ final class PositionReporterRecordingTests: XCTestCase {
         XCTAssertEqual(buffering.store.stored(for: subjectA).count, 1)
     }
 
-    // verifies: ios-rule-playback-07, shared-session-05
+    // verifies: ios-rule-playback-07, shared-session-05, shared-sync-01
     // kills: 背景・停止・キューからの削除・別エピソードの開始のどれかで記録しない
     func testFlushRecordsForBackgroundStopAndSwitchTriggers() async throws {
         let triggers: [(String, @MainActor (PlaybackEntryRig) async throws -> Void)] = [
@@ -311,9 +311,9 @@ final class PositionReporterRecordingTests: XCTestCase {
         }
     }
 
-    // verifies: ios-rule-playback-07, shared-session-05
+    // verifies: ios-rule-playback-07, shared-session-05, shared-sync-02
     // kills: idle・loading・ended・errored で記録する／束縛なしで記録し、束縛後の同じ位置を送らない
-    func testNoRecordInIdleLoadingEndedErroredAndWhileUnbound() async throws {
+    func testSharedSync02_noRecordInIdleLoadingEndedErroredAndWhileUnbound() async throws {
         let idle = Rig()
         idle.reporter.flush()
 
@@ -356,7 +356,7 @@ final class PositionReporterRecordingTests: XCTestCase {
 
     // MARK: - 完聴
 
-    // verifies: ios-rule-playback-07, shared-session-07
+    // verifies: ios-rule-playback-07, shared-session-07, shared-sync-01, shared-sync-08
     // kills: 位置の記録を通信の後に回す／完聴の位置を二重に送る／再送が完聴の記録に割り込む／離脱後も完聴の位置を送る
     func testCompletionRecordsDurationBeforeTheNetworkCallAndSendsItOnce() async throws {
         // (i) 呼出の直後に記録があり、順は mark → update → completionRecorded。
@@ -430,7 +430,7 @@ final class PositionReporterRecordingTests: XCTestCase {
 
     // MARK: - 再送
 
-    // verifies: ios-contract-13, ios-cmd-playback-25
+    // verifies: ios-contract-13, ios-cmd-playback-25, shared-sync-03
     // kills: 失敗で記録を捨てる／次の送信で再送しない
     func testFailedSendKeepsTheRecordUnsentAndTheNextSendRetriesIt() async throws {
         let rig = Rig()
@@ -450,7 +450,7 @@ final class PositionReporterRecordingTests: XCTestCase {
         XCTAssertEqual(rig.gateway.updates.filter { $0.id == "a" }.count, 2, "a は失敗の 1 回と再送の 1 回")
     }
 
-    // verifies: ios-cmd-playback-25
+    // verifies: ios-cmd-playback-25, shared-sync-03
     // kills: 接続復帰で再送しない／起動直後の初期値で再送する／同じ値の重複で再送する
     func testReconnectResendsUnsentOnce() async throws {
         let rig = Rig()
@@ -473,9 +473,9 @@ final class PositionReporterRecordingTests: XCTestCase {
         XCTAssertEqual(rig.gateway.updates.first?.seconds, 12)
     }
 
-    // verifies: shared-sync-05, shared-dec-34
+    // verifies: shared-sync-05, shared-dec-34, shared-sync-03
     // kills: 失敗の後にタイマーで自動再送する／接続の復帰で再送しない／再送で記録時刻を取り直す
-    func testFailedSendIsNotRetriedByTimeAloneButAConnectivityTriggerStillResends() async throws {
+    func testSharedSync03_failedSendIsNotRetriedByTimeAloneButAConnectivityTriggerStillResends() async throws {
         let rig = Rig()
         rig.connectivity.send(true)  // 起動時の初期値。送らない。
         await settle()
@@ -504,7 +504,7 @@ final class PositionReporterRecordingTests: XCTestCase {
         XCTAssertTrue(rig.records.unsent().isEmpty, "再送が成功して未送信が空になる")
     }
 
-    // verifies: ios-cmd-playback-25, shared-leave-13
+    // verifies: ios-cmd-playback-25, shared-leave-13, shared-sync-03
     // kills: 別主体の記録を現在の主体で送る
     func testStartupResendSendsOnlyTheBoundSubjectsRecords() async throws {
         let rig = Rig(bound: nil)
@@ -603,9 +603,9 @@ final class PositionReporterRecordingTests: XCTestCase {
 
     // MARK: - 送信中の記録と応答
 
-    // verifies: ios-cmd-playback-24
+    // verifies: ios-cmd-playback-24, shared-sync-04
     // kills: 古い応答で新しい記録を送信済みにする／同じ key の記録を重ねて送る／置換済みの予約が印を残す
-    func testNewRecordWhileOlderResponseIsInFlightStaysUnsent() async throws {
+    func testSharedSync04_newRecordWhileOlderResponseIsInFlightStaysUnsent() async throws {
         // (i) 時刻の違う新しい記録は別に送られ、古い応答で新しい記録は送信済みにならない。
         let rig = Rig()
         rig.gateway.hold("a")
@@ -673,7 +673,7 @@ final class PositionReporterRecordingTests: XCTestCase {
         XCTAssertEqual(reserved.gateway.updates.map { "\($0.id):\(Int($0.seconds))" }, ["a:10", "b:30"])
     }
 
-    // verifies: ios-cmd-playback-24, ios-dec-65
+    // verifies: ios-cmd-playback-24, ios-dec-65, shared-sync-06
     // kills: 取り込んだ応答でライブのセッションの位置・seek を動かす／取り込んだ記録が一覧に渡らない
     func testNewerResponseReplacesTheRecordButNeverMovesTheLiveSession() async throws {
         let rig = Rig()
@@ -737,7 +737,7 @@ final class PositionReporterRecordingTests: XCTestCase {
         XCTAssertEqual(rig.store.stored(for: subjectB), [bRecord])
     }
 
-    // verifies: ios-rule-playback-07, shared-dec-19
+    // verifies: ios-rule-playback-07, shared-dec-19, shared-sync-08
     // kills: 巻き戻した位置を記録しない／完聴を再び送る
     func testRewindPositionIsRecordedAndCompletionIsNotMarkedAgain() async throws {
         let rig = Rig()

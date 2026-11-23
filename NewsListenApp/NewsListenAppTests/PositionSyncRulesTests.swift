@@ -32,7 +32,7 @@ final class PositionSyncRulesTests: XCTestCase {
         XCTAssertFalse(record.isSent, "元の記録は変えない")
     }
 
-    // verifies: ios-rule-playback-09（応答の取り込みは、記録があり応答が厳密に新しいときだけ）
+    // verifies: ios-rule-playback-09（応答の取り込みは、記録があり応答が厳密に新しいときだけ）, shared-sync-06
     // kills: 同時刻・古い・時刻なしの応答で置き換える／記録の無いエピソードに応答を取り込む
     func testShouldAbsorbOnlyForStrictlyNewerResponseOverAnExistingRecord() {
         let record = PositionRecord(subject: subjectA, episodeId: "e", seconds: 10, recordedAt: t, isSent: true)

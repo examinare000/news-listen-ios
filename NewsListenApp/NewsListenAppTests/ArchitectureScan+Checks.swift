@@ -536,4 +536,32 @@ extension ArchitectureScan {
         }
         return result.sorted()
     }
+
+    // MARK: - 共有仕様の行 ID
+
+    private static let sharedRowTestNameRegex = try! NSRegularExpression(
+        pattern: #"^test(Q|SharedQueue|SharedSession|SharedSync)(\d{2})(_|$)"#
+    )
+
+    /// テストメソッドの宣言名から読める共有仕様の行 ID（`shared-queue-NN`・`shared-session-NN`・`shared-sync-NN`）。
+    /// コメント行・行末コメント・文字列リテラルの中・`func` 以外の行は読まない。
+    static func sharedRowIDs(declaredIn file: SourceFile) -> Set<String> {
+        var ids: Set<String> = []
+        for line in maskStringLiterals(file.lines) where !SourceGrep.isCommentLine(line) {
+            guard let member = SwiftLines.parseMember(line), member.keyword == "func" else { continue }
+            let afterKeyword = member.rest.drop { $0 == " " || $0 == "\t" }
+            let name = afterKeyword.prefix { $0 != "(" }.trimmingCharacters(in: .whitespaces)
+            guard let match = sharedRowTestNameRegex.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)),
+                  let prefixRange = Range(match.range(at: 1), in: name),
+                  let numberRange = Range(match.range(at: 2), in: name) else { continue }
+            let kind: String
+            switch name[prefixRange] {
+            case "Q", "SharedQueue": kind = "queue"
+            case "SharedSession": kind = "session"
+            default: kind = "sync"
+            }
+            ids.insert("shared-\(kind)-\(name[numberRange])")
+        }
+        return ids
+    }
 }
